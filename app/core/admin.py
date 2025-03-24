@@ -33,8 +33,7 @@ class UserAdmin(BaseUserAdmin):
             'classes': ('wide',),
             'fields': (
                 'email',
-                'password1',
-                'password2',
+                'password',
                 'name',
                 'is_active',
                 'is_staff',
@@ -43,5 +42,10 @@ class UserAdmin(BaseUserAdmin):
         }),
     )
 
+    search_fields = ('email', 'name')
+
 
 admin.site.register(models.User, UserAdmin)
+admin.site.register(models.Recipe)
+admin.site.register(models.Tag)
+admin.site.register(models.Ingredient)
