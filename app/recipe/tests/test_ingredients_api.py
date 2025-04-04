@@ -24,6 +24,7 @@ def detail_url(ingredient_id):
     """Create and return an ingredient detail URL."""
     return reverse('recipe:ingredient-detail', args=[ingredient_id])
 
+
 def create_user(email='user@example.com', password='pass123'):
     """Create and return user."""
     return get_user_model().objects.create_user(email=email, password=password)
@@ -40,7 +41,6 @@ class PublicIngredientsApiTests(TestCase):
         res = self.client.get(INGREDIENTS_URL)
 
         self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
-
 
 
 class PrivateIngredientsApiTests(TestCase):

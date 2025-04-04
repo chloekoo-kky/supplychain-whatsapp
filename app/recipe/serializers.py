@@ -53,7 +53,9 @@ class RecipeSerializer(serializers.ModelSerializer):
                 )
                 recipe.tags.add(tag_obj)
             except IntegrityError as e:
-                raise serializers.ValidationError(f"Error creating tag: {str(e)}")
+                raise serializers.ValidationError(
+                    f"Error creating tag: {str(e)}"
+                    )
 
     def _get_or_create_ingredients(self, ingredients, recipe):
         """Handle getting or creating ingredients as needed"""
@@ -66,8 +68,9 @@ class RecipeSerializer(serializers.ModelSerializer):
                 )
                 recipe.ingredients.add(ingredient_obj)
             except IntegrityError as e:
-                raise serializers.ValidationError(f"Error creating ingredients: {str(e)}")
-
+                raise serializers.ValidationError(
+                    f"Error creating ingredients: {str(e)}"
+                    )
 
     def create(self, validated_data):
         '''Create a recipe.'''
@@ -90,7 +93,6 @@ class RecipeSerializer(serializers.ModelSerializer):
         if ingredients is not None:
             instance.ingredients.clear()
             self._get_or_create_ingredients(ingredients, instance)
-
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

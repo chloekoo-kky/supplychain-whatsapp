@@ -27,6 +27,7 @@ from recipe.serializers import (
 
 RECIPES_URL = reverse('recipe:recipe-list')
 
+
 def detail_url(recipe_id):
     '''Create and return a recipe detail URL.'''
     return reverse('recipe:recipe-detail', args=[recipe_id])
@@ -35,6 +36,7 @@ def detail_url(recipe_id):
 def image_upload_url(recipe_id):
     """Create and return an image upload URL."""
     return reverse('recipe:recipe-upload-image', args=[recipe_id])
+
 
 def create_recipe(user, **params):
     '''Create and return a sample recipe'''
@@ -74,7 +76,8 @@ class PrivateRecipeApiTest(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.user = create_user(email='user@example.com', password='testpass123')
+        self.user = create_user(email='user@example.com',
+                                password='testpass123')
         self.client.force_authenticate(self.user)
 
     def test_retrieve_recipes(self):
@@ -91,7 +94,8 @@ class PrivateRecipeApiTest(TestCase):
 
     def test_recipe_list_limited_to_user(self):
         '''Test list of recipes is limited to authenticated user.'''
-        other_user = create_user(email='other@example.com', password='password123')
+        other_user = create_user(email='other@example.com',
+                                 password='password123')
         create_recipe(user=other_user)
         create_recipe(user=self.user)
 
@@ -195,7 +199,8 @@ class PrivateRecipeApiTest(TestCase):
 
     def test_delete_other_users_recipe_error(self):
         '''Test trying to delete another users recipe gives error.'''
-        new_user = create_user(email='user2@example.com', password='password123')
+        new_user = create_user(email='user2@example.com',
+                               password='password123')
         recipe = create_recipe(user=new_user)
 
         url = detail_url(recipe.id)
@@ -254,7 +259,7 @@ class PrivateRecipeApiTest(TestCase):
         '''Test creating tag when updating a recipe.'''
         recipe = create_recipe(user=self.user)
 
-        payload = {'tags':[{'name': 'Lunch'}]}
+        payload = {'tags': [{'name': 'Lunch'}]}
         url = detail_url(recipe.id)
         res = self.client.patch(url, payload, format='json')
 
@@ -270,7 +275,7 @@ class PrivateRecipeApiTest(TestCase):
 
         tag_lunch = Tag.objects.create(user=self.user, name='Lunch')
         payload = {'tags': [{'name': 'Lunch'}]}
-        url=detail_url(recipe.id)
+        url = detail_url(recipe.id)
         res = self.client.patch(url, payload, format='json')
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
@@ -283,7 +288,7 @@ class PrivateRecipeApiTest(TestCase):
         recipe = create_recipe(user=self.user)
         recipe.tags.add(tag)
 
-        payload = {'tags':[]}
+        payload = {'tags': []}
         url = detail_url(recipe.id)
         res = self.client.patch(url, payload, format='json')
 
@@ -296,7 +301,7 @@ class PrivateRecipeApiTest(TestCase):
             'title': 'Cauliflower Tacos',
             'time_minutes': 60,
             'price': Decimal('4.30'),
-            'ingredients':[{'name': 'Cauliflower'}, {'name': 'Salt'}]
+            'ingredients': [{'name': 'Cauliflower'}, {'name': 'Salt'}]
         }
         res = self.client.post(RECIPES_URL, payload, format='json')
 
@@ -356,7 +361,7 @@ class PrivateRecipeApiTest(TestCase):
         recipe.ingredients.add(ingredient1)
 
         ingredient2 = Ingredient.objects.create(user=self.user, name='Chili')
-        payload = {'ingredients':[{'name': 'Chili'}]}
+        payload = {'ingredients': [{'name': 'Chili'}]}
         url = detail_url(recipe.id)
         res = self.client.patch(url, payload, format='json')
 
@@ -419,7 +424,6 @@ class PrivateRecipeApiTest(TestCase):
         self.assertNotIn(s3.data, res.data)
 
 
-
 class ImageUploadTests(TestCase):
     """Test for the image upload API."""
 
@@ -441,7 +445,7 @@ class ImageUploadTests(TestCase):
         print("URL:", url)  # Debug: Check the URL
 
         with tempfile.NamedTemporaryFile(suffix='.jpg') as image_file:
-            img = Image.new('RGB', (10,10))
+            img = Image.new('RGB', (10, 10))
             img.save(image_file, format='JPEG')
             image_file.seek(0)
             payload = {'image': image_file}
@@ -449,7 +453,8 @@ class ImageUploadTests(TestCase):
             print("Response:", res.data)  # Debug: Check API response
 
         self.recipe.refresh_from_db()
-        print("Recipe image path:", self.recipe.image.path)  # Debug: Check file path
+        # Debug: Check file path
+        print("Recipe image path:", self.recipe.image.path)
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn('image', res.data)
         self.assertTrue(os.path.exists(self.recipe.image.path))

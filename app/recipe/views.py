@@ -1,7 +1,7 @@
 '''
 Views for the recipe APIs.
 '''
-from drf_spectacular.utils import(
+from drf_spectacular.utils import (
     extend_schema_view,
     extend_schema,
     OpenApiParameter,
@@ -25,6 +25,7 @@ from core.models import (
 )
 from recipe import serializers
 
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -41,8 +42,6 @@ from recipe import serializers
         ]
     )
 )
-
-
 class RecipeViewSet(viewsets.ModelViewSet):
     '''View for manage recipe APIs.'''
     serializer_class = serializers.RecipeDetailSerializer
@@ -70,7 +69,6 @@ class RecipeViewSet(viewsets.ModelViewSet):
             user=self.request.user
         ).order_by('-id').distinct()
 
-
     def get_serializer_class(self):
         '''Return the serializer class for request.'''
         if self.action == 'list':
@@ -93,10 +91,8 @@ class RecipeViewSet(viewsets.ModelViewSet):
         if serializer.is_valid():
             serializer.save()
             recipe.refresh_from_db()
-            print("Serializer data:", serializer.data)  # Debug: Check if 'image' exists
             return Response(serializer.data, status=status.HTTP_200_OK)
 
-        print("Serializer errors:", serializer.errors)  # Debug: Check why validation fails
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -111,10 +107,12 @@ class RecipeViewSet(viewsets.ModelViewSet):
         ]
     )
 )
-class BaseRecipeAttrViewSet(mixins.DestroyModelMixin,
-                 mixins.UpdateModelMixin,
-                 mixins.ListModelMixin,
-                 viewsets.GenericViewSet):
+class BaseRecipeAttrViewSet(
+    mixins.DestroyModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet
+):
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
 
