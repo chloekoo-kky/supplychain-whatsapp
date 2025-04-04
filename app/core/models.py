@@ -59,6 +59,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = 'email'
 
+
 class Recipe(models.Model):
     '''Recipe object.'''
     user = models.ForeignKey(
@@ -90,8 +91,10 @@ class Tag(models.Model):
     def __str__(self):
         return self.name
 
+
 def get_default_user():
     return User.objects.get(email='kwanyee.koo@gmail.com')
+
 
 class Ingredient(models.Model):
     """Ingredient for recipes."""

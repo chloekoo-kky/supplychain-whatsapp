@@ -18,14 +18,14 @@ class UserAdmin(BaseUserAdmin):
         (
             _('Permission'),
             {
-                'fields':(
+                'fields': (
                     'is_active',
                     'is_staff',
                     'is_superuser'
                 )
             }
         ),
-        (_('Logs'),{'fields': ('last_login',)}),
+        (_('Logs'), {'fields': ('last_login',)}),
     )
     readonly_fields = ['last_login']
     add_fieldsets = (
