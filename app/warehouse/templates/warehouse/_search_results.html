@@ -1,0 +1,57 @@
+{% for item in products %}
+<tr>
+  <td><input type="checkbox" class="select-item checkbox" value="{{ item.id }}" /></td>
+  <td>{{ item.product.sku }}</td>
+  <td>{{ item.product }}</td>
+  <td>{{ item.warehouse.name }}</td>
+  <td>{{ item.quantity }}</td>
+  <td>{{ item.threshold }}</td>
+
+  <!-- 📊 Qty vs Healthy Level -->
+  <td class="text-center">
+    <div class="flex items-center gap-2">
+      <div class="w-10 md:w-20">
+        <progress class="progress progress-primary w-full qty-progress"
+                  data-quantity="{{ item.quantity }}"
+                  data-threshold="{{ item.threshold|default_if_none:1 }}"
+                  value="{{ item.quantity }}"
+                  max="{{ item.threshold|default_if_none:1 }}">
+        </progress>
+      </div>
+      <div class="text-sm text-gray-600 qty-text"
+           data-quantity="{{ item.quantity }}"
+           data-threshold="{{ item.threshold|default_if_none:1 }}">
+        <!-- 等refreshGapInfo()自动填数量 -->
+      </div>
+    </div>
+  </td>
+
+  <!-- 📈 Gap Info -->
+  <td class="gap-info"
+      data-quantity="{{ item.quantity }}"
+      data-threshold="{{ item.threshold|default_if_none:1 }}">
+    <!-- 等refreshGapInfo()自动填Gap -->
+  </td>
+
+  <!-- 📦 Incoming -->
+  <td>
+    {% if item.pending_arrival > 0 %}
+      <label for="incoming-modal-{{ item.id }}"
+             class="btn btn-sm btn-outline">
+        +{{ item.pending_arrival }}
+      </label>
+    {% else %}
+      <span class="badge badge-ghost badge-sm opacity-50">0</span>
+    {% endif %}
+  </td>
+
+  <!-- 🔍 Details -->
+  <td>
+    <button onclick="openDetails('{{ item.pk }}')" class="btn btn-sm btn-outline">Details</button>
+  </td>
+</tr>
+{% empty %}
+<tr>
+  <td colspan="9" class="text-center py-4">🔍 No Products Found</td>
+</tr>
+{% endfor %}

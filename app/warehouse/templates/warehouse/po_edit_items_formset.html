@@ -1,0 +1,49 @@
+<form method="post" class="ajax-po-item-edit-form" data-po-id="{{ po.id }}">
+    {% csrf_token %}
+    {{ formset.management_form }}
+    <table class="table w-full mb-4" id="po-items-table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Qty</th>
+          <th>Price</th>
+          <th>Delete?</th>
+        </tr>
+      </thead>
+      <tbody id="formset-body">
+        {% for form in formset.forms %}
+        <tr class="form-row">
+          <td>{{ form.item }}</td>
+          <td>{{ form.quantity }}</td>
+          <td>{{ form.price }}</td>
+          <td>{{ form.DELETE }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <button type="button" id="add-form-row" class="btn btn-sm btn-outline mb-4">➕ Add Product</button>
+
+    <div class="text-right">
+      <button type="submit" class="btn btn-primary">Save</button>
+    </div>
+  </form>
+
+  <script>
+  document.getElementById("add-form-row").addEventListener("click", function () {
+    const totalForms = document.getElementById("id_form-TOTAL_FORMS");
+    const formIdx = parseInt(totalForms.value);
+    const emptyRow = document.querySelector(".form-row").cloneNode(true);
+
+    emptyRow.querySelectorAll("input, select").forEach(input => {
+      const name = input.name.replace(/form-\d+-/, `form-${formIdx}-`);
+      input.name = name;
+      input.id = `id_${name}`;
+      if (input.tagName === 'INPUT') input.value = '';
+      if (input.tagName === 'SELECT') input.selectedIndex = 0;
+    });
+
+    document.getElementById("formset-body").appendChild(emptyRow);
+    totalForms.value = formIdx + 1;
+  });
+  </script>

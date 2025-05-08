@@ -24,17 +24,17 @@ from django.conf.urls.static import static
 from django.conf import settings
 
 
+# app/urls.py
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('warehouse/', include(('warehouse.urls', 'warehouse'), namespace='warehouse-ui')),
+    path('inventory/', include(('inventory.urls', 'inventory'), namespace='inventory-ui')),  # for UI
+    path('operation/', include(('operation.urls', 'operation'), namespace='operation-ui')),
     path('api/schema/', SpectacularAPIView.as_view(), name='api-schema'),
-    path(
-        'api/docs/',
-        SpectacularSwaggerView.as_view(url_name='api-schema'),
-        name='api-docs',
-    ),
+    path('api/docs/', SpectacularSwaggerView.as_view(url_name='api-schema'), name='api-docs'),
     path('api/user/', include('user.urls')),
-    path('api/recipe/', include('recipe.urls')),
 ]
+
 
 if settings.DEBUG:
     urlpatterns += static(

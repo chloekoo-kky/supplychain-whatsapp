@@ -1,0 +1,49 @@
+{% load my_filters %}
+
+<div class="max-w-7xl mx-auto p-6">
+  <h2 class="text-2xl font-bold mb-6">🚚 Orders</h2>
+
+  {% for order in orders %}
+    <div class="card bg-base-100 shadow-md p-4 mb-6 space-y-2">
+      <div class="flex justify-between items-center">
+        <h3 class="text-xl font-semibold">订单号：#{{ order.id }}</h3>
+        <span class="badge badge-info">{{ order.get_status_display }}</span>
+      </div>
+      <p><strong>Customer</strong> {{ order.customer }}</p>
+      <p><strong>Order Date：</strong> {{ order.order_date }}</p>
+
+      <div class="mt-4">
+        <h4 class="font-bold mb-2">📦 发货包裹</h4>
+        <ul class="list-disc ml-6 space-y-1">
+          {% for parcel in order.all_parcels %}
+            <li>
+              产品: {{ parcel.product.name }} |
+              数量: {{ parcel.quantity }} |
+              快递公司: {{ parcel.courier_name }} |
+              运单号: <strong>{{ parcel.tracking_number }}</strong>
+            </li>
+          {% empty %}
+            <li class="text-gray-500">暂无发货</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <div class="mt-4">
+        <h4 class="font-bold mb-2">🛒 未发货产品</h4>
+        <ul class="list-disc ml-6 space-y-1">
+          {% for item in order.all_order_items %}
+          {% with shipped=order.shipped_quantities|get_item:item.product.id|default:0 %}
+            {% if item.quantity > shipped %}
+              <li>
+                产品: {{ item.product.name }} |
+                剩余: {{ item.quantity|subtract:shipped }}
+              </li>
+              {% endif %}
+          {% endwith %}
+          {% endfor %}
+        </ul>
+      </div>
+
+    </div>
+  {% endfor %}
+</div>

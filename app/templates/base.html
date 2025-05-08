@@ -1,0 +1,49 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}Chima Gun{% endblock %}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@latest/dist/full.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <link id="theme-css" rel="stylesheet" href="{% static 'css/base.css' %}">
+  </head>
+  <body class="bg-gray-50 text-gray-900">
+
+    <!-- ✅ Sticky Header -->
+    <div class="navbar bg-base-100 shadow-sm sticky top-0 z-50 mb-4">
+      <div class="flex-1 flex items-center space-x-4 px-4 max-w-7xl mx-auto w-full">
+        <a href="/" class="btn btn-ghost text-xl">🧾 Chima Gun </a>
+        <div class="flex space-x-2">
+        <a href="{% url 'inventory:inventory_management' %}" class="px-4 py-2 rounded-full font-medium text-xl transition {% if request.resolver_match.url_name == 'inventory_management' %}bg-blue-500 text-white{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">📋</a>
+        <a href="{% url 'operation:operation_management' %}" class="px-4 py-2 rounded-full font-medium text-xl transition {% if request.resolver_match.url_name == 'operation_management' %}bg-blue-500 text-white{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">🚚</a>
+        <a href="{% url 'warehouse:warehouse_management' %}" class="px-4 py-2 rounded-full font-medium text-xl transition {% if request.resolver_match.url_name == 'warehouse_management' %}bg-blue-500 text-white{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">🦺</a>
+      </div>
+      </div>
+    </div>
+
+    <!-- ✅ 页面内容容器 -->
+    <main class="max-w-7xl mx-auto px-4 pb-16">
+      {% block content %}
+      <!-- 子模板内容将插入于此 -->
+      {% endblock %}
+    </main>
+
+    <!-- ✅ 页脚（可选） -->
+    <footer class="footer footer-center p-4 bg-base-100 text-base-content border-t">
+      <aside>
+        <p>© {{ year|default:"2025" }} Management System</p>
+      </aside>
+    </footer>
+
+    <!-- 预留额外的 JavaScript 块，所有子模板可以在此处添加 JS 代码 -->
+    {% block extra_js %}
+    {% endblock %}
+  </body>
+</html>

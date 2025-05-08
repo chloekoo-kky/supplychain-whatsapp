@@ -1,0 +1,224 @@
+<!-- warehouse/warehouse_product_partial.html -->
+
+<div class="sticky top-24 z-30 bg-base-100 shadow px-4 py-2 rounded mb-4">
+  <!-- Warehouse Selector -->
+  <div class="flex justify-between items-center mb-4 space-x-4">
+    {% if user.is_superuser %}
+
+    <div>
+      <div class="text-sm font-medium mb-1 text-gray-600">Warehouse</div>
+      <div class="flex flex-wrap gap-2">
+        <button type="button"
+          class="btn btn-sm {% if not selected_warehouse_id %}btn-neutral text-white{% else %}btn-outline{% endif %}"
+          data-filter="warehouse" data-value="">All</button>
+        {% for w in warehouses %}
+        <button type="button"
+          class="btn btn-sm {% if selected_warehouse_id|stringformat:'s' == w.id|stringformat:'s' %}btn-neutral text-white{% else %}btn-outline{% endif %}"
+          data-filter="warehouse" data-value="{{ w.id }}">
+          {{ w.name }}
+        </button>
+        {% endfor %}
+
+        <!-- Unified Reset -->
+        <div class="flex justify-between items-center">
+          <button type="button" class="btn btn-sm btn-outline btn-circle" onclick="resetWarehouseProductFilters()">🗑</button>
+        </div>
+
+      </div>
+    </div>
+
+    {% else %}
+    <h2 class="text-2xl font-bold">📦 {{ warehouse.name }}</h2>
+    {% endif %}
+
+
+    <!-- Search and Healthy Level Filter -->
+    <div class="flex items-center space-x-2">
+      <label class="label">H. Lvl:</label>
+      <select id="healthy-level" class="select select-sm select-bordered w-32">
+        <option value="1.2">1.2x</option>
+        <option value="1.3">1.3x</option>
+        <option value="1.4">1.4x</option>
+        <option value="1.5" selected>1.5x</option>
+      </select>
+    </div>
+  </div>
+
+  {% if user.is_superuser %}
+  <!-- Supplier Tags and Create PO Button -->
+  <div class="flex justify-between items-center mb-4">
+
+    <div>
+      <div class="text-sm font-medium mb-1 text-gray-600">Supplier</div>
+      <div class="flex flex-wrap gap-2">
+        <button type="button"
+          class="btn btn-sm {% if not selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}"
+          data-filter="supplier" data-value="">All</button>
+        {% for supplier in suppliers %}
+        <button type="button"
+          class="btn btn-sm {% if supplier.id|stringformat:'s' == selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}"
+          data-filter="supplier" data-value="{{ supplier.id }}">
+          {{ supplier.code }}
+        </button>
+        {% endfor %}
+
+
+        <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="flex items-center space-x-2">
+          <input type="text" name="q" placeholder="Search Products" class="input input-sm input-bordered flex-grow"
+            value="{{ query|default:'' }}" />
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <button id="create-po-btn" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">Create
+      PO</button>
+  </div>
+  {% endif %}
+
+
+
+</div>
+  <!-- Products Table -->
+  <div class="overflow-x-auto">
+    <table class="table table-zebra w-full">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="select-all" class="checkbox" /></th>
+          <th>SKU</th>
+          <th>Item Name</th>
+          <th>Warehouse</th>
+          <th>Qty</th>
+          <th>Threshold</th>
+          <th>Qty vs H.Lvl</th>
+          <th>Gap</th>
+          <th>Incoming</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody id="search-results">
+        {% for item in products %}
+        <tr>
+          <td><input type="checkbox" class="select-item checkbox" value="{{ item.id }}" /></td>
+          <td>{{ item.product.sku }}</td>
+          <td>{{ item.product }}</td>
+          <td>{{ item.warehouse.name }}</td>
+          <td>{{ item.quantity }}</td>
+          <td>{{ item.threshold }}</td>
+          <td class="text-center">
+            <div class="flex items-center gap-2">
+              <div class="w-10 md:w-20">
+                <progress class="progress progress-primary w-full qty-progress" data-quantity="{{ item.quantity }}" data-threshold="{{ item.threshold|default_if_none:1 }}" value="{{ item.quantity }}" max="{{ item.threshold|default_if_none:1 }}"></progress>
+              </div>
+              <div class="text-sm text-gray-600 qty-text" data-quantity="{{ item.quantity }}" data-threshold="{{ item.threshold|default_if_none:1 }}"></div>
+            </div>
+          </td>
+          <td class="gap-info" data-quantity="{{ item.quantity }}" data-threshold="{{ item.threshold|default_if_none:1 }}"></td>
+          <!-- Incoming Modal Trigger -->
+          <td>
+            {% if item.pending_arrival > 0 %}
+              <label for="incoming-modal-{{ item.id }}"
+                     class="btn btn-sm btn-outline">
+                +{{ item.pending_arrival }}
+              </label>
+            {% else %}
+              <span class="badge badge-ghost badge-sm opacity-50">0</span>
+            {% endif %}
+          </td>
+          <td><button onclick="openDetails('{{ item.pk }}')" class="btn btn-sm btn-outline">Details</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+<!-- Details Modal -->
+<input type="checkbox" id="details-modal" class="modal-toggle" />
+<div class="modal" role="dialog">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4" id="modal-product-name">Details</h3>
+    <div class="space-y-2">
+      <p><strong>Warehouse:</strong> <span id="modal-warehouse-name"></span></p>
+      <p><strong>Batch Number:</strong> <span id="modal-batch-number"></span></p>
+      <p><strong>Expiry Date:</strong> <span id="modal-expiry-date"></span></p>
+      <p><strong>Quantity:</strong> <span id="modal-quantity"></span></p>
+      <p><strong>Threshold:</strong> <span id="modal-threshold"></span></p>
+    </div>
+    <div class="modal-action">
+      <label for="details-modal" class="btn">Close</label>
+    </div>
+  </div>
+</div>
+
+<!-- Create PO Modal -->
+<input type="checkbox" id="create-po-modal" class="modal-toggle" />
+<div class="modal">
+  <div class="modal-box w-11/12 max-w-5xl">
+    <h3 class="font-bold text-lg mb-4">📑 Confirm Create Purchase Orders</h3>
+    <div id="create-po-modal-content" class="space-y-6"></div>
+    <div class="modal-action">
+      <button class="btn btn-sm" onclick="document.getElementById('create-po-modal').checked=false">Cancel</button>
+      <button id="confirm-create-po" class="btn btn-sm btn-primary">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Incoming PO button Modal -->
+{% for item in products %}
+  {% if item.pending_arrival > 0 %}
+    <input type="checkbox" id="incoming-modal-{{ item.id }}" class="modal-toggle" />
+    <div class="modal" role="dialog">
+      <div class="modal-box max-w-5xl">
+        <h3 class="font-bold text-lg mb-4">Incoming POs for {{ item.product.name }}</h3>
+
+        {% with incoming_po_items=item.incoming_po_items %}
+          {% if incoming_po_items %}
+            {% regroup incoming_po_items by purchase_order.supplier as supplier_list %}
+            {% for supplier_group in supplier_list %}
+              <div class="mb-4">
+                <h4 class="text-md font-semibold text-primary mb-2">
+                  Supplier: {{ supplier_group.grouper.name }}
+                </h4>
+                <div class="overflow-x-auto">
+                  <table class="table w-full table-sm">
+                    <thead>
+                      <tr>
+                        <th>PO ID</th>
+                        <th>Status</th>
+                        <th>Ordered Qty</th>
+                        <th>ETA</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for po_item in supplier_group.list %}
+                        <tr {% if po_item.purchase_order.eta and po_item.purchase_order.eta < today %}class="text-red-500"{% endif %}>
+                          <td>PO #{{ po_item.purchase_order.id }}</td>
+                          <td>{{ po_item.purchase_order.get_status_display }}</td>
+                          <td>{{ po_item.quantity }}</td>
+                          <td>
+                            {% if po_item.purchase_order.eta %}
+                              {{ po_item.purchase_order.eta|date:"d/m/Y" }}
+                            {% else %}
+                              N/A
+                            {% endif %}
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <p class="text-gray-500">No incoming POs found.</p>
+          {% endif %}
+        {% endwith %}
+
+        <div class="modal-action mt-6">
+          <label for="incoming-modal-{{ item.id }}" class="btn btn-outline">Close</label>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endfor %}

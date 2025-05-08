@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-xl mx-auto p-6">
+  <h2 class="text-xl font-semibold mb-4">📝 Create Product</h2>
+
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    {% for field in form %}
+      <div>
+        <label class="label">
+          <span class="label-text font-semibold">{{ field.label }}</span>
+        </label>
+        {{ field }}
+        <div class="text-red-500 text-sm">{{ field.errors }}</div>
+      </div>
+    {% endfor %}
+
+    <button type="submit" class="btn btn-primary w-full">Submit</button>
+  </form>
+</div>
+{% endblock %}

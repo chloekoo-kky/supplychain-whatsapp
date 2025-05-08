@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto p-6">
+  <h2 class="text-2xl font-bold mb-6">📦 Warehouse Product Stock Update</h2>
+
+  <form method="get" class="mb-6">
+    <div class="flex gap-2">
+      <input type="text" name="q" value="{{ query }}" placeholder="Search SKU / Product / Warehouse" class="input input-bordered w-full max-w-xs">
+      <button type="submit" class="btn btn-primary">Search</button>
+    </div>
+  </form>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="overflow-x-auto">
+      <table class="table table-zebra w-full">
+        <thead>
+          <tr>
+            <th>Warehouse</th>
+            <th>SKU</th>
+            <th>Product</th>
+            <th>Batch Number</th>
+            <th>Quantity</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for wp in products %}
+          <tr>
+            <td>{{ wp.warehouse.name }}</td>
+            <td>{{ wp.product.sku }}</td>
+            <td>{{ wp.product.name }}</td>
+            <td>
+              <input type="text" name="batch_number_{{ wp.id }}" value="{{ wp.batch_number }}" class="input input-sm input-bordered w-full">
+            </td>
+            <td>
+              <input type="number" name="quantity_{{ wp.id }}" value="{{ wp.quantity }}" class="input input-sm input-bordered w-full">
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="mt-6">
+      <button type="submit" class="btn btn-primary w-full"> Save Updates</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

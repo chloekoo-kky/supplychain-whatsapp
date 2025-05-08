@@ -1,0 +1,67 @@
+<!-- inventory/inventory_list_partial.html -->
+
+
+  <!-- 页面标题和创建按钮 -->
+  <div class="flex justify-start items-center mb-4">
+    <h2 class="text-2xl font-bold mr-4">
+      📦 All Products
+    </h2>
+    <a href="{% url 'inventory:product_create' %}" class="btn btn-light">✚</a>
+  </div>
+
+  <div class="p-6">
+    <!-- 搜索栏部分 -->
+    <div class="mb-4">
+      <form id="search-form" method="get" action="{% url 'inventory:search' %}">
+        <input
+          type="text"
+          name="q"
+          placeholder="Search Products"
+          class="input input-sm input-bordered w-full"
+          value="{{ query|default:'' }}"
+        />
+      </form>
+    </div>
+
+  <!-- 列表区域：始终显示列表框架 -->
+  <div class="overflow-x-auto mt-6">
+    <table class="table table-zebra w-full">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Item Name</th>
+          <th>Qty</th>
+          <th>Incoming</th>
+          <th>Movement</th>
+        </tr>
+      </thead>
+      <tbody id="search-results">
+        {% if query %}
+          {% include "inventory/search_results.html" %}
+        {% else %}
+          {% for item in products %}
+            <tr>
+              <td>{{ item.supplier.name }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.quantity }}</td>
+              <td>
+                <span class="bg-indigo-100 text-indigo-800 text-md font-medium me-2 px-2.5 py-0.5 rounded-md dark:bg-gray-700 dark:text-indigo-400 border border-indigo-400">
+                {{ item.pending_arrival }}
+                </span>
+              </td>
+              <td>
+                <a href="{% url 'inventory:inventory_detail' item.id %}" class="btn btn-sm btn-outline">View</a>
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="6">No Product Listed</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+
+
+

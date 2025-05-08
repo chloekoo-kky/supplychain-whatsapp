@@ -1,22 +1,22 @@
-'''
-URL mappings for the recipe app.
-'''
-from django.urls import (
-    path,
-    include,
-)
+# '''
+# URL mappings for the recipe app.
+# '''
+# from django.urls import (
+#     path,
+#     include,
+# )
 
-from rest_framework.routers import DefaultRouter
-from recipe import views
+# from rest_framework.routers import DefaultRouter
+# from recipe import views
 
 
-router = DefaultRouter()
-router.register('recipes', views.RecipeViewSet)
-router.register('tags', views.TagViewSet)
-router.register('ingredients', views.IngredientViewSet)
+# router = DefaultRouter()
+# router.register('recipes', views.RecipeViewSet)
+# router.register('tags', views.TagViewSet)
+# router.register('products', views.ProductViewSet)
 
-app_name = 'recipe'
+# app_name = 'recipe'
 
-urlpatterns = [
-    path('', include(router.urls)),
-]
+# urlpatterns = [
+#     path('', include(router.urls)),
+# ]

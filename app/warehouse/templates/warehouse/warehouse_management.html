@@ -1,0 +1,1382 @@
+{% extends 'base.html' %}
+{% load static %}
+
+
+{% block content %}
+  <!-- Tabs 导航 -->
+  <div class="shrink-0 mb-2 sticky top-[4rem] h-fit bg-base-100 rounded shadow z-10">
+    <div class="tabs max-w-7xl mx-auto">
+    <a href="?tab=warehouseproduct" class="tab tab-lifted text-lg transition bg-gray-200 hover:bg-gray-300 text-gray-700" data-tab="warehouseproduct">
+      Warehouse
+    </a>
+    <a href="?tab=purchaseorders" class="tab tab-lifted text-lg transition bg-gray-200 hover:bg-gray-300 text-gray-700" data-tab="purchaseorders">
+      PurchaseOrders
+    </a>
+  </div>
+</div>
+
+
+  <!-- 内容区域 -->
+  <div id="tab-content">
+    {% if active_tab == 'purchaseorders' %}
+      {% include "warehouse/purchase_orders_partial.html" %}
+    {% else %}
+      {% include "warehouse/warehouse_product_partial.html" %}
+    {% endif %}
+  </div>
+{% endblock %}
+
+
+{% block extra_js %}
+<!-- 引入 SweetAlert2 -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<script>
+const TAB_SPECIFIC_PARAMS = {
+    'warehouseproduct': ['warehouse', 'supplier', 'q', 'page'], // URL keys
+    'purchaseorders': ['status', 'supplier', 'q', 'page']    // URL keys
+};
+const DEFAULT_TAB = 'warehouseproduct';
+
+// JS state objects will now use URL-compatible keys
+let pendingPOFilters = {}; // For Purchase Orders tab
+window.currentWarehouseFilters = {}; // For Warehouse Product tab
+
+
+//  =========================== Warehouse Tab Initializer
+function initWarehouseTab() {
+    const container = document.querySelector('#tab-content');
+    if (!container) return;
+    console.log("🚀 initWarehouseTab (v4)");
+
+    window.currentWarehouseFilters = {}; // Use URL keys
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    const allowedParams = TAB_SPECIFIC_PARAMS['warehouseproduct'] || [];
+
+    allowedParams.forEach(key => {
+        if (currentUrlParams.has(key) && currentUrlParams.get(key)) {
+            window.currentWarehouseFilters[key] = currentUrlParams.get(key);
+        }
+    });
+    console.log("🚀 initWarehouseTab: currentWarehouseFilters from URL (URL keys):", JSON.parse(JSON.stringify(window.currentWarehouseFilters)));
+
+    updateWarehouseFilterControlsUI(); // Must use window.currentWarehouseFilters with URL keys
+    bindWarehouseFiltersButtons();    // Must ensure this calls updateWarehouseTabFilters with URL keys
+    bindWarehouseSearchInput();     // Must ensure this calls updateWarehouseTabFilters with URL keys
+    initSelectAll(); initCreatePoButton(); initHealthyLevel();
+    saveTabFiltersToSession('warehouseproduct', window.currentWarehouseFilters); // Save the state derived from URL
+}
+
+// ======= WAREHOUSE tab =======INIT
+window.currentWarehouseFilters = {}; // Used by warehouse product tab
+
+function bindWarehouseFiltersButtons() {
+  const applyButtonHighlight = (key, value) => {
+    // Ensure querySelectorAll is scoped correctly if filter buttons appear in multiple tabs
+    // For warehouse tab, it might be within a specific container like '#warehouse-filters-panel'
+    const filterButtonContainer = document.querySelector('#tab-content'); // Or a more specific parent
+    if (!filterButtonContainer) return;
+
+    filterButtonContainer.querySelectorAll(`.btn[data-filter="${key}"]`).forEach(btn => {
+      const btnValue = btn.dataset.value;
+      if (btnValue === value) {
+        btn.classList.add("btn-neutral", "text-white");
+        btn.classList.remove("btn-outline");
+      } else {
+        btn.classList.remove("btn-neutral", "text-white");
+        btn.classList.add("btn-outline");
+      }
+    });
+  };
+
+  // Scope this to the warehouse tab's filter buttons to avoid affecting other tabs
+  const warehouseTabContent = document.querySelector('#tab-content'); // Or a more specific container for warehouse filters
+  if (!warehouseTabContent) return;
+
+  warehouseTabContent.querySelectorAll('.btn[data-filter="warehouse"], .btn[data-filter="supplier"]').forEach(btn => {
+    // Check if this button is indeed part of the warehouse product filters
+    // This check might be more robust if you have a dedicated wrapper div for these filters.
+    // For example, if your warehouse filters are inside <div id="warehouse-specific-filters">
+    // then: if (!btn.closest('#warehouse-specific-filters')) return;
+
+    // Prevent double binding if this function could be called multiple times on static content
+    if (btn.dataset.warehouseFilterBound === 'true') return;
+
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.filter; // This will be 'warehouse' or 'supplier'
+      const value = btn.dataset.value;
+
+      // REMOVE: const updateKey = key + "Id";
+      // USE 'key' directly as it matches TAB_SPECIFIC_PARAMS and desired URL keys
+      updateWarehouseTabFilters({ [key]: value }); // e.g., { warehouse: '1' } or { supplier: '2' }
+
+      applyButtonHighlight(key, value); // Visually update the button
+    });
+    btn.dataset.warehouseFilterBound = 'true';
+  });
+}
+
+function bindWarehouseSearchInput() {
+  const input = document.querySelector('#warehouse-search-form input[name="q"]');
+  if (!input) return;
+
+  input.addEventListener("input", debounce(() => {
+    const query = input.value.trim();
+    updateWarehouseTabFilters({ q: input.value.trim() });
+  }, 300));
+}
+
+function resetWarehouseProductFilters() {
+    console.log("🔄 Resetting Warehouse Product Filters (v5)");
+    window.currentWarehouseFilters = {}; // Clear internal JS state (uses URL keys)
+    clearTabFiltersFromSession('warehouseproduct');
+    updateWarehouseFilterControlsUI(); // Visually reset controls based on empty state
+    refreshWarehouseProductList(); // Will use empty currentWarehouseFilters
+}
+
+function initSelectAll() {
+  const selectAll = document.getElementById("select-all");
+  if (!selectAll) return;
+
+  selectAll.addEventListener("change", function () {
+    document.querySelectorAll(".select-item").forEach(cb => cb.checked = this.checked);
+  });
+}
+
+function initCreatePoButton() {
+  const createPoBtn = document.getElementById("create-po-btn");
+  const confirmBtn = document.getElementById("confirm-create-po");
+
+  if (createPoBtn) {
+    createPoBtn.addEventListener("click", function () {
+      const selectedIds = Array.from(document.querySelectorAll('.select-item:checked')).map(cb => cb.value);
+      if (selectedIds.length === 0) {
+        alert('Please select at least one product to create PO.');
+        return;
+      }
+      openCreatePoModal(selectedIds);
+    });
+  }
+
+  if (confirmBtn) {
+    confirmBtn.addEventListener("click", confirmCreatePo);
+  }
+}
+
+function initHealthyLevel() {
+  const healthyLevel = document.getElementById("healthy-level");
+  if (!healthyLevel) return;
+
+  healthyLevel.addEventListener("change", refreshGapInfo);
+  healthyLevel.dispatchEvent(new Event("change")); // 初始化触发
+}
+
+function refreshGapInfo() {
+  const healthyMultiplier = parseFloat(document.getElementById('healthy-level')?.value || 1.5);
+
+  document.querySelectorAll('.qty-progress').forEach(progress => {
+    const quantity = parseFloat(progress.dataset.quantity);
+    const threshold = parseFloat(progress.dataset.threshold);
+    const healthyThreshold = threshold * healthyMultiplier;
+
+    progress.max = healthyThreshold.toFixed(2);
+    progress.value = quantity;
+
+    const flexDiv = progress.closest('.flex');
+    const qtyText = flexDiv?.querySelector('.qty-text');
+    if (qtyText) {
+      qtyText.innerHTML = `${quantity} / ${healthyThreshold.toFixed(0)}`;
+    }
+  });
+
+  document.querySelectorAll('.gap-info').forEach(cell => {
+    const quantity = parseFloat(cell.dataset.quantity);
+    const threshold = parseFloat(cell.dataset.threshold);
+    const healthyThreshold = threshold * healthyMultiplier;
+    const gap = Math.max(0, healthyThreshold - quantity);
+
+    let colorClass = "";
+    if (gap <= 5) {
+      colorClass = "border-green-500";
+    } else {
+      colorClass = "border-red-500";
+    }
+
+    cell.innerHTML = `
+    <div class="bg-transparent border ${colorClass} px-2 py-1 rounded text-sm font-semibold">
+      ${gap.toFixed(0)}
+    </div>
+  `;
+  });
+}
+
+
+// ======= WAREHOUSE tab =======UTILS
+function updateWarehouseTabFilters(newFilterStateChanges) { // e.g., { supplier: '1' } or { warehouse: '2'}
+    console.log("⚙️ updateWarehouseTabFilters received changes (expected URL keys):", newFilterStateChanges);
+
+    // Directly merge into window.currentWarehouseFilters, assuming keys are already URL-compatible
+    window.currentWarehouseFilters = { ...window.currentWarehouseFilters, ...newFilterStateChanges };
+
+    for (const key in window.currentWarehouseFilters) { // Clean up empty/null values
+        if (!window.currentWarehouseFilters[key]) { // Handles "", null, undefined
+            delete window.currentWarehouseFilters[key];
+        }
+    }
+
+    // Reset to page 1 on any filter change (except if the change was to the page itself)
+    const changedKeys = Object.keys(newFilterStateChanges);
+    if ((TAB_SPECIFIC_PARAMS['warehouseproduct'] || []).includes('page') &&
+        changedKeys.some(k => k !== 'page')) {
+        window.currentWarehouseFilters.page = '1';
+    } else if (!window.currentWarehouseFilters.page && (TAB_SPECIFIC_PARAMS['warehouseproduct'] || []).includes('page')) {
+         // If page was removed and other filters exist, set to 1. If no other filters, page can remain absent.
+        if (Object.keys(window.currentWarehouseFilters).some(k=>k !== 'page' && window.currentWarehouseFilters[k])) {
+             window.currentWarehouseFilters.page = '1';
+        } else {
+            delete window.currentWarehouseFilters.page; // Explicitly remove if it became undefined/null
+        }
+    }
+
+    console.log("⚙️ currentWarehouseFilters after update (URL keys):", JSON.parse(JSON.stringify(window.currentWarehouseFilters)));
+    refreshWarehouseProductList();
+}
+
+function refreshWarehouseProductList() {
+    console.log("🔁 Refreshing Warehouse Products with JS state (URL keys):", JSON.parse(JSON.stringify(window.currentWarehouseFilters || {})));
+    const paramsForFetchAndHistory = new URLSearchParams();
+    const allowedParams = TAB_SPECIFIC_PARAMS['warehouseproduct'] || [];
+
+    // Build paramsForFetchAndHistory from window.currentWarehouseFilters (which now has URL keys)
+    for (const key in window.currentWarehouseFilters) {
+        if (allowedParams.includes(key) && window.currentWarehouseFilters[key]) {
+            paramsForFetchAndHistory.set(key, window.currentWarehouseFilters[key]);
+        }
+    }
+
+    // If page is not in currentWarehouseFilters (e.g. after filter change without explicit page set)
+    // and it's an allowed param, and other filters are active, default to page 1 for fetch.
+    if (allowedParams.includes('page') && !paramsForFetchAndHistory.has('page') &&
+        Object.keys(window.currentWarehouseFilters).some(k => k !== 'page' && window.currentWarehouseFilters[k])) {
+        // paramsForFetchAndHistory.set('page', '1'); // Only add if other filters are present
+    }
+
+    const queryStringForFetch = paramsForFetchAndHistory.toString();
+    const paramsForHistoryWithTab = new URLSearchParams(paramsForFetchAndHistory);
+    paramsForHistoryWithTab.set('tab', 'warehouseproduct');
+    const newUrlForHistory = `?${paramsForHistoryWithTab.toString()}`;
+
+    history.pushState(null, '', newUrlForHistory);
+    // Pass the object with URL keys to saveTabFiltersToSession
+    saveTabFiltersToSession('warehouseproduct', Object.fromEntries(paramsForFetchAndHistory.entries()));
+
+    fetch(`/warehouse/search/?${queryStringForFetch}`, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+        .then(res => res.text())
+        .then(html => {
+            const container = document.getElementById("search-results");
+            if (container) container.innerHTML = html;
+            requestAnimationFrame(refreshGapInfo);
+            console.log("✅ Warehouse List refreshed. URL updated. Session saved.");
+            updateWarehouseFilterControlsUI();
+        })
+        .catch(err => console.error("🔴 Failed to refresh warehouse products:", err));
+}
+
+function updateWarehouseFilterControlsUI() {
+    const activeFilters = window.currentWarehouseFilters || {};
+    const whTabContent = document.querySelector('#tab-content');
+    if (!whTabContent) {
+        console.warn("updateWarehouseFilterControlsUI: #tab-content not found, cannot update UI.");
+        return;
+    }
+
+    ["warehouse", "supplier"].forEach(filterKey => { // URL keys
+        const activeValue = activeFilters[filterKey] || "";
+        whTabContent.querySelectorAll(`.btn[data-filter="${filterKey}"]`).forEach(btn => {
+            if (btn.dataset.value === activeValue) {
+                btn.classList.add("btn-neutral", "text-white"); btn.classList.remove("btn-outline");
+            } else {
+                btn.classList.remove("btn-neutral", "text-white"); btn.classList.add("btn-outline");
+            }
+        });
+    });
+    const searchInput = whTabContent.querySelector('#warehouse-search-form input[name="q"]');
+    if (searchInput) searchInput.value = activeFilters.q || "";
+    console.log("🎨 Warehouse Filter controls UI updated based on JS state (URL keys).");
+}
+// ======= WAREHOUSE tab =======MODAL
+function openDetails(pk) {
+  fetch(`/warehouse/warehouseproduct/${pk}/details/`, {
+    headers: {
+      'X-Requested-With': 'XMLHttpRequest'
+    }
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.error) {
+      alert("Failed to load details");
+      return;
+    }
+
+    document.getElementById("modal-product-name").textContent = data.product;
+    document.getElementById("modal-warehouse-name").textContent = data.warehouse;
+    document.getElementById("modal-batch-number").textContent = data.batch_number;
+    document.getElementById("modal-expiry-date").textContent = data.expiry_date;
+    document.getElementById("modal-quantity").textContent = data.quantity;
+    document.getElementById("modal-threshold").textContent = data.threshold;
+
+    document.getElementById("details-modal").checked = true;  // 打开 Modal
+  })
+  .catch(error => {
+    console.error("Error loading details:", error);
+    alert("Error loading details");
+  });
+}
+
+function openCreatePoModal(selectedIds) {
+  const multiplier = parseFloat(document.getElementById("healthy-level")?.value || 1.5);
+
+  fetch("{% url 'warehouse:prepare_po_from_selection' %}", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": '{{ csrf_token }}',
+    },
+    body: JSON.stringify({
+      selected_items: selectedIds,
+      healthy_multiplier: multiplier,
+    })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (!data.success) {
+      alert("Failed to prepare PO data");
+      return;
+    }
+
+    fillCreatePoModal(data.data); // ✨ 渲染modal
+    document.getElementById("create-po-modal").checked = true;
+  })
+  .catch(error => {
+    console.error("Error preparing PO:", error);
+  });
+}
+
+function fillCreatePoModal(poData) {
+  const container = document.getElementById('create-po-modal-content');
+  container.innerHTML = "";  // 清空旧内容
+
+  poData.forEach(po => {
+    const supplierDiv = document.createElement('div');
+    supplierDiv.classList.add('space-y-2', 'border', 'border-gray-200', 'rounded', 'p-4', 'mb-4');
+
+    const supplierTitle = document.createElement('h4');
+    supplierTitle.classList.add('text-lg', 'font-semibold', 'text-gray-700');
+    supplierTitle.textContent = `Supplier: ${po.supplier_name}`;
+    supplierDiv.appendChild(supplierTitle);
+
+    po.products.forEach(product => {
+      const row = document.createElement('div');
+      row.classList.add('flex', 'items-center', 'space-x-4', 'bg-gray-50', 'p-2', 'rounded');
+
+      row.innerHTML = `
+        <div class="w-1/3 truncate">${product.product_name} @ ${product.warehouse_name}</div>
+        <div class="w-1/3 text-sm text-gray-500">Gap: ${product.gap}</div>
+        <div class="w-1/3 flex gap-2 items-center">
+          <input type="number" min="1" value="${product.gap}"
+                 class="input input-sm input-bordered w-full quantity-input"
+                 data-warehouse-product-id="${product.warehouse_product_id}"
+                 data-supplier-id="${po.supplier_id}">
+          <button type="button" class="btn btn-xs btn-error remove-row" title="Remove">✕</button>
+        </div>
+      `;
+
+      supplierDiv.appendChild(row);
+    });
+
+    container.appendChild(supplierDiv);
+  });
+
+  // ✅ 加载完后给所有 "Remove" 按钮绑定事件
+  document.querySelectorAll('.remove-row').forEach(button => {
+    button.addEventListener('click', function () {
+      this.closest('.flex').remove();
+    });
+  });
+}
+
+function confirmCreatePo() {
+  const inputs = document.querySelectorAll('.quantity-input');
+  const payload = {};
+
+  inputs.forEach(input => {
+    const supplierId = input.dataset.supplierId;
+    const wpId = input.dataset.warehouseProductId;
+    const quantity = parseInt(input.value, 10);
+
+    if (!payload[supplierId]) {
+      payload[supplierId] = [];
+    }
+
+    payload[supplierId].push({
+      warehouse_product_id: wpId,
+      quantity: quantity,
+    });
+  });
+
+  // ✅ 显示加载 spinner（可选加按钮 disable）
+  const confirmBtn = document.getElementById('confirm-create-po');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="loading loading-spinner"></span> Creating...';
+  }
+
+  fetch("{% url 'warehouse:confirm_create_po' %}", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": '{{ csrf_token }}',
+    },
+    body: JSON.stringify({ orders: payload })
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      console.log("confirm_create_po response:", data);
+      Swal.fire({
+        icon: 'success',
+        title: 'PO Created!',
+        toast: true,
+        position: 'top-end',
+        timer: 1500,
+        showConfirmButton: false
+      });
+
+      // ✅ 模拟点击 PurchaseOrders tab，自动切换 + 高亮 + 回到顶部
+      setTimeout(() => {
+        const purchaseOrderTab = document.querySelector('.tabs a[href="?tab=purchaseorders"]');
+        if (purchaseOrderTab) {
+          purchaseOrderTab.click();
+
+          // ✅ Wait for the tab content to load before scrolling
+          const tabContentObserver = new MutationObserver((mutations) => {
+            const poCard = document.getElementById(`po-card-${data.latest_po_id}`);
+            if (poCard) {
+              poCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              tabContentObserver.disconnect(); // Stop observing
+            } else {
+              console.warn(`PO Card with ID 'po-card-${data.latest_po_id}' still not found after tab load.`);
+            }
+          });
+
+          const tabContent = document.getElementById('tab-content');
+          if (tabContent) {
+            tabContentObserver.observe(tabContent, { childList: true, subtree: true });
+          }
+
+        }
+      }, 300);
+
+    } else {
+      Swal.fire({
+        icon: 'error',
+        title: 'Creation Failed',
+        text: data.error || 'Something went wrong.',
+      });
+    }
+  })
+  .catch(error => {
+    console.error("Error confirming PO:", error);
+    Swal.fire({
+      icon: 'error',
+      title: 'Network Error',
+      text: 'Please try again later.',
+    });
+  })
+  .finally(() => {
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerHTML = 'Confirm Create';
+    }
+  });
+}
+
+
+
+
+
+// =========================== PurchaseOrders Tab Initializer
+function initPurchaseOrderTab() {
+    const container = document.querySelector('#tab-content');
+    if (!container) return;
+    console.log("🚀 Initializing PurchaseOrder Tab JS (v6 - Delegation)");
+
+    pendingPOFilters = {};
+    const currentUrlParams = new URLSearchParams(window.location.search);
+    const allowedParams = TAB_SPECIFIC_PARAMS['purchaseorders'] || [];
+    allowedParams.forEach(key => {
+        if (currentUrlParams.has(key) && currentUrlParams.get(key)) {
+            pendingPOFilters[key] = currentUrlParams.get(key);
+        }
+    });
+    console.log("🚀 initPurchaseOrderTab: pendingPOFilters from URL:", JSON.parse(JSON.stringify(pendingPOFilters)));
+
+    updatePOFilterControlsUI();
+    bindPOFilterControls(container); // Binds filter panel controls
+
+    const poListContainer = document.getElementById("purchase-orders-list");
+    if (poListContainer) {
+        bindPOListPagination(poListContainer);
+        // Bind direct listeners (forms, delete) & init visuals
+        bindPOModalDirectInteractivity(poListContainer);
+        // Setup delegation ONCE for the list container
+        setupStatusButtonDelegation('#purchase-orders-list'); // Ensure this runs once
+    } else {
+        console.warn("initPurchaseOrderTab: #purchase-orders-list container not found.");
+        // Fallback: setup delegation on #tab-content if modals might live outside #purchase-orders-list
+        // setupStatusButtonDelegation('#tab-content');
+    }
+    saveTabFiltersToSession('purchaseorders', pendingPOFilters);
+}
+
+
+
+// ======= PURCHASEORDER Tab =======INIT
+// --- New variables for Purchase Order filter debouncing ---
+const PO_FILTER_DEBOUNCE_DELAY = 400; // milliseconds
+
+function refreshPOList() {
+    console.log("🚀 refreshPOList with pendingPOFilters (URL keys):", JSON.parse(JSON.stringify(pendingPOFilters)));
+    const paramsForFetchAndHistory = new URLSearchParams();
+    const allowedParams = TAB_SPECIFIC_PARAMS['purchaseorders'] || [];
+    for (const key in pendingPOFilters) {
+        if (allowedParams.includes(key) && pendingPOFilters[key]) {
+            paramsForFetchAndHistory.set(key, pendingPOFilters[key]);
+        }
+    }
+    if (allowedParams.includes('page') && !paramsForFetchAndHistory.has('page') &&
+        Object.keys(pendingPOFilters).some(k => k !== 'page' && pendingPOFilters[k])) {
+        paramsForFetchAndHistory.set('page', '1');
+    }
+
+    const queryStringForFetch = paramsForFetchAndHistory.toString();
+    const paramsForHistoryWithTab = new URLSearchParams(paramsForFetchAndHistory);
+    paramsForHistoryWithTab.set('tab', 'purchaseorders');
+    const newUrlForHistory = `?${paramsForHistoryWithTab.toString()}`;
+
+    history.pushState({ path: newUrlForHistory, tab: 'purchaseorders' }, '', newUrlForHistory);
+    saveTabFiltersToSession('purchaseorders', Object.fromEntries(paramsForFetchAndHistory.entries()));
+
+    fetch(`/warehouse/purchaseorders/filter/?${queryStringForFetch}`, { headers: { "X-Requested-With": "XMLHttpRequest" } })
+        .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.text();
+        })
+        .then(html => {
+            const poListContainer = document.getElementById("purchase-orders-list");
+            if (poListContainer) {
+                poListContainer.innerHTML = html;
+                bindPOListPagination(poListContainer);
+                // ONLY bind direct listeners and init visuals here
+                bindPOModalDirectInteractivity(poListContainer);
+                // DO NOT call setupStatusButtonDelegation again here
+                console.log("✅ PO List refreshed. Pagination, Forms/Delete re-bound. Status visuals initialized.");
+            }
+        })
+        .catch(error => console.error("❌ Failed to refresh PO list:", error));
+}
+
+const debouncedRefreshPOList = debounce(refreshPOList, PO_FILTER_DEBOUNCE_DELAY);
+
+function updatePOFilterControlsUI() {
+  const container = document.querySelector('#tab-content'); // Or a more specific filter panel container
+  if (!container) return;
+
+  // Update filter buttons (status, supplier)
+  ["status", "supplier"].forEach(filterKey => {
+    const activeValue = pendingPOFilters[filterKey] || "";
+    container.querySelectorAll(`.btn[data-filter="${filterKey}"]`).forEach(btn => {
+      if (btn.dataset.value === activeValue) {
+        btn.classList.add("btn-neutral", "text-white");
+        btn.classList.remove("btn-outline");
+      } else {
+        btn.classList.remove("btn-neutral", "text-white");
+        btn.classList.add("btn-outline");
+      }
+    });
+  });
+
+  // Update search input
+  const searchInput = container.querySelector('#po-search-form input[name="q"]');
+  if (searchInput) {
+    searchInput.value = pendingPOFilters.q || "";
+  }
+  console.log("🎨 PO Filter controls UI updated.");
+}
+
+function bindPOFilterControls(container) {
+  // Event listener for filter buttons (status, supplier)
+  container.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn[data-filter]");
+    if (!btn || (btn.dataset.filter !== "status" && btn.dataset.filter !== "supplier")) return;
+
+    const key = btn.dataset.filter;
+    const value = btn.dataset.value;
+
+    if (value === "") {
+      delete pendingPOFilters[key]; // Or pendingPOFilters[key] = "";
+    } else {
+      pendingPOFilters[key] = value;
+    }
+    pendingPOFilters.page = '1'; // Reset to page 1 on filter change
+
+    updatePOFilterControlsUI(); // Immediate visual feedback
+    debouncedRefreshPOList();
+    console.log(`👉 PO Filter button clicked: ${key}=${value}. Pending:`, JSON.parse(JSON.stringify(pendingPOFilters)));
+  });
+
+  // Event listener for search input
+  const searchInput = container.querySelector('#po-search-form input[name="q"]');
+  if (searchInput) {
+    searchInput.addEventListener("input", debounce(() => {
+      const query = searchInput.value.trim();
+      if (query === "") {
+        delete pendingPOFilters.q;
+      } else {
+        pendingPOFilters.q = query;
+      }
+      pendingPOFilters.page = '1'; // Reset to page 1 on search change
+      // updatePOFilterControlsUI(); // Search input updates itself visually
+      debouncedRefreshPOList();
+      console.log(`🔍 PO Search input changed: q=${query}. Pending:`, JSON.parse(JSON.stringify(pendingPOFilters)));
+    }, PO_FILTER_DEBOUNCE_DELAY + 100)); // Slightly longer debounce for typing
+  }
+}
+
+function bindPOListPagination(poListContainer) {
+  poListContainer.querySelectorAll(".pagination-link").forEach(link => {
+    link.addEventListener("click", function(e) {
+      e.preventDefault();
+      const url = new URL(this.href);
+      const page = url.searchParams.get("page");
+      if (page) {
+        pendingPOFilters.page = page;
+        // updatePOFilterControlsUI(); // No direct filter controls change, but URL will
+        refreshPOList(); // Refresh immediately, no debounce for pagination
+        console.log(`📄 PO Pagination link clicked: page=${page}`);
+      }
+    });
+  });
+}
+
+function resetPurchaseOrderFilters() {
+    console.log("🔄 Resetting Purchase Order Filters (v4)");
+    pendingPOFilters = {}; // Clear internal JS state
+    if ((TAB_SPECIFIC_PARAMS['purchaseorders'] || []).includes('page')) {
+        // pendingPOFilters.page = '1'; // Don't force page=1 for a truly empty state
+    }
+    clearTabFiltersFromSession('purchaseorders');
+    debouncedRefreshPOList.cancel();
+    updatePOFilterControlsUI();
+    refreshPOList(); // Will use empty pendingPOFilters, URL becomes ?tab=purchaseorders, session saves ""
+}
+
+function initializePOModalStatusButtons(container) {
+    if (!container) return;
+    console.log("🎨 Initializing PO Modal Status Button visuals within:", container.id || container.tagName);
+
+    container.querySelectorAll('.modal-box[data-po-id]').forEach(modalBox => {
+        const poId = modalBox.dataset.poId;
+        const hiddenStatusInput = modalBox.querySelector(`input[type="hidden"][name="selected_status"][id="selected-status-${poId}"]`);
+        if (!hiddenStatusInput) return; // Skip if not an update PO modal
+
+        const currentPoStatus = hiddenStatusInput.value;
+        const statusButtons = modalBox.querySelectorAll(`.status-select-btn[data-po-id="${poId}"]:not([disabled])`);
+
+        if (statusButtons.length === 0) {
+            console.warn(`PO #${poId}: No ENABLED status-select-btn found during visual init.`);
+        }
+
+        statusButtons.forEach(button => {
+            const buttonStatusValue = button.dataset.status;
+            if (buttonStatusValue === currentPoStatus) {
+                button.classList.add('btn-neutral', 'text-white'); button.classList.remove('btn-outline');
+            } else {
+                button.classList.remove('btn-neutral', 'text-white'); button.classList.add('btn-outline');
+            }
+        });
+    });
+     console.log("👍 PO Modal Status Button visuals initialization complete.");
+}
+
+
+/**
+ * Sets up event delegation for status button clicks within a persistent parent container.
+ * This only needs to be called ONCE when the main tab structure is set up or the PO tab is first loaded.
+ * @param {string} parentSelector - The selector for the persistent parent element (e.g., '#purchase-orders-list' or '#tab-content').
+ */
+function setupStatusButtonDelegation(parentSelector) {
+    const parentElement = document.querySelector(parentSelector);
+    if (!parentElement) {
+        console.error(`setupStatusButtonDelegation: Parent element "${parentSelector}" not found.`);
+        return;
+    }
+
+    if (parentElement.dataset.statusDelegationBound === 'true') {
+        console.log(`Status button delegation already bound to ${parentSelector}.`);
+        return;
+    }
+
+    console.log(`🚀 Setting up DELEGATED click listener for status buttons on "${parentSelector}"`);
+    parentElement.addEventListener('click', function(event) {
+        console.log(`[DELEGATED] Click detected inside ${parentSelector}. Target:`, event.target);
+        const statusButton = event.target.closest('.status-select-btn:not([disabled])');
+
+        if (statusButton && statusButton.closest('.modal-box[data-po-id]')) {
+            console.log("[DELEGATED] Click target IS an enabled status button inside a PO modal box.");
+            event.preventDefault();
+            try {
+                const clickedPoId = statusButton.dataset.poId;
+                const newStatus = statusButton.dataset.status;
+                const parentModalBox = statusButton.closest('.modal-box');
+                const specificHiddenInput = parentModalBox.querySelector(`input#selected-status-${clickedPoId}`);
+
+                if (!specificHiddenInput) { console.error(`PO #${clickedPoId}: [DELEGATED] Critical - could not find hidden input on click!`); return; }
+
+                console.log(`PO #${clickedPoId}: [DELEGATED] Status btn '${newStatus}' CLICKED. Old hidden: '${specificHiddenInput.value}', New: '${newStatus}'`);
+                specificHiddenInput.value = newStatus;
+
+                parentModalBox.querySelectorAll(`.status-select-btn[data-po-id="${clickedPoId}"]:not([disabled])`).forEach(btn => {
+                    btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
+                });
+                statusButton.classList.add('btn-neutral', 'text-white'); statusButton.classList.remove('btn-outline');
+                console.log(`PO #${clickedPoId}: [DELEGATED] Button '${newStatus}' visually set active.`);
+            } catch (error) {
+                console.error("Error inside delegated status button click handler:", error);
+            }
+        } else {
+             // console.log("[DELEGATED] Click target was not an enabled status button inside a PO modal box.");
+        }
+    });
+    parentElement.dataset.statusDelegationBound = 'true';
+}
+
+function bindPOModalDirectInteractivity(container) {
+    if (!container) { console.error("bindPOModalDirectInteractivity: Container not provided."); return; }
+    console.log("🔧 Binding PO Modal DIRECT Interactivity (Forms, Delete) & Init Visuals within:", container.id || container.tagName);
+
+    // Bind form submissions (Update PO)
+    container.querySelectorAll('form.po-update-form').forEach(form => {
+        if (form.dataset.directUpdateFormBound === 'true') return;
+        form.addEventListener('submit', function(e) { /* ... (saveForm logic) ... */ e.preventDefault(); const poId=this.dataset.poId; saveForm(this, poId, `modal-update-po-${poId}`, "PO Updated!"); });
+        form.dataset.directUpdateFormBound = 'true';
+    });
+
+    // Bind form submissions (Edit Items)
+    container.querySelectorAll('form.po-edit-form').forEach(form => {
+        if (form.dataset.directEditFormBound === 'true') return;
+        form.addEventListener('submit', function(e) { /* ... (saveForm logic) ... */ e.preventDefault(); const poId=this.dataset.poId; saveForm(this, poId, `modal-edit-items-${poId}`, "PO Items Saved!"); });
+        form.dataset.directEditFormBound = 'true';
+    });
+
+    // Bind delete buttons
+    container.querySelectorAll('button.delete-po-btn').forEach(button => {
+        if (button.dataset.directDeleteBtnBound === 'true') return;
+        button.addEventListener('click', function() { /* ... (deletePo logic) ... */ const poId=this.dataset.poId; deletePo(poId); });
+        button.dataset.directDeleteBtnBound = 'true';
+    });
+
+    // Initialize Status Button Visuals
+    initializePOModalStatusButtons(container);
+
+    console.log("👍 PO Modal DIRECT Interactivity binding complete.");
+}
+
+
+// ================================
+
+//##########
+function bindSearchInput({ inputSelector, paramKey = "q", tabName, container }) {
+  const searchInputElem = container.querySelector(inputSelector);
+  if (!searchInputElem) {
+    console.warn(`Search input with selector "${inputSelector}" not found in container for tab ${tabName}`);
+    return;
+  }
+
+  const handleSearch = debounce((event) => {
+    const query = event.target.value.trim();
+    console.log(`🚀 Search input changed for ${tabName}: ${query}`);
+    updateUrlAndReload({ [paramKey]: query, page: 1 }, tabName);
+  }, 300); // Using the global debounce_delay for search, can be different
+
+  searchInputElem.addEventListener("input", handleSearch);
+}
+function bindPurchaseOrderSearchInput() {
+  const input = document.querySelector(inputSelector);
+  if (!input) return;
+
+  const handleSearch = debounce(() => {
+    const query = input.value.trim();
+    const url = updateUrl({ [paramKey]: query, page: 1 }, tabName);
+    reloadTabContent(url);
+  }, 300);
+
+  input.addEventListener("input", handleSearch);
+}
+function initPOPagination() {
+  document.querySelectorAll('.pagination-link').forEach(link => {
+    link.addEventListener('click', function (e) {
+      e.preventDefault();
+      const url = new URL(this.href);
+      const page = url.searchParams.get("page");
+
+      const finalUrl = updateUrl({ page: page }, "purchaseorders");
+      reloadTabContent(finalUrl);
+    });
+  });
+}
+function initPOSearch() {
+  const searchForm = document.getElementById("po-search-form");
+  if (!searchForm) return;
+
+  searchForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const query = searchForm.querySelector('input[name="q"]').value.trim();
+    updateUrlAndReload({ q: query }, "purchaseorders");
+  });
+}
+function initStatusButtons(poId) {
+  const hiddenInput = document.getElementById(`selected-status-${poId}`);
+  if (!hiddenInput) return;
+
+  document.querySelectorAll(`.status-select-btn[data-po-id="${poId}"]`).forEach(button => {
+    button.addEventListener("click", function () {
+      const newStatus = this.dataset.status;
+
+      hiddenInput.value = newStatus;
+
+      document.querySelectorAll(`.status-select-btn[data-po-id="${poId}"]`).forEach(btn => {
+        btn.classList.remove("btn-neutral");
+        btn.classList.add("btn-outline");
+      });
+
+      this.classList.remove("btn-outline");
+      this.classList.add("btn-neutral");
+    });
+  });
+}
+
+
+// ======= PurchaseOrder Modal UTILS =======
+function submitUpdateForm(form, poId) {
+  const formData = new FormData(form);
+  const saveBtn = form.querySelector('button[type="submit"]');
+
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Saving...';
+
+  fetch(form.action, {
+    method: "POST",
+    headers: {
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    body: formData
+  })
+  .then(response => {
+    if (!response.ok) throw new Error('Network response was not ok');
+    return response.text();
+  })
+  .then(html => {
+    const tabContent = document.getElementById("tab-content");
+    tabContent.innerHTML = html;
+
+    // ✅ 刷新后，必须等 requestAnimationFrame 再执行initPurchaseOrderTab
+    requestAnimationFrame(() => {
+      initPurchaseOrderTab();  // 重新绑定所有分页、保存表单、modal逻辑！
+
+      // ✅ 再下一帧执行滚动
+      requestAnimationFrame(() => {
+        const updatedCard = document.getElementById(`po-card-${poId}`);
+        if (updatedCard) {
+          updatedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          updatedCard.classList.add('po-highlight');
+          setTimeout(() => {
+            updatedCard.classList.add('po-highlight-fadeout'); // 过渡成透明
+          }, 1000); // 等高亮一会儿
+
+          setTimeout(() => {
+            updatedCard.classList.remove('po-highlight', 'po-highlight-fadeout'); // 清除干净
+          }, 2000);
+        }
+      });
+    });
+
+    // ✅ 关闭 Modal
+    const modalToggle = document.getElementById(`modal-${poId}`);
+    if (modalToggle) {
+      modalToggle.checked = false;
+    }
+
+    // ✅ 成功Toast
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: 'PO Updated!',
+      showConfirmButton: false,
+      timer: 1500
+    });
+
+  })
+  .catch(error => {
+    console.error('Error updating PO:', error);
+    Swal.fire({
+      icon: 'error',
+      title: 'Update Failed',
+      text: 'Please try again later.'
+    });
+  })
+  .finally(() => {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = 'Save Changes';
+  });
+}
+
+function initStatusButtons(poId) {
+  console.log(`initStatusButtons called for PO#${poId}`);
+
+  const hiddenInput = document.getElementById(`selected-status-${poId}`);
+  if (!hiddenInput) return;
+
+  // 初始化时，不选中任何按钮，所有 status-select-btn 保持 btn-outline
+  document.querySelectorAll(`.modal-box[data-po-id="${poId}"] .status-select-btn:not([disabled])`).forEach(button => {
+    button.classList.remove('btn-neutral');
+    button.classList.add('btn-outline');
+  });
+
+  // 点击时，切换高亮
+  document.querySelectorAll(`.modal-box[data-po-id="${poId}"] .status-select-btn:not([disabled])`).forEach(button => {
+    button.addEventListener('click', function() {
+      hiddenInput.value = this.dataset.status;  // 更新隐藏input的值
+
+      document.querySelectorAll(`.modal-box[data-po-id="${poId}"] .status-select-btn:not([disabled])`).forEach(btn => {
+        btn.classList.remove('btn-neutral');
+        btn.classList.add('btn-outline');
+      });
+
+      this.classList.remove('btn-outline');
+      this.classList.add('btn-neutral');
+    });
+  });
+}
+
+function refreshPOAfterSave(poId, modalId = null, successMessage = "PO Updated!") {
+  const currentParams = new URLSearchParams(window.location.search);
+  const page = currentParams.get("page") || 1;
+
+  currentParams.set("tab", "purchaseorders");
+  currentParams.set("page", page);
+
+  const reloadUrl = `?${currentParams.toString()}`;
+
+  fetch(reloadUrl, {
+    headers: { "X-Requested-With": "XMLHttpRequest" }
+  })
+    .then(res => res.text())
+    .then(html => {
+      document.getElementById("tab-content").innerHTML = html;
+      requestAnimationFrame(() => {
+        initPurchaseOrderTab();
+
+        requestAnimationFrame(() => {
+          const card = document.getElementById(`po-card-${poId}`);
+          if (card) {
+            card.scrollIntoView({ behavior: "smooth", block: "center" });
+            card.classList.add("po-highlight");
+            setTimeout(() => card.classList.add("po-highlight-fadeout"), 1000);
+            setTimeout(() => card.classList.remove("po-highlight", "po-highlight-fadeout"), 2000);
+          }
+        });
+      });
+
+      if (modalId) closeModal(modalId);
+
+      Swal.fire({
+        toast: true,
+        icon: "success",
+        position: "top-end",
+        title: successMessage,
+        showConfirmButton: false,
+        timer: 1500
+      });
+    });
+}
+
+function saveForm(form, poId, modalId = null, successMessage = "PO Saved!") {
+  const saveBtn = form.querySelector('button[type="submit"]');
+  const formData = new FormData(form);
+
+  saveBtn.disabled = true;
+  saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Saving...';
+
+  fetch(form.action, {
+    method: "POST",
+    headers: {
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    body: formData
+  })
+    .then(response => {
+      if (!response.ok) throw new Error("Form submission failed");
+      return response.text();  // 预留可扩展：未来可解析 JSON
+    })
+    .then(() => {
+      refreshPOAfterSave(poId, modalId, successMessage);
+    })
+    .catch(error => {
+      console.error("Error saving form:", error);
+      Swal.fire({
+        icon: "error",
+        title: "Save Failed",
+        text: "Please try again later."
+      });
+    })
+    .finally(() => {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = "Save Changes";
+    });
+}
+
+function deletePo(poId) {
+    Swal.fire({
+        title: 'Are you sure?',
+        text: "This PO will be permanently deleted!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33', // Red for delete
+        cancelButtonColor: '#3085d6', // Blue for cancel
+        confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            // Make sure the URL is correct for your Django setup
+            const deleteUrl = `/warehouse/po/${poId}/delete/`;
+
+            fetch(deleteUrl, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(), // Ensure getCsrfToken() is defined
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    // Try to get error message from response if possible
+                    return response.text().then(text => {
+                        throw new Error(`Failed to delete PO (${response.status}): ${text || 'Server error'}`);
+                    });
+                }
+                // Check if response has content, might be empty on success
+                return response.text();
+            })
+            .then((responseText) => { // Optional: check response if needed
+                console.log(`PO #${poId} deleted successfully.`);
+                Swal.fire({
+                    toast: true,
+                    icon: 'success',
+                    title: 'Deleted!',
+                    text: 'Purchase Order has been deleted.',
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 1500
+                });
+                // Refresh the current PO list using the existing filters
+                refreshPOList(); // <<< CORRECTED: Call refreshPOList
+            })
+            .catch(error => {
+                console.error(`Error deleting PO #${poId}:`, error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Deletion Failed',
+                    text: error.message || 'Could not delete the PO. Please try again.'
+                });
+            });
+        }
+    });
+}
+function getNowDatetimeStr() {
+  const now = new Date();
+  return now.getFullYear() + "-" +
+         String(now.getMonth()+1).padStart(2,'0') + "-" +
+         String(now.getDate()).padStart(2,'0') + " " +
+         String(now.getHours()).padStart(2,'0') + ":" +
+         String(now.getMinutes()).padStart(2,'0');
+}
+
+
+
+
+
+
+
+// =========================== CORE UTILS
+function debounce(fn, delay = 300) {
+  let timeoutId;
+  const debounced = (...args) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      fn(...args);
+    }, delay);
+  };
+  debounced.cancel = () => {
+    clearTimeout(timeoutId);
+  };
+  return debounced;
+}
+
+function closeModal(modalId) {
+  const modal = document.getElementById(modalId);
+  if (modal) modal.checked = false;
+}
+
+function getCsrfToken() {
+  return document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+}
+
+
+
+
+
+// =========================== TAB ROUTER INIT
+function initTabs() {
+    console.log("✅ initTabs initialized (v4)");
+    const tabLinks = document.querySelectorAll(".tabs a[data-tab]");
+
+    tabLinks.forEach(tabLink => {
+        tabLink.addEventListener("click", function (e) {
+            e.preventDefault();
+            const targetTabName = this.dataset.tab;
+            const currentActiveTab = getCurrentTabNameFromUrl();
+
+            if (currentActiveTab && currentActiveTab !== targetTabName) {
+                let stateToSaveOnClick = {};
+                if (currentActiveTab === 'purchaseorders') stateToSaveOnClick = pendingPOFilters;
+                else if (currentActiveTab === 'warehouseproduct') stateToSaveOnClick = window.currentWarehouseFilters;
+                saveTabFiltersToSession(currentActiveTab, stateToSaveOnClick);
+            }
+
+            const paramsFromSession = loadTabFiltersFromSession(targetTabName);
+            paramsFromSession.set("tab", targetTabName);
+            if ((TAB_SPECIFIC_PARAMS[targetTabName] || []).includes('page') && !paramsFromSession.has('page') && paramsFromSession.toString() !== `tab=${targetTabName}`) {
+                // Add page=1 if other filters are loaded from session for this tab but page is missing
+                // paramsFromSession.set('page', '1');
+            }
+
+
+            const finalUrl = `?${paramsFromSession.toString()}`;
+            console.log(`Navigating to tab ${targetTabName} with URL: ${finalUrl}`);
+            history.pushState({ path: finalUrl, tab: targetTabName }, '', finalUrl);
+
+            fetch(finalUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}, fetching ${finalUrl}`);
+                    return res.text();
+                })
+                .then(html => {
+                    const tabContentEl = document.getElementById("tab-content");
+                    if (tabContentEl) tabContentEl.innerHTML = html;
+                    else return console.error("#tab-content element not found.");
+                    highlightActiveTabFromURL();
+                    requestAnimationFrame(() => {
+                        if (targetTabName === "purchaseorders") initPurchaseOrderTab();
+                        else if (targetTabName === "warehouseproduct") initWarehouseTab();
+                    });
+                })
+                .catch(error => console.error("Failed to load tab content:", error));
+        });
+    });
+}
+
+function getCurrentTabNameFromUrl() {
+    return new URLSearchParams(window.location.search).get("tab") || DEFAULT_TAB;
+}
+function saveTabFiltersToSession(tabName, filterStateToSave) {
+    const paramsForStorage = new URLSearchParams();
+    const allowedParams = TAB_SPECIFIC_PARAMS[tabName] || [];
+
+    if (!filterStateToSave) {
+        console.warn(`💾 Attempted to save null/undefined filter state for ${tabName}. Saving empty.`);
+        sessionStorage.setItem(`tabParams_${tabName}`, "");
+        return;
+    }
+
+    const sourceParams = (filterStateToSave instanceof URLSearchParams) ? filterStateToSave : new URLSearchParams(filterStateToSave);
+
+    allowedParams.forEach(key => {
+        if (sourceParams.has(key) && sourceParams.get(key)) {
+            paramsForStorage.set(key, sourceParams.get(key));
+        }
+    });
+
+    // Handle 'page' specifically: only save if it's > 1 or if other filters are present.
+    // This avoids saving "page=1" for a truly empty/reset filter state.
+    if (allowedParams.includes('page')) {
+        const pageValue = sourceParams.get('page');
+        if (pageValue && (paramsForStorage.toString().replace(`page=${pageValue}`, '').replace(/^&|&$/, '') || parseInt(pageValue) > 1) ) {
+            // If other filters exist (excluding page itself) OR page > 1, then include page.
+             if (!paramsForStorage.has('page')) paramsForStorage.set('page', pageValue);
+        } else {
+            paramsForStorage.delete('page'); // Don't save page=1 if no other filters
+        }
+    }
+
+    const paramsString = paramsForStorage.toString();
+    console.log(`💾 Saving params for ${tabName}: "${paramsString}" (Source: object)`);
+    sessionStorage.setItem(`tabParams_${tabName}`, paramsString);
+}
+function loadTabFiltersFromSession(tabName) {
+    const storedParamsString = sessionStorage.getItem(`tabParams_${tabName}`);
+    console.log(`💾 Loading params for ${tabName} from session: "${storedParamsString}"`);
+    return new URLSearchParams(storedParamsString || '');
+}
+function clearTabFiltersFromSession(tabName) {
+    console.log(`🗑️ Clearing session storage for tab: ${tabName}`);
+    sessionStorage.removeItem(`tabParams_${tabName}`);
+}
+function clearAllTabFiltersFromSession() {
+    console.log(`🗑️ Clearing session storage for ALL tabs.`);
+    for (const tabName in TAB_SPECIFIC_PARAMS) {
+        sessionStorage.removeItem(`tabParams_${tabName}`);
+    }
+}
+
+function getActiveTab() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("tab") || "warehouseproduct";
+}
+
+function runTabInit(tabName) {
+  if (!tabInitStatus[tabName]) {
+    tabInitStatus[tabName] = true;
+    TAB_INIT_MAP[tabName]?.();
+  }
+}
+
+function storeTabParams(tabName, params) {
+  sessionStorage.setItem(`tab_params_${tabName}`, params.toString());
+}
+
+function getStoredTabParams(tabName) {
+  const stored = sessionStorage.getItem(`tab_params_${tabName}`);
+  return stored ? new URLSearchParams(stored) : null;
+}
+
+function loadTab(tabName, customParams = null, reset = false) {
+  const cleanParams = new URLSearchParams();
+  cleanParams.set("tab", tabName);
+
+  const allowedKeys = TAB_PARAM_KEYS[tabName] || [];
+
+  let paramsToUse;
+  if (reset) {
+    paramsToUse = new URLSearchParams();
+    allowedKeys.forEach(k => paramsToUse.set(k, ""));
+  } else if (customParams) {
+    paramsToUse = new URLSearchParams(customParams);
+  } else {
+    const stored = getStoredTabParams(tabName);
+    paramsToUse = stored || new URLSearchParams();
+  }
+
+  // Clear irrelevant params
+  const allParamKeys = ["warehouse", "supplier", "q", "status", "page"]; // ALL possible params
+  allParamKeys.forEach(key => {
+    if (!allowedKeys.includes(key)) {
+      paramsToUse.delete(key);
+    }
+  });
+
+  // 清除非该 tab 的无关参数
+  allowedKeys.forEach(k => {
+    const v = paramsToUse.get(k);
+    if (v !== null) cleanParams.set(k, v);
+  });
+
+  const finalUrl = `?${cleanParams.toString()}`;
+  storeTabParams(tabName, cleanParams);
+
+  history.pushState(null, '', finalUrl);
+
+  fetch(finalUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(res => res.text())
+    .then(html => {
+      const container = document.getElementById("tab-content");
+      container.innerHTML = html;
+      highlightActiveTabFromURL();
+
+      // 清除旧的 init 状态（每次加载 HTML 后必须）
+      Object.keys(tabInitStatus).forEach(k => tabInitStatus[k] = false);
+      highlightActiveTabFromURL();
+
+      requestAnimationFrame(() => runTabInit(tabName));
+    });
+}
+
+function highlightActiveTabFromURL() {
+  const activeTab = getActiveTab();
+
+  document.querySelectorAll('.tabs a').forEach(tab => {
+    const tabUrl = new URL(tab.getAttribute("href"), window.location.origin);
+    const tabParam = new URLSearchParams(tabUrl.search).get("tab") || "warehouseproduct";
+
+    const activeClasses = ['bg-blue-500', 'text-white'];
+    const inactiveClasses = ['bg-gray-200', 'text-gray-700', 'hover:bg-gray-300'];
+
+    if (tabParam === activeTab) {
+      tab.classList.remove(...inactiveClasses);
+      tab.classList.add(...activeClasses);
+    } else {
+      tab.classList.remove(...activeClasses);
+      tab.classList.add(...inactiveClasses);
+    }
+  });
+}
+
+// =========================== BOOTSTRAP
+// DOMContentLoaded 初始化
+document.addEventListener("DOMContentLoaded", function () {
+    initTabs();
+    let initialTabName = getCurrentTabNameFromUrl();
+    let paramsForInitialLoad = new URLSearchParams(window.location.search);
+
+    if (!window.location.search || window.location.search === "?") {
+        console.log("Navigated to base URL. Clearing all tab session storages and loading default tab.");
+        clearAllTabFiltersFromSession();
+        initialTabName = DEFAULT_TAB;
+        paramsForInitialLoad = new URLSearchParams();
+        paramsForInitialLoad.set("tab", initialTabName);
+    } else {
+        console.log(`Initial load with URL params: "${paramsForInitialLoad.toString()}" for tab "${initialTabName}"`);
+    }
+
+    const finalInitialUrl = `?${paramsForInitialLoad.toString()}`;
+    console.log(`Final initial URL for page load: ${finalInitialUrl}`);
+    history.replaceState({ path: finalInitialUrl, tab: initialTabName }, '', finalInitialUrl);
+
+    fetch(finalInitialUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(res => {
+             if (!res.ok) throw new Error(`HTTP error! status: ${res.status}, fetching ${finalInitialUrl}`);
+             return res.text();
+        })
+        .then(html => {
+            document.getElementById("tab-content").innerHTML = html;
+            highlightActiveTabFromURL();
+            requestAnimationFrame(() => {
+                if (initialTabName === "purchaseorders") initPurchaseOrderTab();
+                else initWarehouseTab(); // This will call saveTabFiltersToSession with the URL-derived state
+            });
+        })
+        .catch(error => console.error("Error loading initial tab:", error));
+});
+
+</script>
+{% endblock %}
