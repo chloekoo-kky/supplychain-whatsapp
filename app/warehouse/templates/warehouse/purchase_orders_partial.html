@@ -1,345 +1,45 @@
+{% comment %} warehouse/templates/warehouse/purchase_orders_partial.html {% endcomment %}
 {% load static %}
 {% load custom_filters %}
 
-
 <div class="flex flex-col md:flex-row gap-6 max-w-7xl mx-auto px-4">
 
-  <!-- Left: Filter Panel -->
   <div class="md:w-64 shrink-0 sticky top-28 h-fit bg-base-100 rounded p-4 shadow z-10">
-
-    <!-- Reset 全宽按钮 -->
-    <button type="button"
-        class="btn btn-outline btn-sm w-full mb-4"
-        onclick="resetPurchaseOrderFilters()">
+    <button type="button" class="btn btn-outline btn-sm w-full mb-4" onclick="resetPurchaseOrderFilters()">
         🗑 Reset Filters
     </button>
-
-    <!-- Search -->
     <form id="po-search-form" class="mb-4">
       <input type="text" name="q" class="input input-bordered w-full" placeholder="Search PO, supplier, or item name" value="{{ query|default:'' }}">
     </form>
-
-        <div class="flex justify-between items-center mb-1">
+    <div class="flex justify-between items-center mb-1">
       <h3 class="text-md font-semibold uppercase text-gray-500 tracking-wide">Supplier</h3>
     </div>
-
     <div class="flex flex-wrap gap-1">
-    <button type="button"
-      class="btn btn-sm {% if not selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-      data-filter="supplier" data-value="">All</button>
-
-    {% for supplier in suppliers %}
-    <button type="button"
-      class="btn btn-sm {% if supplier.id|stringformat:'s' == selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-      data-filter="supplier" data-value="{{ supplier.id }}">
-      {{ supplier.code }}
-    </button>
-    {% endfor %}
-  </div>
-
+      <button type="button" class="btn btn-sm {% if not selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="supplier" data-value="">All</button>
+      {% for supplier_obj in suppliers %}
+      <button type="button" class="btn btn-sm {% if supplier_obj.id|stringformat:'s' == selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="supplier" data-value="{{ supplier_obj.id }}">
+        {{ supplier_obj.code }}
+      </button>
+      {% endfor %}
+    </div>
     <div class="flex justify-between items-center mb-1 mt-4">
       <h3 class="text-md font-semibold uppercase text-gray-500 tracking-wide">Status</h3>
     </div>
     <div class="flex flex-wrap gap-1">
-    <button type="button"
-      class="btn btn-sm {% if not selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-      data-filter="status" data-value="">All</button>
-
-    {% for code, label in status_choices %}
-    <button type="button"
-      class="btn btn-sm {% if code == selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-      data-filter="status" data-value="{{ code }}">
-      {{ label }}
-    </button>
-
-    {% endfor %}
+      <button type="button" class="btn btn-sm {% if not selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="status" data-value="">All</button>
+      {% for code, label in status_choices %}
+      <button type="button" class="btn btn-sm {% if code == selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="status" data-value="{{ code }}">
+        {{ label }}
+      </button>
+      {% endfor %}
     </div>
-
   </div>
 
-
-  <!-- Right: PO List -->
   <div class="flex-1 space-y-6" id="purchase-orders-list">
-    {% if purchase_orders %}
-    {% for po in purchase_orders %}
-        <!-- PO Card -->
-        <div id="po-card-{{ po.id }}" class="bg-base-100 shadow rounded-xl p-4 relative">
-
-          <!-- ERP质感小横条 -->
-          <div class="absolute top-0 left-0 h-2 w-full rounded-t-xl
-            {% if po.status == 'DRAFT' %}
-              bg-gray-400
-            {% elif po.status == 'WAITING_INVOICE' %}
-              bg-yellow-400
-            {% elif po.status == 'PAYMENT_MADE' %}
-              bg-blue-400
-            {% elif po.status == 'PARTIALLY_DELIVERED' %}
-              bg-purple-400
-            {% elif po.status == 'DELIVERED' %}
-              bg-green-500
-            {% elif po.status == 'CANCELLED' %}
-              bg-red-400
-            {% endif %}
-          ">
-          </div>
-
-          <!-- Header -->
-          <div class="flex justify-between items-start mt-4">
-            <!-- Tittle and ETA -->
-            <div>
-              <h3 class="text-lg font-semibold">{{ po.items.warehouse.name }} PO #{{ po.id }} - {{ po.supplier.name }}</h3>
-              <p class="text-sm text-gray-500">ETA:
-                {% if po.eta %}
-                  {{ po.eta|date:"d/m/Y, l" }}
-                {% else %}
-                  N/A
-                {% endif %}
-              </p>
-
-            </div>
-            <!-- status tag --><!-- UPDATE button --><!-- EDIT button -->
-            <div class="flex items-center gap-x-4">
-              <span id="status-label-{{ po.id }}" class="badge badge-lg py-5 font-semibold
-                {% if po.status == 'DRAFT' %}
-                  bg-gray-400 text-white
-                {% elif po.status == 'WAITING_INVOICE' %}
-                  bg-yellow-400 text-black
-                {% elif po.status == 'PAYMENT_MADE' %}
-                  bg-blue-400 text-white
-                {% elif po.status == 'PARTIALLY_DELIVERED' %}
-                  bg-purple-400 text-white
-                {% elif po.status == 'DELIVERED' %}
-                  bg-green-500 text-white
-                {% elif po.status == 'CANCELLED' %}
-                  bg-red-400 text-white
-                {% else %}
-                  badge-ghost
-                {% endif %}
-              ">
-                {{ po.get_status_display }}
-              </span>
-
-                <label for="modal-update-po-{{ po.id }}" class="btn btn-sm btn-outline">Update</label>
-
-                {% if request.user.is_superuser %}
-                <label for="modal-edit-items-{{ po.id }}" class="btn btn-sm btn-outline">Edit</label>
-                {% endif %}
-            </div>
-          </div>
-
-          <!-- Items Table -->
-          <div class="mt-4">
-            <table class="table w-full">
-              <thead>
-                <tr>
-                  <th>SKU</th>
-                  <th>Item</th>
-                  <th>Qty</th>
-                  <th>Unit Price</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in po.items.all %}
-                  <tr>
-                    <td>{{ item.item.product.sku }}</td>
-                    <td>{{ item.item.product.name }}</td>
-                    <td>{{ item.quantity }}</td>
-                    <td>{{ item.price }}</td>
-                    <td>{{ item.total_price }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-
-            <div class="flex justify-between items-center mt-4">
-                <p class="text-sm text-gray-500">
-                  Last updated: {{ po.last_updated_date|date:"d/m/Y, l H:i" }}
-                </p>
-                <div class="text-right font-bold">
-                  Total Amount: {{ po.total_amount }}
-                </div>
-            </div>
-
-          </div>
-
-        </div>
-        {# End PO Card #}
-        {# End PO Card #}
-
-
-
-        <!-- modal-update-po-{{ po.id }}: Update Purchase Order -->
-        <!-- modal-update-po-{{ po.id }}: Update Purchase Order -->
-        <input type="checkbox" id="modal-update-po-{{ po.id }}" class="modal-toggle" />
-        <div class="modal" role="dialog">
-                <div class="modal-box max-w-5xl" data-po-id="{{ po.id }}">
-                <h3 class="font-bold text-lg mb-4">Edit Purchase Order #{{ po.id }}</h3>
-
-                    <form method="post" action="{% url 'warehouse:po_update' po.id %}" class="po-update-form" data-po-id="{{ po.id }}">
-                    {% csrf_token %}
-
-                    <!-- ETA Field -->
-                    <div class="form-control mb-4">
-                        <label class="label font-bold">ETA</label>
-                        <input type="date" name="eta" value="{{ po.eta|date:'Y-m-d' }}" class="input input-bordered w-full" />
-                    </div>
-
-                    <!-- Update Status Section -->
-                    <h3 class="font-bold text-lg mb-4">Update PO Status</h3>
-
-                    <!-- Hidden input to store selected status -->
-                    <input type="hidden" name="selected_status" id="selected-status-{{ po.id }}" value="{{ po.status }}">
-
-                    <div class="grid grid-cols-2 gap-4">
-                    {% with po_status_dates=status_dates|dict_get:po.id %}
-                    {% with next_status=next_statuses|dict_get:po.id %}
-
-                    {% for code, label in status_choices %}
-                    {% with date_value=po_status_dates|dict_get:code %}
-                    <div class="space-y-1">
-
-                        {% if date_value %}
-                        <button type="button" class="btn btn-md w-full btn-neutral" disabled>
-                        {{ label }}
-                        </button>
-
-                        <div class="text-md text-center text-gray-500">
-                        {{ date_value|date:"d/m/Y, l H:i" }}
-                        </div>
-
-                        {% else %}
-                        <button type="button"
-                        class="btn btn-md w-full status-select-btn btn-outline"
-                        data-po-id="{{ po.id }}"
-                        data-status="{{ code }}">
-                        {{ label }}
-                        </button>
-
-                        {% endif %}
-                    </div>
-                    {% endwith %}
-                    {% endfor %}
-
-                {% endwith %}
-                {% endwith %}
-            </div>
-
-            <div class="modal-action mt-6">
-                <button type="submit" class="btn btn-primary">Save Changes</button>
-                <label for="modal-update-po-{{ po.id }}" class="btn btn-outline">Cancel</label>
-              </div>
-            </form>
-
-        </div> {# End modal-box #}
-        </div>
-        {# End modal-update-po #}
-        {# End modal-update-po #}
-
-
-
-        <!-- modal-edit-items-{{ po.id }}: EDIT Purchase Order -->
-        <!-- modal-edit-items-{{ po.id }}: EDIT Purchase Order -->
-        <input type="checkbox" id="modal-edit-items-{{ po.id }}" class="modal-toggle" />
-        <div class="modal" role="dialog">
-            <div class="modal-box max-w-3xl" data-po-id="{{ po.id }}">
-
-                <h3 class="font-bold text-lg mb-4">Edit Items for PO #{{ po.id }}</h3>
-
-                <form method="post" action="{% url 'warehouse:po_edit_items' po.id %}"
-                    class="po-edit-form" data-po-id="{{ po.id }}">
-                    {% csrf_token %}
-
-                    <table class="table w-full mb-4" id="po-items-table-{{ po.id }}">
-
-                        <thead>
-                            <tr>
-                                <th>SKU</th>
-                                <th>Product</th>
-                                <th>Quantity</th>
-                                <th>Unit Price</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                        {% for item in po.items.all %}
-                        <tr>
-                          <input type="hidden" name="item_id_{{ forloop.counter0 }}" value="{{ item.id }}">
-                          <input type="hidden" name="product_{{ forloop.counter0 }}" value="{{ item.item.id }}">
-
-                          <td>{{ item.item.product.sku }}</td>
-                          <td>{{ item.item.product.name }} @ {{ item.item.warehouse.name }}</td>
-                          <td>
-                            <input type="number" name="quantity_{{ forloop.counter0 }}" value="{{ item.quantity }}" class="input input-sm input-bordered w-24" /></td>
-                          <td>
-                            <input type="number" step="0.01" name="price_{{ forloop.counter0 }}" value="{{ item.price }}" class="input input-sm input-bordered w-24" /></td>
-                        </tr>
-                        {% endfor %}
-                        </tbody>
-                    </table>
-
-                    <div class="modal-action justify-between">
-                      <label for="modal-edit-items-{{ po.id }}" class="btn">Cancel</label>
-                      <div>
-                        <button type="submit" class="btn btn-primary">Save Changes</button>
-                        <form method="post" action="{% url 'warehouse:po_delete' po.id %}" style="display: inline;">
-                          <button type="button" class="btn btn-error delete-po-btn" data-po-id="{{ po.id }}">
-                            Delete PO
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-                </form>
-
-            </div>
-        </div>
-        {# End modal-edit-items #}
-        {# End modal-edit-items #}
-
-
-
-
-    {% endfor %}
-
-    <!-- 🧭 分页（如适用） -->
-    <div class="pagination flex justify-center mt-4">
-      <!-- 🧭 分页 -->
-      {% if purchase_orders.has_other_pages %}
-      {% with request.GET.urlencode as query_string %}
-      <div class="pagination flex flex-wrap justify-center mt-6 gap-2">
-
-        {# 上一页按钮 #}
-        {% if purchase_orders.has_previous %}
-          <a href="?page={{ purchase_orders.previous_page_number }}&{{ query_string }}" class="btn btn-sm pagination-link">Prev</a>
-        {% endif %}
-
-        {# 中间页码按钮 #}
-        {% for page_num in purchase_orders.paginator.page_range %}
-          {% if page_num == purchase_orders.number %}
-            <span class="btn btn-sm btn-primary cursor-default">{{ page_num }}</span>
-          {% elif page_num >= purchase_orders.number|add:'-2' and page_num <= purchase_orders.number|add:'2' %}
-            <a href="?page={{ page_num }}&{{ query_string }}" class="btn btn-sm pagination-link">{{ page_num }}</a>
-          {% elif page_num == 1 or page_num == purchase_orders.paginator.num_pages %}
-            <a href="?page={{ page_num }}&{{ query_string }}" class="btn btn-sm pagination-link">{{ page_num }}</a>
-          {% elif forloop.first or forloop.last %}
-            ...
-          {% endif %}
-        {% endfor %}
-
-        {# 下一页按钮 #}
-        {% if purchase_orders.has_next %}
-          <a href="?page={{ purchase_orders.next_page_number }}&{{ query_string }}" class="btn btn-sm pagination-link">Next</a>
-        {% endif %}
-      </div>
-      {% endwith %}
-      {% endif %}
-
+    <div id="item-list-container" class="initially-hidden">
+      {% include "warehouse/_po_list_items.html" with purchase_orders=purchase_orders.object_list page_obj=purchase_orders has_next=purchase_orders.has_next status_choices=status_choices status_dates=status_dates next_statuses=next_statuses request=request %}
     </div>
 
+    <div id="receive-items-modal-container"></div>
 
-      {% else %}
-        <p class="text-gray-500">No purchase orders found.</p>
-      {% endif %}
-  </div>
-
-</div>
+  </div> </div>

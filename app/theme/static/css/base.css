@@ -22,3 +22,8 @@
     box-shadow: 0 0 0 0 transparent; /* 逐渐过渡成没有光圈 */
     transition: box-shadow 0.8s ease;
   }
+
+/* Add this to your main CSS file or in a <style> tag in warehouse_management.html */
+#purchase-orders-list #item-list-container.initially-hidden {
+  visibility: hidden; /* Or display: none; if you prefer, but visibility can be smoother */
+}

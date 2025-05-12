@@ -133,8 +133,7 @@ class WarehouseAdmin(admin.ModelAdmin):
 class PurchaseOrderAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'supplier', 'status', 'draft_date', 'waiting_invoice_date', 'payment_made_date',
-        'partially_delivered_date', 'delivered_date', 'cancelled_date',
-        'inventory_updated'
+        'partially_delivered_date', 'delivered_date', 'cancelled_date'
     )
     list_filter = ('status', 'draft_date', 'supplier')
     search_fields = ('id', 'supplier__name')

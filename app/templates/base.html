@@ -15,7 +15,7 @@
     <link id="theme-css" rel="stylesheet" href="{% static 'css/base.css' %}">
   </head>
   <body class="bg-gray-50 text-gray-900">
-
+    {% csrf_token %} 
     <!-- ✅ Sticky Header -->
     <div class="navbar bg-base-100 shadow-sm sticky top-0 z-50 mb-4">
       <div class="flex-1 flex items-center space-x-4 px-4 max-w-7xl mx-auto w-full">
