@@ -22,11 +22,14 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf.urls.static import static
 from django.conf import settings
+from django.views.generic.base import RedirectView
 
 
 # app/urls.py
 urlpatterns = [
+    path('', RedirectView.as_view(pattern_name='inventory:inventory_batch_list_view', permanent=False), name='home'),
     path('admin/', admin.site.urls),
+    path('accounts/', include('django.contrib.auth.urls')), 
     path('warehouse/', include(('warehouse.urls', 'warehouse'), namespace='warehouse-ui')),
     path('inventory/', include(('inventory.urls', 'inventory'), namespace='inventory-ui')),  # for UI
     path('operation/', include(('operation.urls', 'operation'), namespace='operation-ui')),
@@ -40,4 +43,8 @@ if settings.DEBUG:
     urlpatterns += static(
         settings.MEDIA_URL,
         document_root=settings.MEDIA_ROOT,
+    )
+    urlpatterns += static(
+        settings.STATIC_URL, # Also serve static files during development if not handled by webserver
+        document_root=settings.STATIC_ROOT
     )

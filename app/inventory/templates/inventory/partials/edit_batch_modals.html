@@ -1,0 +1,50 @@
+{% comment %}
+This partial expects 'all_inventory_batches' to be in the context
+if you are generating modals for every possible batch item.
+Alternatively, if modals are generated per displayed wp.processed_batches,
+this include would need to be inside that loop, passing 'batch_item'
+or you'd pass 'wp.processed_batches' to this partial and loop here.
+Assuming 'all_inventory_batches' for now as per previous structure.
+{% endcomment %}
+
+{% for batch_item_modal_instance in all_inventory_batches %}
+    <input type="checkbox" id="edit-batch-modal-toggle-{{ batch_item_modal_instance.pk }}" class="modal-toggle edit-batch-modal-checkbox-actual" />
+    <div class="modal edit-batch-modal-instance" id="edit-batch-modal-container-{{ batch_item_modal_instance.pk }}" role="dialog">
+        <div class="modal-box max-w-lg">
+            <form class="edit-batch-form" method="POST" action="{% url 'inventory:edit_inventory_batch' batch_item_modal_instance.pk %}">
+                {% csrf_token %}
+                <h3 class="font-bold text-xl mb-6">Edit Batch: {{ batch_item_modal_instance.warehouse_product.product.name }}</h3>
+                <p class="mb-1 text-sm text-gray-500">SKU: {{ batch_item_modal_instance.warehouse_product.product.sku }}</p>
+                <p class="mb-1 text-sm text-gray-500">Warehouse: {{ batch_item_modal_instance.warehouse_product.warehouse.name }}</p>
+                <p class="mb-4 text-sm text-gray-500">Original Batch: {{ batch_item_modal_instance.batch_number|default:"PENDING INFO" }}</p>
+
+                <input type="hidden" name="warehouse_product" value="{{ batch_item_modal_instance.warehouse_product.pk }}">
+                <div class="form-control w-full mb-4">
+                    <label class="label" for="id_batch_number_edit_{{ batch_item_modal_instance.pk }}"><span class="label-text">Batch Number</span></label>
+                    <input type="text" name="batch_number" id="id_batch_number_edit_{{ batch_item_modal_instance.pk }}" value="{{ batch_item_modal_instance.batch_number|default_if_none:'' }}" placeholder="Enter Batch Number" class="input input-bordered w-full" />
+                </div>
+                <div class="form-control w-full mb-4">
+                    <label class="label" for="id_expiry_date_edit_{{ batch_item_modal_instance.pk }}"><span class="label-text">Expiry Date</span></label>
+                    <input type="date" name="expiry_date" id="id_expiry_date_edit_{{ batch_item_modal_instance.pk }}" value="{{ batch_item_modal_instance.expiry_date|date:'Y-m-d'|default_if_none:'' }}" class="input input-bordered w-full" />
+                </div>
+                <div class="form-control w-full mb-4">
+                    <label class="label" for="id_quantity_edit_{{ batch_item_modal_instance.pk }}"><span class="label-text">Quantity</span></label>
+                    <input type="number" name="quantity" id="id_quantity_edit_{{ batch_item_modal_instance.pk }}" value="{{ batch_item_modal_instance.quantity }}" min="0" class="input input-bordered w-full" required />
+                </div>
+                <div class="form-control w-full mb-4">
+                    <label class="label" for="id_cost_price_edit_{{ batch_item_modal_instance.pk }}"><span class="label-text">Cost Price (per unit)</span></label>
+                    <input type="number" name="cost_price" id="id_cost_price_edit_{{ batch_item_modal_instance.pk }}" value="{{ batch_item_modal_instance.cost_price|stringformat:'.2f'|default_if_none:'' }}" step="0.01" placeholder="e.g., 10.50" class="input input-bordered w-full" />
+                </div>
+                <div class="form-control w-full mb-4">
+                    <label class="label" for="id_date_received_edit_{{ batch_item_modal_instance.pk }}"><span class="label-text">Date Received</span></label>
+                    <input type="date" name="date_received" id="id_date_received_edit_{{ batch_item_modal_instance.pk }}" value="{{ batch_item_modal_instance.date_received|date:'Y-m-d' }}" class="input input-bordered w-full" required />
+                </div>
+                <div class="modal-action mt-8">
+                    <label for="edit-batch-modal-toggle-{{ batch_item_modal_instance.pk }}" class="btn btn-ghost">Cancel</label>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+        <label class="modal-backdrop" for="edit-batch-modal-toggle-{{ batch_item_modal_instance.pk }}">Close</label>
+    </div>
+{% endfor %}

@@ -21,41 +21,47 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/3.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%l3dwve43@7*u^o8cd(cr+xva+@rc=5-2gg2)11lb2vj#!-77a'
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-%l3dwve43@7*u^o8cd(cr+xva+@rc=5-2gg2)11lb2vj#!-77a') # It's better to get from env
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True' # Get from env, default to True for dev
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS_STRING = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
+ALLOWED_HOSTS = ALLOWED_HOSTS_STRING.split(',') if ALLOWED_HOSTS_STRING else []
 
 
 # Application definition
 
 INSTALLED_APPS = [
     'django.contrib.admin',
-    'django.contrib.auth',
+    'django.contrib.auth', # Core authentication framework
     'django.contrib.contenttypes',
     'django.contrib.sessions',
-    'django.contrib.messages',
+    'django.contrib.messages', # For displaying messages
     'django.contrib.staticfiles',
-    'django.contrib.humanize',
-    'rest_framework',
-    'rest_framework.authtoken',
-    'drf_spectacular',
-    'user',
-    'core',
-    'warehouse',
-    'inventory',
-    'operation',
+    'django.contrib.humanize', # Useful for human-readable formatting
+
+    # Third-party apps (if any, e.g., DRF)
+    # 'rest_framework',
+    # 'rest_framework.authtoken',
+    # 'drf_spectacular',
+
+    # Your apps
+    'core.apps.CoreConfig', # Use AppConfig for better app management
+    'user.apps.UserConfig', # Assuming you have a user app for custom user model or API
+    'warehouse.apps.WarehouseConfig',
+    'inventory.apps.InventoryConfig',
+    'operation.apps.OperationConfig',
+    'theme', # Assuming your theme app is for static files like base.css
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware', # Manages sessions across requests
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware', # Protection against CSRF
+    'django.contrib.auth.middleware.AuthenticationMiddleware', # Associates users with requests using sessions
+    'django.contrib.messages.middleware.MessageMiddleware', # Enables message framework
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -64,14 +70,14 @@ ROOT_URLCONF = 'app.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [os.path.join(BASE_DIR, 'templates')],
-        'APP_DIRS': True,
+        'DIRS': [os.path.join(BASE_DIR, 'templates')], # Global templates directory
+        'APP_DIRS': True, # Django will look for templates in each app's 'templates' directory
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.request', # Adds the request object to template context
+                'django.contrib.auth.context_processors.auth', # Adds user and perms objects
+                'django.contrib.messages.context_processors.messages', # Adds messages
             ],
         },
     },
@@ -91,7 +97,7 @@ DATABASES = {
         'NAME': os.environ.get('DB_NAME'),
         'USER': os.environ.get('DB_USER'),
         'PASSWORD': os.environ.get('DB_PASS'),
-        'PORT': 5432,
+        'PORT': os.environ.get('DB_PORT', '5432'), # Default to 5432 if not set
     }
 }
 
@@ -119,46 +125,63 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/3.2/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'Asia/Kuala_Lumpur'
-
+TIME_ZONE = 'Asia/Kuala_Lumpur' # Or your preferred timezone
 USE_I18N = True
-
-USE_L10N = True
-
-USE_TZ = True
+USE_L10N = True # For localized formatting of dates, numbers, etc.
+USE_TZ = True # Enable timezone-aware datetimes
 
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.2/howto/static-files/
 
 STATIC_URL = '/static/'
-
 STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, "theme/static"),
+    os.path.join(BASE_DIR, "theme/static"), # Your theme's static files
+    # You can add other global static directories here if needed
 ]
-
+# STATIC_ROOT is where collectstatic will gather all static files for deployment
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles_collected')
 
 
 MEDIA_URL = '/media/'
-
-MEDIA_ROOT = '/vol/web/media/'
-STATIC_ROOT = '/vol/web/static/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'mediafiles') # For user-uploaded files
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-AUTH_USER_MODEL = 'core.User'
+AUTH_USER_MODEL = 'core.User' # Your custom user model
 
-REST_FRAMEWORK = {
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema'
-}
+# --- Authentication Settings ---
+LOGIN_URL = 'login'  # The name of the URL pattern for the login page
+LOGOUT_REDIRECT_URL = 'login' # Where to redirect after logout (e.g., back to login page or homepage)
+LOGIN_REDIRECT_URL = '/'      # Where to redirect after successful login (e.g., homepage or dashboard)
+# If you have a specific dashboard page, use its URL name:
+# LOGIN_REDIRECT_URL = 'inventory:inventory_batch_list_view'
 
-SPECTACULAR_SETTINGS = {
-    'COMPONENT_SPLIT_REQUEST': True,
-}
 
-ERP_API_URL = "https://your-erp.com/api"
-ERP_ACCESS_TOKEN = "your-erp-api-token"
+# REST_FRAMEWORK = {
+#     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema'
+# }
+
+# SPECTACULAR_SETTINGS = {
+#     'COMPONENT_SPLIT_REQUEST': True,
+# }
+
+# ERP_API_URL = "https://your-erp.com/api"
+# ERP_ACCESS_TOKEN = "your-erp-api-token"
+
+# Ensure AppConfigs are used for clarity
+# Example: CORE_APPS.APPS.CoreConfig (if your app is named core and has apps.py)
+# This is generally good practice but not strictly required if INSTALLED_APPS lists app names directly.
+
+# Security settings (review for production)
+# CSRF_COOKIE_SECURE = not DEBUG # Set to True in production
+# SESSION_COOKIE_SECURE = not DEBUG # Set to True in production
+# SECURE_SSL_REDIRECT = not DEBUG # Set to True in production
+# SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0 # Example: 1 year
+# SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+# SECURE_HSTS_PRELOAD = not DEBUG
+# SECURE_BROWSER_XSS_FILTER = True
+# X_FRAME_OPTIONS = 'DENY'

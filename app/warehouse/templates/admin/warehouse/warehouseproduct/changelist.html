@@ -53,8 +53,9 @@
 
 {% block object-tools %}
 <div class="flex gap-2">
-  <button type="button" id="csvUploadButton" class="custom-button">📥 Upload CSV </button>
-  <a href="{% url 'admin:warehouse_warehouseproduct_download_csv_template' %}" class="custom-button">📄 Download Template</a>
+  <button type="button" id="excelUploadButton" class="custom-button">📥 Upload Excel</button>
+    <a href="{% url 'admin:warehouse_warehouseproduct_download_excel_template' %}" class="custom-button">📄 Download Excel Template</a>
+    <a href="{% url 'admin:warehouse_warehouseproduct_export_excel' %}{% if request.GET %}?{{ request.GET.urlencode|safe }}{% endif %}" class="custom-button">📤 Export Excel</a>
 </div>
 {{ block.super }}
 {% endblock %}
@@ -62,14 +63,17 @@
 {% block content %}
   {{ block.super }}
 
-  <div id="csvModal" class="modal">
+  <div id="excelModal" class="modal">
     <div class="modal-content">
-      <span id="closeCsvModal" style="float:right;cursor:pointer;">&times;</span>
-      <h3>上传CSV文件</h3>
-      <form id="uploadForm" method="post" enctype="multipart/form-data" action="{% url 'admin:warehouse_warehouseproduct_upload_csv' %}">
+      <span id="closeExcelModal" style="float:right;cursor:pointer; font-size: 1.5rem; line-height: 1;">&times;</span> {# Changed ID #}
+      <h3>Upload Warehouse Product Excel (.xlsx)</h3>
+      <form id="uploadExcelForm" method="post" enctype="multipart/form-data" action="{% url 'admin:warehouse_warehouseproduct_upload_excel' %}"> {# Changed ID and action #}
         {% csrf_token %}
-        <input type="file" name="csv_upload" accept=".csv" required><br><br>
-        <button type="submit" class="btn btn-primary">Upload</button>
+        <p class="mb-3">
+            <label for="id_excel_upload_modal">Select Excel file:</label>
+            <input type="file" name="excel_upload" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required id="id_excel_upload_modal" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 mt-1">
+        </p>
+        <button type="submit" class="button default w-full">Upload File</button>
       </form>
     </div>
   </div>
@@ -79,9 +83,9 @@
   {{ block.super }}
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      const uploadButton = document.getElementById('csvUploadButton');
-      const modal = document.getElementById('csvModal');
-      const closeBtn = document.getElementById('closeCsvModal');
+      const uploadButton = document.getElementById('excelUploadButton'); // Changed ID
+      const modal = document.getElementById('excelModal'); // Changed ID
+      const closeBtn = document.getElementById('closeExcelModal'); // Changed ID
 
       if (uploadButton && modal) {
         uploadButton.addEventListener('click', function() {
@@ -94,6 +98,12 @@
           modal.style.display = 'none';
         });
       }
+
+      window.addEventListener('click', function(event) {
+        if (event.target == modal) {
+          modal.style.display = "none";
+        }
+      });
     });
   </script>
 {% endblock %}

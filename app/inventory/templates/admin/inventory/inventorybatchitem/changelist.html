@@ -1,0 +1,156 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{# Add custom styles for the modal AND the custom buttons #}
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    .csv-upload-modal {
+      display: none; /* Hidden by default */
+      position: fixed;
+      z-index: 1000; /* Sit on top */
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto; /* Enable scroll if needed */
+      background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+    }
+    .csv-upload-modal-content {
+      background-color: #fefefe;
+      margin: 15% auto; /* 15% from the top and centered */
+      padding: 20px;
+      border: 1px solid #888;
+      width: 50%; /* Could be more or less, depending on screen size */
+      max-width: 500px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2),0 6px 20px 0 rgba(0,0,0,0.19);
+    }
+    .csv-upload-modal-close-btn {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+    }
+    .csv-upload-modal-close-btn:hover,
+    .csv-upload-modal-close-btn:focus {
+      color: black;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    /* Custom button styles from Product Admin */
+    .custom-button {
+      display: inline-block;
+      padding: 6px 12px;
+      font-size: 14px;
+      font-weight: 400;
+      line-height: 1.5;
+      text-align: center;
+      white-space: nowrap;
+      vertical-align: middle;
+      cursor: pointer;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      text-decoration: none !important; /* Ensure no underline for links styled as buttons */
+      color: #fff !important;
+      background-color: #79aec8; /* Default Django admin blue */
+      border-color: #79aec8;
+    }
+    .custom-button:hover {
+      background-color: #417690; /* Darker blue on hover */
+      border-color: #417690;
+      color: #fff !important;
+      text-decoration: none !important;
+    }
+    .custom-button-container { /* For layout */
+        display: flex;
+        gap: 0.5rem; /* Equivalent to Tailwind's gap-2 for spacing */
+        margin-bottom: 0.5rem; /* Add some space below the buttons */
+    }
+  </style>
+{% endblock %}
+
+{# Override object-tools to insert custom buttons BEFORE default tools #}
+{% block object-tools %}
+  <div class="custom-button-container">
+    <button type="button" id="openCsvBatchUploadModalBtn" class="custom-button">
+      📥 Upload Batch CSV
+    </button>
+    <a href="{% url 'admin:inventory_inventorybatchitem_download_template' %}" class="custom-button">
+      📄 Download Batch Template
+    </a>
+  </div>
+  {{ block.super }} {# This includes the default "Add inventory batch item" button and other tools #}
+{% endblock %}
+
+
+{# Add the modal HTML structure within the content block (it will be hidden by default) #}
+{% block content %}
+  {{ block.super }}
+
+  <div id="csvBatchUploadModal" class="csv-upload-modal">
+    <div class="csv-upload-modal-content">
+      <span class="csv-upload-modal-close-btn" id="closeCsvBatchUploadModalBtn">&times;</span>
+      <h3>Upload Inventory Batch Items CSV</h3>
+      <br>
+      <form method="post" enctype="multipart/form-data" action="{% url 'admin:inventory_inventorybatchitem_upload_csv' %}">
+        {% csrf_token %}
+        <p>
+            <label for="id_csv_upload_for_batch_modal">Select CSV file:</label>
+            <input type="file" name="csv_upload" required id="id_csv_upload_for_batch_modal" accept=".csv">
+        </p>
+        <div style="margin-top: 15px;">
+          <input type="submit" value="Upload File" class="button default"> {# Use Django admin's default button style for submit inside modal #}
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}
+
+{# Add JavaScript to control the modal #}
+{% block footer %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const modal = document.getElementById('csvBatchUploadModal');
+      const openBtn = document.getElementById('openCsvBatchUploadModalBtn');
+      const closeBtn = document.getElementById('closeCsvBatchUploadModalBtn');
+
+      if (openBtn && modal) {
+        openBtn.onclick = function() {
+          modal.style.display = "block";
+        }
+      }
+
+      if (closeBtn && modal) {
+        closeBtn.onclick = function() {
+          modal.style.display = "none";
+        }
+      }
+
+      window.onclick = function(event) {
+        if (event.target == modal) {
+          modal.style.display = "none";
+        }
+      }
+    });
+  </script>
+{% endblock %}
+```
+
+**Key Changes in this template:**
+
+
+    * The CSS styles for `.custom-button` (and its hover state) from your `Product` admin template have been copied here. This ensures the buttons have the desired appearance (blue background, white text, rounded corners, etc.).
+    * A new class `.custom-button-container` has been added to mimic the `div class="flex gap-2"` from your Product admin, providing a flex layout with spacing for the buttons.
+
+    * This block is overridden (instead of `object-tools-items`).
+    * A `div` with class `custom-button-container` is used to wrap the custom buttons.
+    * The "Upload Batch CSV" `<button>` and the "Download Batch Template" `<a>` tag now both have the class `custom-button`.
+    * Emojis (📥 and 📄) are added for visual consistency with your Product admin example.
+    * `{{ block.super }}` is called *after* the custom buttons div. This is important because `object-tools` in the base Django admin template typically renders a `<ul>`. By adding our div before `block.super`, our buttons will appear above or before the default tools (like the "Add..." button).
+
+3.  **Modal and JavaScript**: The modal HTML and the JavaScript to control its visibility remain the same as in the previous version, as they are standard for this functionality. The "Upload File" button inside the modal uses the Django admin's `button default` class.
+
+With these changes, the "Upload Batch CSV" and "Download Batch Template" buttons on the `InventoryBatchItem` changelist page should now visually match the buttons on your `Product` admin changelist pa

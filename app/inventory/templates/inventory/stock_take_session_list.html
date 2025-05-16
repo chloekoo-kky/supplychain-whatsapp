@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block page_title %}{{ page_title|default:"Stock Take Sessions" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
+        {# Optional: Button to initiate a new stock take from admin view, if desired #}
+        {# <a href="#" class="btn btn-primary">Initiate New Stock Take</a> #}
+    </div>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert {% if message.tags == 'error' %}alert-error{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %} shadow-lg mb-4">
+                <div><span>{{ message }}</span></div>
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    <form method="get" class="card bg-base-100 shadow-md p-4 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+                <label for="warehouse_filter" class="label"><span class="label-text">Filter by Warehouse:</span></label>
+                <select name="warehouse" id="warehouse_filter" class="select select-bordered w-full">
+                    <option value="">All Warehouses</option>
+                    {% for wh in warehouses %}
+                        <option value="{{ wh.pk }}" {% if selected_warehouse == wh.pk|stringformat:"s" %}selected{% endif %}>{{ wh.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="status_filter" class="label"><span class="label-text">Filter by Status:</span></label>
+                <select name="status" id="status_filter" class="select select-bordered w-full">
+                    <option value="">All Statuses</option>
+                    {% for code, display_name in status_choices %}
+                        <option value="{{ code }}" {% if selected_status == code %}selected{% endif %}>{{ display_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-control">
+                <button type="submit" class="btn btn-primary w-full md:w-auto">Filter</button>
+            </div>
+        </div>
+    </form>
+
+    {% if sessions %}
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+            <table class="min-w-full table-auto">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-sm leading-normal">
+                    <tr>
+                        <th class="py-3 px-6 text-left">Session Name</th>
+                        <th class="py-3 px-6 text-left">Warehouse</th>
+                        <th class="py-3 px-6 text-left">Status</th>
+                        <th class="py-3 px-6 text-left">Initiated By</th>
+                        <th class="py-3 px-6 text-left">Initiated At</th>
+                        <th class="py-3 px-6 text-left">Operator Completed At</th>
+                        <th class="py-3 px-6 text-left">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for session in sessions %}
+                        <tr class="border-b border-gray-200 hover:bg-gray-50">
+                            <td class="py-3 px-6 text-left">{{ session.name }}</td>
+                            <td class="py-3 px-6 text-left">{{ session.warehouse.name }}</td>
+                            <td class="py-3 px-6 text-left">
+                                <div class="flex items-center space-x-2">
+                                    <span class="h-3 w-3 rounded-full  {# Adjusted size to h-3 w-3 for better alignment with text #}
+                                        {% if session.status == 'PENDING' %}bg-yellow-400  {# Using Tailwind direct colors #}
+                                        {% elif session.status == 'COMPLETED_BY_OPERATOR' %}bg-blue-500
+                                        {% elif session.status == 'EVALUATED' %}bg-green-500
+                                        {% elif session.status == 'CLOSED' %}bg-gray-500
+                                        {% else %}bg-gray-300
+                                        {% endif %}">
+                                    </span>
+                                    <span>{{ session.get_status_display }}</span>
+                                </div>
+                            </td>
+                            <td class="py-3 px-6 text-left">{{ session.initiated_by.name|default:session.initiated_by.email|default:"N/A" }}</td>
+                            <td class="py-3 px-6 text-left">{{ session.initiated_at|date:"Y-m-d H:i" }}</td>
+                            <td class="py-3 px-6 text-left">{{ session.completed_by_operator_at|date:"Y-m-d H:i"|default:"-" }}</td>
+                            <td class="py-3 px-6 text-left">
+                                <a href="{% url 'inventory:stock_take_session_detail' session.pk %}" class="btn btn-xs btn-outline btn-info">Details</a>
+                                <a href="{% url 'inventory:download_stock_take_session_csv' session.pk %}" class="btn btn-xs btn-outline btn-success ml-1">Download</a>
+                                {% if session.status == 'COMPLETED_BY_OPERATOR' or session.status == 'EVALUATED' %}
+                                    {# MODIFIED: Link to the actual evaluation view #}
+                                    <form method="post" action="{% url 'inventory:evaluate_stock_take_session' session.pk %}" class="inline ml-1">
+                                        {% csrf_token %}
+                                        <button type="submit" class="btn btn-sm btn-warning"
+                                                onclick="return confirm('{{ full_confirm_message|escapejs }}');"> {# Use escapejs filter #}
+                                        {% if session.status == "EVALUATED" %}Re-{% endif %}Evaluate Discrepancies
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mt-6 rounded-md" role="alert">
+            <p class="font-bold">No Stock Take Sessions Found</p>
+            <p>There are currently no stock take sessions matching your criteria.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

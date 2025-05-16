@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block page_title %}{{ page_title|default:"Stock Take Session Details" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
+        <a href="{% url 'inventory:stock_take_session_list' %}" class="btn btn-outline">Back to Sessions List</a>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl mb-8">
+        <div class="card-body">
+            <h2 class="card-title text-xl">Session Summary: {{ session.name }}</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <p><strong>Warehouse:</strong> {{ session.warehouse.name }}</p>
+                <p><strong>Status:</strong>
+                    <span class="badge
+                        {% if session.status == 'PENDING' %}badge-warning
+                        {% elif session.status == 'COMPLETED_BY_OPERATOR' %}badge-info
+                        {% elif session.status == 'EVALUATED' %}badge-success
+                        {% elif session.status == 'CLOSED' %}badge-neutral
+                        {% else %}badge-ghost
+                        {% endif %}">
+                        {{ session.get_status_display }}
+                    </span>
+                </p>
+                <p><strong>Initiated By:</strong> {{ session.initiated_by.name|default:session.initiated_by.email|default:"N/A" }}</p>
+                <p><strong>Initiated At:</strong> {{ session.initiated_at|date:"Y-m-d H:i:s" }}</p>
+                {% if session.completed_by_operator_at %}
+                <p><strong>Operator Completed At:</strong> {{ session.completed_by_operator_at|date:"Y-m-d H:i:s" }}</p>
+                {% endif %}
+                {% if session.evaluated_by %}
+                <p><strong>Evaluated By:</strong> {{ session.evaluated_by.name|default:session.evaluated_by.email|default:"N/A" }}</p>
+                {% endif %}
+                {% if session.evaluated_at %}
+                <p><strong>Evaluated At:</strong> {{ session.evaluated_at|date:"Y-m-d H:i:s" }}</p>
+                {% endif %}
+            </div>
+            {% if session.notes %}
+            <div class="mt-4">
+                <h3 class="font-semibold text-md">Session Notes:</h3>
+                <p class="text-sm bg-gray-50 p-2 rounded">{{ session.notes|linebreaksbr }}</p>
+            </div>
+            {% endif %}
+             <div class="card-actions justify-end mt-4 space-x-2"> {# Added space-x-2 for button spacing #}
+                <a href="{% url 'inventory:download_stock_take_session_csv' session.pk %}" class="btn btn-sm btn-success">Download Items CSV</a>
+
+                {# --- ADD THIS NEW BUTTON --- #}
+                {% if session.status == 'EVALUATED' or session.discrepancies.exists %}
+                    <a href="{% url 'inventory:download_stock_take_evaluation_excel' session.pk %}" class="btn btn-sm btn-primary">Download Evaluation Report</a>
+                {% endif %}
+                {# --- END NEW BUTTON --- #}
+
+                {% if session.status == 'COMPLETED_BY_OPERATOR' or session.status == 'EVALUATED' %}
+                    <form method="post" action="{% url 'inventory:evaluate_stock_take_session' session.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-warning"
+                                onclick="return confirm('{{ full_confirm_message|escapejs }}');"> {# Use escapejs filter #}
+                        {% if session.status == "EVALUATED" %}Re-{% endif %}Evaluate Discrepancies
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# ... rest of your template for displaying items and discrepancies ... #}
+    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Counted Items ({{ session.items.count }})</h2>
+    {% if session.items.all %}
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg mb-8">
+            <table class="min-w-full table-auto">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
+                    <tr>
+                        <th class="py-2 px-4 text-left">Product (SKU @ Warehouse)</th>
+                        <th class="py-2 px-4 text-left">Location (Counted)</th>
+                        <th class="py-2 px-4 text-left">Batch No. (Counted)</th>
+                        <th class="py-2 px-4 text-left">Expiry (Counted)</th>
+                        <th class="py-2 px-4 text-right">Qty (Counted)</th>
+                        <th class="py-2 px-4 text-left">Item Notes</th>
+                        <th class="py-2 px-4 text-left">Counted At</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for item in session.items.all %}
+                        <tr class="border-b border-gray-200 hover:bg-gray-50">
+                            <td class="py-2 px-4 text-left">
+                                {{ item.warehouse_product.product.name }} ({{ item.warehouse_product.product.sku }})
+                                <br><small class="text-gray-500">@ {{ item.warehouse_product.warehouse.name }}</small>
+                            </td>
+                            <td class="py-2 px-4 text-left">{{ item.location_label_counted|default:"-" }}</td>
+                            <td class="py-2 px-4 text-left">{{ item.batch_number_counted|default:"-" }}</td>
+                            <td class="py-2 px-4 text-left">{{ item.expiry_date_counted|date:"Y-m-d"|default:"-" }}</td>
+                            <td class="py-2 px-4 text-right font-semibold">{{ item.counted_quantity }}</td>
+                            <td class="py-2 px-4 text-left text-xs">{{ item.notes|default:""|truncatewords:10|linebreaksbr }}</td>
+                            <td class="py-2 px-4 text-left text-xs">{{ item.counted_at|date:"Y-m-d H:i" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mt-6 rounded-md mb-8" role="alert">
+            <p>No items have been recorded for this stock take session yet.</p>
+        </div>
+    {% endif %}
+
+    {% if session.status == 'EVALUATED' and session.discrepancies.all %}
+        <h2 class="text-2xl font-semibold text-gray-700 mb-4">Discrepancy Report ({{ session.discrepancies.count }})</h2>
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+            <table class="min-w-full table-auto">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
+                    <tr>
+                        <th class="py-2 px-4 text-left">Product (SKU)</th>
+                        <th class="py-2 px-4 text-left">Discrepancy Type</th>
+                        <th class="py-2 px-4 text-right">System Qty</th>
+                        <th class="py-2 px-4 text-right">Counted Qty</th>
+                        <th class="py-2 px-4 text-right">Difference</th>
+                        <th class="py-2 px-4 text-left">System Batch/Loc/Exp</th>
+                        <th class="py-2 px-4 text-left">Counted Batch/Loc/Exp</th>
+                        <th class="py-2 px-4 text-left">Notes</th>
+                        <th class="py-2 px-4 text-left">Resolved?</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for discrepancy in session.discrepancies.all %}
+                        <tr class="border-b border-gray-200 hover:bg-gray-50
+                            {% if discrepancy.discrepancy_type == 'SHORT' or discrepancy.discrepancy_type == 'NOT_COUNTED' %} bg-red-50
+                            {% elif discrepancy.discrepancy_type == 'OVER' or discrepancy.discrepancy_type == 'NOT_IN_SYSTEM' %} bg-yellow-50
+                            {% elif discrepancy.discrepancy_type == 'MATCH' %} bg-green-50
+                            {% endif %}">
+                            <td class="py-2 px-4 text-left">
+                                {{ discrepancy.warehouse_product.product.name }} ({{ discrepancy.warehouse_product.product.sku }})
+                                <br><small class="text-gray-500">@ {{ discrepancy.warehouse_product.warehouse.name }}</small>
+                            </td>
+                            <td class="py-2 px-4 text-left">
+                                <span class="font-semibold
+                                {% if discrepancy.discrepancy_type == 'SHORT' or discrepancy.discrepancy_type == 'NOT_COUNTED' %} text-red-600
+                                {% elif discrepancy.discrepancy_type == 'OVER' or discrepancy.discrepancy_type == 'NOT_IN_SYSTEM' %} text-yellow-700
+                                {% elif discrepancy.discrepancy_type == 'MATCH' %} text-green-600
+                                {% endif %}">
+                                    {{ discrepancy.get_discrepancy_type_display }}
+                                </span>
+                            </td>
+                            <td class="py-2 px-4 text-right">{{ discrepancy.system_quantity|default:"N/A" }}</td>
+                            <td class="py-2 px-4 text-right">{{ discrepancy.counted_quantity|default:"N/A" }}</td>
+                            <td class="py-2 px-4 text-right font-bold">{{ discrepancy.discrepancy_quantity }}</td>
+                            <td class="py-2 px-4 text-left text-xs">
+                                B: {{ discrepancy.system_batch_number|default:"-" }}<br>
+                                L: {{ discrepancy.system_location_label|default:"-" }}<br>
+                                E: {{ discrepancy.system_expiry_date|date:"Y-m-d"|default:"-" }}
+                            </td>
+                            <td class="py-2 px-4 text-left text-xs">
+                                B: {{ discrepancy.counted_batch_number|default:"-" }}<br>
+                                L: {{ discrepancy.counted_location_label|default:"-" }}<br>
+                                E: {{ discrepancy.counted_expiry_date|date:"Y-m-d"|default:"-" }}
+                            </td>
+                            <td class="py-2 px-4 text-left text-xs">{{ discrepancy.notes|truncatewords:15|linebreaksbr }}</td>
+                            <td class="py-2 px-4 text-left">
+                                {% if discrepancy.is_resolved %}
+                                    <span class="badge badge-sm badge-success">Yes</span>
+                                {% else %}
+                                    <span class="badge badge-sm badge-warning">No</span>
+                                    {# Add link to resolve later #}
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% elif session.status == 'EVALUATED' %}
+         <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-6 rounded-md" role="alert">
+            <p class="font-bold">Evaluation Complete: No Discrepancies Found.</p>
+            <p>All counted items matched the system records perfectly based on the evaluation criteria.</p>
+        </div>
+    {% endif %}
+
+</div>
+{% endblock %}

@@ -1,0 +1,494 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load i18n %}
+
+{% block page_title %}{{ page_title|default:"Inventory List" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4">
+    {# Sticky Header Bar #}
+<div class="sticky top-16 bg-base-100 py-3 px-0 md:px-4 mb-4 z-40 shadow-sm rounded -mx-4 md:mx-0">
+    <div class="container mx-auto px-4 md:px-0">
+        <div class="flex flex-col sm:flex-row justify-between items-center mb-2">
+            <h1 class="text-3xl font-bold text-gray-800 flex-grow mr-4 mb-2 sm:mb-0">{{ page_title|default:"Inventory List" }}</h1>
+            <div class="flex items-center space-x-2 flex-shrink-0">
+                {# Existing Filter Buttons #}
+                <button id="toggle-expiry-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Expiry Filter (≤ 6 Months)">
+                    <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Exp&nbsp;≤6m</span>
+                </button>
+                <button id="toggle-unbatched-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Unbatched Quantity Filter">
+                    <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Unbatched</span>
+                </button>
+                <button id="toggle-newly-received-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Newly Received (within 14 days) Filter">
+                    <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">New Receipts</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex flex-col md:flex-row justify-between items-center mt-2 mb-2 space-y-2 md:space-y-0 md:space-x-4">
+            <div class="flex-grow w-full md:w-auto">
+                <input type="text" id="inventory-search-input" placeholder="Search SKU or Product Name..." class="input input-bordered input-sm w-full md:max-w-md lg:max-w-lg">
+            </div>
+        </div>
+
+
+
+    {% if warehouse_products %}
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+            <table class="min-w-full table-auto main-inventory-table">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-sm leading-normal">
+                    <tr>
+                        <th class="py-3 px-6 text-left">SKU</th>
+                        <th class="py-3 px-6 text-left">Product Name</th>
+                        <th class="py-3 px-6 text-left">Warehouse</th>
+                        <th class="py-3 px-6 text-right">Total Stock</th>
+                        <th class="py-3 px-6 text-left">Batch Details & Unbatched</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for wp in warehouse_products %}
+                        <tr class="warehouse-product-row border-b border-gray-200 hover:bg-gray-50" data-wp-id="{{ wp.pk }}">
+                            <td class="py-3 px-6 text-left align-top product-sku">{{ wp.product.sku }}</td>
+                            <td class="py-3 px-6 text-left align-top product-name">{{ wp.product.name }}</td>
+                            <td class="py-3 px-6 text-left align-top">{{ wp.warehouse.name }}</td>
+                            <td class="py-3 px-6 text-right align-top">{{ wp.quantity|default:0 }}</td>
+                            <td class="py-3 px-6 text-left align-top batch-details-cell">
+                                {% if wp.processed_batches %}
+                                    <table class="min-w-full my-1 nested-batch-table">
+                                        <thead class="text-xs text-gray-500 uppercase">
+                                            <tr>
+                                                <th class="px-2 py-1 text-left">Batch No.</th>
+                                                <th class="px-2 py-1 text-left">Location</th>
+                                                <th class="px-2 py-1 text-left">Expiry Date</th>
+                                                <th class="px-2 py-1 text-right">Qty</th>
+                                                <th class="px-2 py-1 text-right">Cost</th>
+                                                <th class="px-2 py-1 text-left">Received</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                        {% for batch_item in wp.processed_batches %}
+                                            <tr class="batch-item-row border-t border-gray-200 hover:bg-gray-50"
+                                                data-expiry-date="{{ batch_item.expiry_date|date:'Y-m-d'|default:'' }}"
+                                                data-received-date="{{ batch_item.date_received|date:'Y-m-d'|default:'' }}">
+                                                <td class="px-2 py-1 batch-number-cell">{{ batch_item.batch_number|default:"N/A" }}</td>
+                                                <td class="px-2 py-1 location-label-cell">{{ batch_item.location_label|default:"-" }}</td>
+                                                <td class="px-2 py-1 expiry-date-cell">
+                                                    {{ batch_item.expiry_date|date:"d/m/Y"|default:"N/A" }}
+                                                    {% if batch_item.expiry_status_display == "Expired" %}
+                                                        <span class="ml-1 px-1.5 py-0.5 text-xs font-semibold text-red-800 bg-red-100 rounded-full">Expired</span>
+                                                    {% elif batch_item.expiry_status_display == "≤6m" %}
+                                                        <span class="ml-1 px-1.5 py-0.5 text-xs font-semibold text-yellow-800 bg-yellow-100 rounded-full">≤6m</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="px-2 py-1 quantity-cell text-right">{{ batch_item.quantity }}</td>
+                                                <td class="px-2 py-1 cost-price-cell text-right">{{ batch_item.cost_price|floatformat:2|default:"-" }}</td>
+                                                <td class="px-2 py-1 date-received-cell">{{ batch_item.date_received|date:"d/m/Y"|default:"-" }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                        </tbody>
+                                    </table>
+                                {% else %}
+                                    <p class="text-xs text-gray-500 italic py-2 no-batches-message">No batch details recorded for this item.</p>
+                                {% endif %}
+
+                                {% if wp.calculated_unbatched_quantity > 0 %}
+                                    <div class="unbatched-info mt-2 pt-1 ml-2 border-t border-dashed border-gray-300 flex justify-between items-center">
+                                        <p class="text-xs text-blue-600 font-semibold">
+                                            Unbatched Quantity: <span class="text-blue-700 unbatched-qty-value">{{ wp.calculated_unbatched_quantity }}</span>
+                                        </p>
+                                        <label for="add-batch-modal-toggle"
+                                            class="btn btn-xs btn-outline btn-success manage-unbatched-btn"
+                                            data-wp-id="{{ wp.pk }}"
+                                            data-wp-name="{{ wp.product.name }} @ {{ wp.warehouse.name }}"
+                                            title="Batch this unbatched quantity">
+                                            Batch It
+                                        </label>
+                                    </div>
+                                {% elif wp.calculated_unbatched_quantity < 0 %}
+                                    <div class="unbatched-info mt-2 pt-1 border-t border-dashed border-red-300">
+                                        <p class="text-xs text-red-600 font-semibold">
+                                            Stock Discrepancy: <span class="text-red-700 discrepancy-qty-value">{{ wp.calculated_unbatched_quantity }}</span> (Batched > Total)
+                                        </p>
+                                    </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mt-6 rounded-md" role="alert">
+            <p class="font-bold">No Warehouse Products Found</p>
+            <p>There are currently no warehouse product stock aggregates to display. Products might need to be added to warehouses first, or ensure data exists.</p>
+        </div>
+    {% endif %}
+</div>
+
+{# Modals: Add Batch, Edit Batch (partials) #}
+{% include "inventory/partials/add_batch_modal.html" %}
+{% include "inventory/partials/edit_batch_modals.html" %}
+
+{% endblock %}
+
+{% block extra_js %}
+{# Your existing JS for inventory_batch_list.html - ensure it's all here #}
+<script>
+// Ensure this script block is complete and includes all previous JS functionality
+document.addEventListener('DOMContentLoaded', function() {
+    // --- Add/Edit Batch Form Submission JS ---
+    const addBatchForm = document.getElementById('add-batch-form');
+    if (addBatchForm) {
+        addBatchForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const formData = new FormData(addBatchForm);
+            const saveBtn = addBatchForm.querySelector('button[type="submit"]');
+            const originalBtnText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Adding...';
+
+            fetch(addBatchForm.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch added!', position: 'top-end', showConfirmButton: false, timer: 2000});
+                    else alert(data.message || 'Batch added successfully!');
+                    document.getElementById('add-batch-modal-toggle').checked = false;
+                    addBatchForm.reset();
+                    window.location.reload();
+                } else {
+                    let errorMsg = 'Could not add batch. ' + (data.message || '');
+                    if (data.errors && typeof data.errors === 'object') {
+                        errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
+                    }
+                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Adding Batch', text: errorMsg });
+                    else alert(errorMsg);
+                }
+            })
+            .catch(error => {
+                console.error('Error submitting add batch form:', error);
+                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.'});
+                else alert('Network error.');
+            })
+            .finally(() => {
+                 const submitBtn = addBatchForm.querySelector('button[type="submit"]');
+                 if(submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnText || 'Add Batch';
+                 }
+            });
+        });
+    }
+
+    document.body.addEventListener('submit', function(event) {
+        const editForm = event.target.closest('form.edit-batch-form');
+        if (editForm) {
+            event.preventDefault();
+            const formData = new FormData(editForm);
+            const saveBtn = editForm.querySelector('button[type="submit"]');
+            const originalBtnText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...';
+
+            fetch(editForm.action, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch updated!', position: 'top-end', showConfirmButton: false, timer: 2000});
+                    else alert(data.message || 'Batch updated successfully!');
+                    const modalToggle = document.getElementById(`edit-batch-modal-toggle-${data.batch_item.pk}`);
+                    if (modalToggle) modalToggle.checked = false;
+                    window.location.reload();
+                } else {
+                    let errorMsg = data.message || 'Could not update batch. ';
+                     if (data.errors && typeof data.errors === 'object') {
+                         errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
+                    }
+                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Updating Batch', text: errorMsg });
+                    else alert(errorMsg);
+                }
+            })
+            .catch(error => {
+                console.error('Error submitting edit batch form:', error);
+                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.' });
+                else alert('Network error.');
+            })
+            .finally(() => {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalBtnText;
+            });
+        }
+    });
+
+    // --- Search and Filter Logic ---
+    const toggleExpiryFilterButton = document.getElementById('toggle-expiry-filter');
+    const toggleUnbatchedFilterButton = document.getElementById('toggle-unbatched-filter');
+    const toggleNewlyReceivedFilterButton = document.getElementById('toggle-newly-received-filter');
+    const searchInput = document.getElementById('inventory-search-input');
+    const mainTableBody = document.querySelector('.main-inventory-table tbody');
+    let originalWPRowsOrder = [];
+
+    if (mainTableBody) {
+        originalWPRowsOrder = Array.from(mainTableBody.querySelectorAll('tr.warehouse-product-row'));
+    }
+
+    let isExpiryFilterActive = false;
+    let isUnbatchedFilterActive = false;
+    let isNewlyReceivedFilterActive = false;
+    let currentSearchTerm = "";
+
+    const currentDate = new Date();
+    const todayUTC = new Date(Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), currentDate.getUTCDate()));
+    const sixMonthsFromNowUTC = new Date(todayUTC);
+    sixMonthsFromNowUTC.setUTCMonth(todayUTC.getUTCMonth() + 6);
+    const fourteenDaysAgoUTC = new Date(todayUTC);
+    fourteenDaysAgoUTC.setUTCDate(todayUTC.getUTCDate() - 14);
+
+    function debounce(func, delay) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), delay);
+        };
+    }
+
+    function updateButtonStyles(button, isActive) {
+        const textSpan = button.querySelector('span');
+        if (isActive) {
+            button.classList.add('btn-active', 'btn-neutral');
+            button.classList.remove('btn-outline');
+            if (textSpan) textSpan.classList.add('text-white');
+        } else {
+            button.classList.remove('btn-active', 'btn-neutral');
+            button.classList.add('btn-outline');
+            if (textSpan) textSpan.classList.remove('text-white');
+        }
+    }
+
+    function applyDisplayFilters() {
+        if (!mainTableBody) return;
+        const searchTerm = currentSearchTerm.toLowerCase().trim();
+        let rowsToDisplayAndPotentiallySort = [];
+
+        originalWPRowsOrder.forEach(wpRow => {
+            let passesSearch = true;
+            if (searchTerm) {
+                const skuText = wpRow.querySelector('.product-sku').textContent.toLowerCase();
+                const nameText = wpRow.querySelector('.product-name').textContent.toLowerCase();
+                if (!skuText.includes(searchTerm) && !nameText.includes(searchTerm)) {
+                    passesSearch = false;
+                }
+            }
+
+            let passesUnbatched = true;
+            if (isUnbatchedFilterActive) {
+                const unbatchedInfoDiv = wpRow.querySelector('.unbatched-info');
+                const unbatchedQtyValueSpan = unbatchedInfoDiv ? unbatchedInfoDiv.querySelector('span.unbatched-qty-value') : null;
+                const isDiscrepancy = unbatchedInfoDiv ? unbatchedInfoDiv.querySelector('p.text-red-600') : false;
+                if (unbatchedQtyValueSpan && !isDiscrepancy) {
+                    if (!(parseInt(unbatchedQtyValueSpan.textContent, 10) > 0)) passesUnbatched = false;
+                } else {
+                    passesUnbatched = false;
+                }
+            }
+
+            let passesBatchDependentFilters = true;
+            let maxEligibleReceivedDateThisWp = null;
+            const batchRows = wpRow.querySelectorAll('.batch-details-cell tr.batch-item-row');
+
+            if (batchRows.length === 0) {
+                if (isExpiryFilterActive || isNewlyReceivedFilterActive) {
+                    passesBatchDependentFilters = false;
+                }
+            } else {
+                let visibleBatchesCount = 0;
+                batchRows.forEach(batchRow => {
+                    let showThisBatch = true;
+
+                    const receivedDateStr = batchRow.dataset.receivedDate;
+                    const batchReceivedDateObj = receivedDateStr ? new Date(Date.UTC(
+                        parseInt(receivedDateStr.substring(0,4)),
+                        parseInt(receivedDateStr.substring(5,7))-1,
+                        parseInt(receivedDateStr.substring(8,10))
+                    )) : null;
+
+                    if (isExpiryFilterActive) {
+                        const expiryDateStr = batchRow.dataset.expiryDate;
+                        if (expiryDateStr) {
+                            const parts = expiryDateStr.split('-');
+                            const expiryDateObj = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1])-1, parseInt(parts[2])));
+                            if (!(!isNaN(expiryDateObj.valueOf()) && expiryDateObj <= sixMonthsFromNowUTC && expiryDateObj >= todayUTC)) {
+                                showThisBatch = false;
+                            }
+                        } else { showThisBatch = false; }
+                    }
+
+                    if (showThisBatch && isNewlyReceivedFilterActive) {
+                        if (batchReceivedDateObj && batchReceivedDateObj >= fourteenDaysAgoUTC && batchReceivedDateObj <= todayUTC) {
+                            if (!maxEligibleReceivedDateThisWp || batchReceivedDateObj > maxEligibleReceivedDateThisWp) {
+                                maxEligibleReceivedDateThisWp = batchReceivedDateObj;
+                            }
+                        } else {
+                            showThisBatch = false;
+                        }
+                    }
+
+                    batchRow.style.display = showThisBatch ? '' : 'none';
+                    if (showThisBatch) visibleBatchesCount++;
+                });
+
+                if ((isExpiryFilterActive || isNewlyReceivedFilterActive) && visibleBatchesCount === 0) {
+                    passesBatchDependentFilters = false;
+                }
+                if (isNewlyReceivedFilterActive && !maxEligibleReceivedDateThisWp) {
+                    passesBatchDependentFilters = false;
+                }
+            }
+
+            const showWPRow = passesSearch && passesUnbatched && passesBatchDependentFilters;
+
+            if (showWPRow) {
+                wpRow.dataset.sortKey = (isNewlyReceivedFilterActive && maxEligibleReceivedDateThisWp) ? maxEligibleReceivedDateThisWp.toISOString() : '0';
+                rowsToDisplayAndPotentiallySort.push(wpRow);
+            }
+
+            const noBatchesMessageEl = wpRow.querySelector('.batch-details-cell > .no-batches-message');
+            if (noBatchesMessageEl) {
+                if (!showWPRow) {
+                    noBatchesMessageEl.style.display = 'none';
+                } else {
+                    const visibleBatchRowsAfterFilters = Array.from(batchRows).filter(br => br.style.display !== 'none').length;
+                    let msg = "";
+                    if (batchRows.length === 0) msg = "No batch details recorded for this item.";
+                    else if (visibleBatchRowsAfterFilters === 0) {
+                        if(isExpiryFilterActive && isNewlyReceivedFilterActive) msg = "No batches match active filters.";
+                        else if(isExpiryFilterActive) msg = "No batches match expiry filter.";
+                        else if(isNewlyReceivedFilterActive) msg = "No batches match newly received filter.";
+                        else msg = "No batches currently visible.";
+                    }
+                    noBatchesMessageEl.textContent = msg;
+                    noBatchesMessageEl.style.display = msg ? '' : 'none';
+                }
+            }
+            const unbatchedInfoEl = wpRow.querySelector('.batch-details-cell > .unbatched-info');
+            if(unbatchedInfoEl){
+                unbatchedInfoEl.style.display = showWPRow ? '' : 'none';
+            }
+        });
+
+        originalWPRowsOrder.forEach(row => {
+            if (row.parentNode === mainTableBody) {
+                mainTableBody.removeChild(row);
+            }
+        });
+
+        if (isNewlyReceivedFilterActive && rowsToDisplayAndPotentiallySort.length > 0) {
+            rowsToDisplayAndPotentiallySort.sort((a, b) => new Date(b.dataset.sortKey) - new Date(a.dataset.sortKey));
+        } else {
+             rowsToDisplayAndPotentiallySort = originalWPRowsOrder.filter(row => rowsToDisplayAndPotentiallySort.includes(row));
+        }
+
+        rowsToDisplayAndPotentiallySort.forEach(row => {
+            mainTableBody.appendChild(row);
+            row.style.display = '';
+        });
+
+        updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive);
+        updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive);
+        updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive);
+    }
+
+    const debouncedApplyFilters = debounce(applyDisplayFilters, 300);
+
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            currentSearchTerm = this.value;
+            debouncedApplyFilters();
+        });
+    }
+
+    if (toggleExpiryFilterButton) {
+        const expiryButtonTextSpan = toggleExpiryFilterButton.querySelector('span');
+        if (expiryButtonTextSpan) expiryButtonTextSpan.classList.add('whitespace-normal');
+
+        toggleExpiryFilterButton.addEventListener('click', function() {
+            isExpiryFilterActive = !isExpiryFilterActive;
+            applyDisplayFilters();
+        });
+        updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive);
+    }
+
+    if (toggleUnbatchedFilterButton) {
+        toggleUnbatchedFilterButton.addEventListener('click', function() {
+            isUnbatchedFilterActive = !isUnbatchedFilterActive;
+            applyDisplayFilters();
+        });
+        updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive);
+    }
+
+    if (toggleNewlyReceivedFilterButton) {
+        toggleNewlyReceivedFilterButton.addEventListener('click', function() {
+            isNewlyReceivedFilterActive = !isNewlyReceivedFilterActive;
+            applyDisplayFilters();
+        });
+        updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive);
+    }
+
+    document.querySelectorAll('.manage-unbatched-btn').forEach(button => {
+         button.addEventListener('click', function() {
+            const wpId = this.dataset.wpId;
+            const wpName = this.dataset.wpName || "Selected Product";
+            const addBatchModalToggle = document.getElementById('add-batch-modal-toggle');
+            const currentAddBatchForm = document.getElementById('add-batch-form');
+
+            if (!currentAddBatchForm || !addBatchModalToggle) return;
+
+            const warehouseProductSelectOriginal = currentAddBatchForm.elements['warehouse_product'];
+            const wpSelectContainer = document.getElementById('wp-select-container');
+            const wpDisplayContainer = document.getElementById('wp-display-container');
+            const warehouseProductDisplayText = document.getElementById('selected_wp_display_in_modal');
+            const hiddenWpIdField = currentAddBatchForm.elements['hidden_warehouse_product_id'];
+            const quantityField = currentAddBatchForm.elements['quantity'];
+
+            currentAddBatchForm.reset();
+
+            if (wpSelectContainer) wpSelectContainer.style.display = 'none';
+            if (warehouseProductSelectOriginal) {
+                warehouseProductSelectOriginal.style.display = 'none';
+                warehouseProductSelectOriginal.removeAttribute('required');
+            }
+            if (wpDisplayContainer && warehouseProductDisplayText) {
+                warehouseProductDisplayText.textContent = wpName;
+                wpDisplayContainer.style.display = 'block';
+            }
+            if (hiddenWpIdField) hiddenWpIdField.value = wpId;
+
+            const unbatchedInfoDiv = this.closest('.unbatched-info');
+            if (unbatchedInfoDiv) {
+                const unbatchedQtyValueSpan = unbatchedInfoDiv.querySelector('span.unbatched-qty-value');
+                if (unbatchedQtyValueSpan && quantityField) {
+                    quantityField.value = parseInt(unbatchedQtyValueSpan.textContent, 10);
+                }
+            }
+            setTimeout(() => { if (addBatchModalToggle) addBatchModalToggle.checked = true; }, 0);
+        });
+    });
+
+    applyDisplayFilters();
+});
+</script>
+{% endblock %}

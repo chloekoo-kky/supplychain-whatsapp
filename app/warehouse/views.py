@@ -71,41 +71,60 @@ def handle_warehouseproduct_tab(request):
     selected_supplier_id = request.GET.get("supplier")
     query_param = request.GET.get("q", "").strip()
 
-    logger.debug(f"handle_warehouseproduct_tab: warehouse='{selected_warehouse_id}', supplier='{selected_supplier_id}', q='{query_param}'")
+    logger.debug(f"handle_warehouseproduct_tab: warehouse='{selected_warehouse_id}', supplier='{selected_supplier_id}', q='{query_param}' for user '{user.email}' (superuser: {user.is_superuser})")
+
+    base_products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier')
 
     if user.is_superuser:
-        products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier').all().order_by('product__name')
+        products_qs = base_products_qs.all()
         if selected_warehouse_id:
             products_qs = products_qs.filter(warehouse_id=selected_warehouse_id)
-        if selected_supplier_id:
-            products_qs = products_qs.filter(supplier_id=selected_supplier_id) # Assuming direct FK from WarehouseProduct to Supplier
+
         warehouses_list = Warehouse.objects.all().order_by('name')
-        suppliers_list = Supplier.objects.all().order_by('name')
-    else:
-        products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier').filter(warehouse=user.warehouse).order_by('product__name')
-        if selected_supplier_id: # If non-superusers can also filter by supplier
-            products_qs = products_qs.filter(supplier_id=selected_supplier_id)
-        warehouses_list = Warehouse.objects.filter(pk=user.warehouse_id) if user.warehouse else Warehouse.objects.none()
-        # Suppliers relevant to the user's warehouse products
-        suppliers_list = Supplier.objects.filter(warehouseproduct__warehouse=user.warehouse).distinct().order_by('name') if user.warehouse else Supplier.objects.none()
+        # For superuser, list all suppliers
+        suppliers_list = Supplier.objects.all().order_by('code')
+
+    else: # Non-superuser
+        if user.warehouse:
+            products_qs = base_products_qs.filter(warehouse=user.warehouse)
+            warehouses_list = Warehouse.objects.filter(pk=user.warehouse.id)
+
+            # SIMPLIFIED: Get suppliers directly from WarehouseProduct entries in their warehouse
+            suppliers_list = Supplier.objects.filter(
+            warehouseproduct__warehouse=user.warehouse,
+            warehouseproduct__supplier__isnull=False # Ensure we only get WPs that have a supplier
+            ).distinct().order_by('code')
+
+        else: # Non-superuser with no assigned warehouse
+            products_qs = base_products_qs.none()
+            warehouses_list = Warehouse.objects.none()
+            suppliers_list = Supplier.objects.none()
+
+    # Apply supplier filter (common for both)
+    if selected_supplier_id:
+            products_qs = products_qs.filter(supplier_id=selected_supplier_id) # Now only checks WarehouseProduct.supplier
 
 
+
+    # Apply text query (common for both)
     if query_param:
         q_filters = Q(product__name__icontains=query_param) | \
                     Q(product__sku__icontains=query_param)
-        if user.is_superuser:
+        if user.is_superuser and not selected_warehouse_id: # Only allow superuser to search by warehouse name if not filtering
             q_filters |= Q(warehouse__name__icontains=query_param)
         products_qs = products_qs.filter(q_filters).distinct()
+
+    products_qs = products_qs.order_by('product__name')
 
     context = {
         "products": products_qs,
         "warehouses": warehouses_list,
         "suppliers": suppliers_list,
         "selected_warehouse_id": selected_warehouse_id,
-        "selected_supplier": selected_supplier_id, # Ensure template uses 'selected_supplier'
+        "selected_supplier": selected_supplier_id, # This is the ID of the selected supplier
         "query": query_param,
-        "user": user, # Pass user for conditional rendering in template
-        "today": timezone.now().date(), # For ETA comparison if needed in warehouse_product_partial
+        "user": user,
+        "today": timezone.now().date(),
     }
     return context, "warehouse/warehouse_product_partial.html"
 
@@ -348,60 +367,96 @@ def update_stock(request):
 
 @login_required
 def search(request):
-    # ... (Implementation from your file) ...
     print("--- Entering AJAX search view (/warehouse/search/) ---")
     query = request.GET.get('q', '').strip()
-    warehouse_id = request.GET.get('warehouse')
+    warehouse_id_param = request.GET.get('warehouse') # Explicit warehouse filter from GET params
     supplier_id = request.GET.get('supplier')
+    user = request.user
 
-    print(f"Received parameters: q='{query}', warehouse_id='{warehouse_id}', supplier_id='{supplier_id}'")
+    print(f"Received parameters: q='{query}', warehouse_id_param='{warehouse_id_param}', supplier_id='{supplier_id}', user='{user.email}'")
 
-    products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier').all()
-    print(f"Initial queryset count: {products_qs.count()}")
+    # Start with a base queryset
+    products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier')
 
-    if warehouse_id:
-        products_qs = products_qs.filter(warehouse_id=warehouse_id)
-        print(f"After warehouse_id filter ('{warehouse_id}'), count: {products_qs.count()}")
+    if user.is_superuser:
+        # Superuser can filter by any warehouse if 'warehouse' param is provided
+        if warehouse_id_param:
+            products_qs = products_qs.filter(warehouse_id=warehouse_id_param)
+            print(f"Superuser: After warehouse_id_param filter ('{warehouse_id_param}'), count: {products_qs.count()}")
+        # If no warehouse_id_param, superuser sees all warehouses initially (before other filters like query or supplier)
+    else:
+        # Non-superuser is RESTRICTED to their assigned warehouse
+        if user.warehouse:
+            products_qs = products_qs.filter(warehouse=user.warehouse)
+            print(f"Non-superuser: Filtered by assigned warehouse '{user.warehouse.name}', count: {products_qs.count()}")
+        else:
+            # Non-superuser with no assigned warehouse should see no products
+            products_qs = products_qs.none()
+            print("Non-superuser: No warehouse assigned, queryset is None.")
+
+    # Apply supplier filter (if provided) - This applies to both superuser and non-superuser on the (potentially already warehouse-filtered) queryset
     if supplier_id:
-        # Ensure the supplier filter on WarehouseProduct is correct (e.g., direct FK or via product)
-        # Assuming WarehouseProduct has a direct FK 'supplier'
+        # Ensure the supplier filter on WarehouseProduct is correct.
+        # If WarehouseProduct has a direct FK 'supplier':
         products_qs = products_qs.filter(supplier_id=supplier_id)
+        # If supplier is linked via product (Product.supplier):
+        # products_qs = products_qs.filter(product__supplier_id=supplier_id)
+        # Choose the correct one based on your WarehouseProduct model structure.
+        # From your models, WarehouseProduct has a direct 'supplier' FK.
         print(f"After supplier_id filter ('{supplier_id}'), count: {products_qs.count()}")
-    if query:
-        print(f"Applying query: '{query}'")
-        q_filter = Q(product__name__icontains=query) | \
-                   Q(product__sku__icontains=query)
-        if request.user.is_superuser : # Only superuser can search by warehouse name here
-             q_filter |= Q(warehouse__name__icontains=query)
-        products_qs = products_qs.filter(q_filter).distinct()
 
-        print(f"After query filter ('{query}'), count: {products_qs.count()}")
-        if products_qs.exists():
-            print("Sample results from AJAX search (first 3):")
-            for p_item in products_qs[:3]:
-                print(f"  - Product: {p_item.product.name}, SKU: {p_item.product.sku}")
+    # Apply text query filter
+    if query:
+        print(f"Applying text query: '{query}'")
+        q_object = Q(product__name__icontains=query) | \
+                   Q(product__sku__icontains=query)
+
+        # For superusers, if they are NOT already filtering by a specific warehouse_id_param,
+        # allow them to search by warehouse name as well.
+        # For non-superusers, they are already confined to their warehouse, so searching its name is less critical here.
+        if user.is_superuser and not warehouse_id_param:
+            q_object |= Q(warehouse__name__icontains=query)
+
+        products_qs = products_qs.filter(q_object).distinct()
+        print(f"After text query filter ('{query}'), count: {products_qs.count()}")
+
+    # Optional: Apply a default ordering
+    products_qs = products_qs.order_by('product__name')
+
+    # Logging for results (optional)
+    if products_qs.exists():
+        print("Sample results from AJAX search (first 3):")
+        for p_item in products_qs[:3]: # Limit logging output
+            print(f"  - Product: {p_item.product.name}, SKU: {p_item.product.sku}, Warehouse: {p_item.warehouse.name}")
+    else:
+        print("No results from AJAX search with current filters.")
 
     context = {
         "products": products_qs,
-        "query": query,
+        "query": query, # Pass the original query back for display in the input field
         "today": timezone.now().date(), # For incoming PO ETA comparison in _search_results.html
-        "user": request.user
+        "user": user # Pass user to the template if needed for conditional rendering
     }
     return render(request, "warehouse/_search_results.html", context)
-
 
 @login_required
 def warehouseproduct_details(request, pk):
     # ... (Implementation from your file) ...
     try:
         wp = WarehouseProduct.objects.get(pk=pk)
-        data = {
-            "product": str(wp.product),
-            "warehouse": str(wp.warehouse),
-            "batch_number": wp.batch_number or "N/A",
-            "expiry_date": wp.expiry_date.strftime('%Y-%m-%d') if wp.expiry_date else "N/A",
+        data = {"product": str(wp.product), # Calls __str__ method of Product model
+            "product_sku": wp.product.sku if wp.product else "N/A",
+            "product_name": wp.product.name if wp.product else "N/A",
+            "warehouse": str(wp.warehouse), # Calls __str__ method of Warehouse model
+            "warehouse_name": wp.warehouse.name if wp.warehouse else "N/A",
+            # "expiry_date": "N/A", # Removed as WarehouseProduct no longer has expiry_date
+                                     # Expiry is now on InventoryBatchItem
             "quantity": wp.quantity,
-            "threshold": wp.threshold,
+            "threshold": wp.threshold if wp.threshold is not None else 0,
+            "supplier": str(wp.supplier) if wp.supplier else "N/A",
+            # You can add more details from wp.product or wp.warehouse if needed
+            # Example: Aggregate batch information if desired (more complex)
+            # "total_batch_quantity": wp.total_quantity, # if you want to show aggregate from batches
         }
         return JsonResponse(data)
     except WarehouseProduct.DoesNotExist:
@@ -427,10 +482,10 @@ def prepare_po_from_selection(request):
                 wp = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier').get(id=wp_id)
                 # Determine the supplier: WarehouseProduct's own supplier takes precedence,
                 # otherwise, fall back to the Product's default supplier.
-                supplier_to_use = wp.supplier if wp.supplier else wp.product.supplier
+                supplier_to_use = wp.supplier # Directly use this
 
                 if not supplier_to_use:
-                    logger.warning(f"WarehouseProduct ID {wp_id} (SKU: {wp.product.sku}) has no associated supplier (neither on WP nor Product). Skipping for PO prep.")
+                    logger.warning(f"WarehouseProduct ID {wp_id} (SKU: {wp.product.sku}) has no associated supplier. Skipping for PO prep.")
                     continue
 
                 if supplier_to_use.id not in result:

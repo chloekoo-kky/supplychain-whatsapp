@@ -1,0 +1,432 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block page_title %}{{ page_title|default:"Stock Take" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <h1 class="text-3xl font-bold text-gray-800 mb-6">{{ page_title }}</h1>
+
+    {# Messages are assumed to be handled by base.html now. #}
+
+    {% if selection_form %}
+        {# Step 1: Select or Create a Stock Take Session #}
+        <div class="card bg-base-100 shadow-xl mb-8">
+            <div class="card-body">
+                <h2 class="card-title text-xl">Select or Start a Stock Take Session</h2>
+                <form method="post" action="{% url 'inventory:stock_take_operator' %}">
+                    {% csrf_token %}
+                    {{ selection_form.active_session.label_tag }}
+                    {{ selection_form.active_session }}
+                    {% if selection_form.active_session.errors %}<p class="text-error text-sm">{{ selection_form.active_session.errors|join:", " }}</p>{% endif %}
+
+                    <div class="form-control mt-4">
+                        {{ selection_form.session_name.label_tag }}
+                        {{ selection_form.session_name }}
+                        {% if selection_form.session_name.help_text %}<label class="label"><span class="label-text-alt">{{ selection_form.session_name.help_text }}</span></label>{% endif %}
+                        {% if selection_form.session_name.errors %}<p class="text-error text-sm">{{ selection_form.session_name.errors|join:", " }}</p>{% endif %}
+                    </div>
+                    {% if selection_form.non_field_errors %}<div class="text-error text-sm mt-2">{{ selection_form.non_field_errors|join:", " }}</div>{% endif %}
+                    <div class="card-actions justify-end mt-6">
+                        <button type="submit" name="select_or_create_session" class="btn btn-primary">Proceed</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if item_formset and active_session %}
+        {# Step 2: Enter Stock Take Items for the Active Session #}
+        {# REMOVED THE PROBLEMATIC {% with %} TAG #}
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="card-title text-xl">Enter Counted Items for: <span class="text-primary">{{ active_session.name }}</span></h2>
+                    <a href="{% url 'inventory:stock_take_operator' %}" class="btn btn-sm btn-outline">Change Session</a>
+                </div>
+
+                <p class="text-sm text-gray-500 mb-1">Warehouse: {{ active_session.warehouse.name }}</p>
+                <p class="text-sm text-gray-500 mb-4">Status:
+                    <span class="badge
+                        {% if active_session.status == 'PENDING' %}badge-warning
+                        {% elif active_session.status == 'COMPLETED_BY_OPERATOR' %}btn-md 
+                        {% elif active_session.status == 'EVALUATED' %}badge-success
+                        {% elif active_session.status == 'CLOSED' %}badge-neutral
+                        {% else %}badge-ghost
+                        {% endif %}">
+                        {{ active_session.get_status_display }}
+                    </span>
+                </p>
+
+                {% if active_session.status != 'PENDING' %} {# Using the direct condition #}
+                    <div class="alert alert-error shadow-lg mb-4">
+                      <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current flex-shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span>This stock take session is {{ active_session.get_status_display }} and can no longer be modified by the operator.</span>
+                      </div>
+                    </div>
+                {% endif %}
+
+                <form method="post" action="{% url 'inventory:stock_take_operator' %}?session_id={{ active_session.pk }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="session_pk" value="{{ active_session.pk }}">
+                    {{ item_formset.management_form }}
+
+                    <div class="overflow-x-auto max-h-[60vh] overflow-y-auto mb-4 pr-1 pb-20 stock-table-scroll-container">
+                        <table class="table w-full table-compact stock-take-items-table">
+                            <thead>
+                                <tr>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-1/12 py-2 px-2 align-middle">Location</th>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-1/6 py-2 px-2 align-middle">Product Code/SKU</th>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-1/5 py-2 px-2 align-middle">Product Name</th>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-1/6 py-2 px-2 align-middle">Batch No.</th>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-1/6 py-2 px-2 align-middle">Expiry</th>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-1/12 py-2 px-2 text-center align-middle">Qty</th>
+                                    <th class="sticky top-0 z-10 bg-base-100 w-[40px] px-1 py-2 text-center align-middle"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for form in item_formset %}
+                                    <tr class="formset-row {% if form.errors %}border-l-4 border-error{% endif %}" data-row-index="{{ forloop.counter0 }}">
+                                        {{ form.id }}
+                                        <div style="display:none;">
+                                            <input type="checkbox" name="{{ form.DELETE.html_name }}" id="{{ form.DELETE.id_for_label }}" {% if active_session.status != 'PENDING' %}disabled{% endif %} {% if form.DELETE.value %}checked{% endif %}/>
+                                        </div>
+                                        {{ form.warehouse_product }}
+
+                                        <td class="py-1 px-1 align-middle">
+                                            {% if active_session.status != 'PENDING' %}{{ form.location_label_counted.value|default_if_none:"" }}{% else %}{{ form.location_label_counted }}{% endif %}
+                                            {% if form.location_label_counted.errors %}<p class="text-error text-xs">{{ form.location_label_counted.errors|join:", " }}</p>{% endif %}
+                                        </td>
+                                        <td class="py-1 px-1 align-middle relative">
+                                            {% if active_session.status != 'PENDING' %}{{ form.product_code_input.value|default_if_none:"" }}{% else %}{{ form.product_code_input }}{% endif %}
+                                            {% if form.product_code_input.errors %}<p class="text-error text-xs">{{ form.product_code_input.errors|join:", " }}</p>{% endif %}
+                                            <div class="product-suggestions hidden bg-white border border-gray-300 shadow-lg rounded mt-1 absolute z-20 w-[36%] max-h-48 overflow-y-auto"></div>
+                                        </td>
+                                        <td class="py-1 px-1 align-middle">
+                                            <span class="product-name-display text-sm text-gray-700 inline-block min-h-[1.25rem] leading-tight">
+                                                {% if form.instance.pk and form.instance.warehouse_product %}{{ form.instance.warehouse_product.product.name }}{% else %}&nbsp;{% endif %}
+                                            </span>
+                                            {% if form.warehouse_product.errors %}<p class="text-error text-xs">{{ form.warehouse_product.errors|join:", " }}</p>{% endif %}
+                                        </td>
+                                        <td class="py-1 px-1 align-middle">
+                                            {% if active_session.status != 'PENDING' %}{{ form.batch_number_counted.value|default_if_none:"" }}{% else %}{{ form.batch_number_counted }}{% endif %}
+                                            {% if form.batch_number_counted.errors %}<p class="text-error text-xs">{{ form.batch_number_counted.errors|join:", " }}</p>{% endif %}
+                                        </td>
+                                        <td class="py-1 px-1 align-middle">
+                                            {% if active_session.status != 'PENDING' %}{{ form.expiry_date_counted.value|date:"Y-m-d"|default_if_none:"" }}{% else %}{{ form.expiry_date_counted }}{% endif %}
+                                            {% if form.expiry_date_counted.errors %}<p class="text-error text-xs">{{ form.expiry_date_counted.errors|join:", " }}</p>{% endif %}
+                                        </td>
+                                        <td class="py-1 px-1 align-middle">
+                                            {% if active_session.status != 'PENDING' %}{{ form.counted_quantity.value|default_if_none:"" }}{% else %}{{ form.counted_quantity }}{% endif %}
+                                            {% if form.counted_quantity.errors %}<p class="text-error text-xs">{{ form.counted_quantity.errors|join:", " }}</p>{% endif %}
+                                        </td>
+                                        <td style="display:none;">
+                                             {% if active_session.status != 'PENDING' %}<textarea name="{{ form.notes.html_name }}" id="{{ form.notes.id_for_label }}" class="textarea textarea-bordered w-full" rows="1" readonly disabled>{{ form.notes.value|default_if_none:"" }}</textarea>{% else %}{{ form.notes }}{% endif %}
+                                        </td>
+                                        <td class="py-1 px-1 text-center align-middle">
+                                            <button type="button" class="btn btn-ghost btn-xs text-error delete-row-btn" aria-label="Delete row" {% if active_session.status != 'PENDING' %}disabled{% endif %}>&times;</button>
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {% if item_formset.non_form_errors %}
+                        <div class="text-error text-sm my-2">{{ item_formset.non_form_errors|join:", " }}</div>
+                    {% endif %}
+
+                    {% if active_session.status == 'PENDING' %} {# Using direct condition for action buttons #}
+                        <div class="card-actions justify-between items-center mt-6">
+                            <div class="flex items-center space-x-2">
+                                <button type="button" id="add-stocktake-item-rows-btn" class="btn btn-sm btn-outline btn-accent">Add</button>
+                                <input type="number" id="num-rows-to-add" value="1" min="1" max="20" class="input input-sm input-bordered w-20 text-center">
+                                <span>row(s)</span>
+                            </div>
+                            <div>
+                                <button type="submit" name="submit_stock_take_items" class="btn btn-primary">Save Counts</button>
+                                <button type="submit" name="mark_session_complete" value="1" class="btn btn-success ml-2"
+                                        onclick="return confirm('Are you sure you have finished entering all counts for this session? This action cannot be undone by you.');">
+                                    Mark Session as Complete
+                                </button>
+                            </div>
+                        </div>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+        {# REMOVED the corresponding {% endwith %} as the {% with %} was removed #}
+    {% endif %}
+</div>
+
+<template id="stocktake-item-form-template">
+    {# 'is_session_readonly_for_template' must be passed from Django view context #}
+    <tr class="formset-row">
+        <input type="hidden" name="{prefix}-warehouse_product" id="id_{prefix}-warehouse_product" class="selected-warehouse-product-id">
+        <input type="hidden" name="{prefix}-id" id="id_{prefix}-id">
+        <input type="checkbox" name="{prefix}-DELETE" id="id_{prefix}-DELETE" style="display:none;" {% if is_session_readonly_for_template %}disabled{% endif %}>
+
+        <td class="py-1 px-1 align-middle"><input type="text" name="{prefix}-location_label_counted" class="input input-sm input-bordered w-full" placeholder="e.g., A01-01" id="id_{prefix}-location_label_counted" {% if is_session_readonly_for_template %}readonly disabled{% endif %}></td>
+        <td class="py-1 px-1 align-middle relative">
+            <input type="text" name="{prefix}-product_code_input" class="input input-sm input-bordered w-full product-code-input" placeholder="Enter Code or SKU" id="id_{prefix}-product_code_input" {% if is_session_readonly_for_template %}readonly disabled{% endif %}>
+            <div class="product-suggestions hidden bg-white border border-gray-300 shadow-lg rounded mt-1 absolute z-20 w-[400px] max-h-48 overflow-y-auto"></div>
+        </td>
+        <td class="py-1 px-1 align-middle"><span class="product-name-display text-sm text-gray-700 inline-block min-h-[1.25rem] leading-tight">&nbsp;</span></td>
+        <td class="py-1 px-1 align-middle"><input type="text" name="{prefix}-batch_number_counted" class="input input-sm input-bordered w-full" placeholder="Batch No." id="id_{prefix}-batch_number_counted" {% if is_session_readonly_for_template %}readonly disabled{% endif %}></td>
+        <td class="py-1 px-1 align-middle"><input type="date" name="{prefix}-expiry_date_counted" class="input input-sm input-bordered w-full" id="id_{prefix}-expiry_date_counted" {% if is_session_readonly_for_template %}readonly disabled{% endif %}></td>
+        <td class="py-1 px-1 align-middle"><input type="number" name="{prefix}-counted_quantity" class="input input-sm input-bordered w-full" min="0" required id="id_{prefix}-counted_quantity" {% if is_session_readonly_for_template %}readonly disabled{% endif %}></td>
+        <td style="display:none;"><textarea name="{prefix}-notes" class="textarea textarea-bordered w-full" rows="1" placeholder="Notes" id="id_{prefix}-notes" {% if is_session_readonly_for_template %}readonly disabled{% endif %}></textarea></td>
+        <td class="py-1 px-1 text-center align-middle">
+            <button type="button" class="btn btn-ghost btn-xs text-error delete-row-btn" aria-label="Delete row" {% if is_session_readonly_for_template %}disabled{% endif %}>&times;</button>
+        </td>
+    </tr>
+</template>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // --- Session Selection Logic ---
+    const activeSessionSelect = document.getElementById('{{ selection_form.active_session.id_for_label }}');
+    const newSessionNameInput = document.getElementById('{{ selection_form.session_name.id_for_label }}');
+    const autoNamePrefixFromView = "{{ auto_generated_session_name_prefix|escapejs }}";
+
+    function toggleNewSessionNameInput() {
+        if (activeSessionSelect && newSessionNameInput) {
+            if (activeSessionSelect.value) {
+                newSessionNameInput.disabled = true;
+                newSessionNameInput.required = false;
+                newSessionNameInput.value = '';
+                const parentFormControl = newSessionNameInput.closest('.form-control');
+                if (parentFormControl) parentFormControl.classList.add('opacity-50');
+            } else {
+                newSessionNameInput.disabled = false;
+                newSessionNameInput.required = true;
+                if (autoNamePrefixFromView && (newSessionNameInput.value === '' || !newSessionNameInput.value.startsWith(autoNamePrefixFromView.substring(0, 10)) )) {
+                    newSessionNameInput.value = autoNamePrefixFromView;
+                }
+                const parentFormControl = newSessionNameInput.closest('.form-control');
+                if (parentFormControl) parentFormControl.classList.remove('opacity-50');
+                if (document.activeElement !== newSessionNameInput) {
+                    newSessionNameInput.focus();
+                }
+            }
+        }
+    }
+
+    if (activeSessionSelect) {
+        activeSessionSelect.addEventListener('change', toggleNewSessionNameInput);
+        toggleNewSessionNameInput();
+    }
+
+    // --- Item Formset Logic ---
+    const formsetContainer = document.querySelector('.stock-take-items-table');
+    const formsetPrefix = '{{ item_formset.prefix|default:"stocktakeitems" }}';
+    const totalFormsInput = document.querySelector(`input[name="${formsetPrefix}-TOTAL_FORMS"]`);
+    const initialFormsInput = document.querySelector(`input[name="${formsetPrefix}-INITIAL_FORMS"]`);
+    const initialFormsCount = initialFormsInput ? parseInt(initialFormsInput.value) : 0;
+
+    const addRowsButton = document.getElementById('add-stocktake-item-rows-btn');
+    const numRowsToAddInput = document.getElementById('num-rows-to-add');
+    const warehouseIdForSearch = "{{ active_session.warehouse.pk|default:'' }}";
+
+    const activeSessionStatus = "{{ active_session.status|escapejs }}";
+    const isSessionOperatorReadOnlyByJS = activeSessionStatus !== 'PENDING';
+
+    function debounce(func, delay) {
+        let timeout;
+        return function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), delay);
+        };
+    }
+
+    function setupProductCodeSearch(rowElement) {
+        const codeInput = rowElement.querySelector('.product-code-input');
+        const suggestionsDiv = rowElement.querySelector('.product-suggestions');
+        const productNameDisplay = rowElement.querySelector('.product-name-display');
+        const hiddenWarehouseProductIdInput = rowElement.querySelector('input[name$="-warehouse_product"]');
+
+        if (!codeInput || !suggestionsDiv || !productNameDisplay || !hiddenWarehouseProductIdInput) {
+            return;
+        }
+
+        // Check if the input is already disabled by the template logic
+        if (codeInput.disabled || codeInput.readOnly) {
+            return; // Do not attach listeners if already disabled/readonly
+        }
+        // Note: isSessionOperatorReadOnlyByJS check is implicitly handled because inputs
+        // will be disabled by template if true. If somehow an enabled input exists in a readonly session,
+        // this JS search will still function, but backend will reject changes.
+
+        const fetchSuggestions = debounce(async function(term) {
+            if (term.length < 1) {
+                suggestionsDiv.innerHTML = '';
+                suggestionsDiv.classList.add('hidden');
+                return;
+            }
+            try {
+                const response = await fetch(`{% url 'inventory:stocktake_search_wp_json' %}?term=${encodeURIComponent(term)}&warehouse_id=${warehouseIdForSearch}`);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const products = await response.json();
+
+                suggestionsDiv.innerHTML = '';
+                if (products.length > 0) {
+                    products.forEach(product => {
+                        const div = document.createElement('div');
+                        div.textContent = product.label;
+                        div.classList.add('p-2', 'hover:bg-gray-100', 'cursor-pointer', 'text-xs');
+                        div.dataset.wpId = product.id;
+                        div.dataset.productName = product.name;
+                        div.dataset.wpCode = product.wp_code || product.sku;
+
+                        div.addEventListener('click', function() {
+                            codeInput.value = this.dataset.wpCode;
+                            productNameDisplay.textContent = this.dataset.productName;
+                            if (productNameDisplay.textContent.trim() === "") productNameDisplay.innerHTML = '&nbsp;';
+                            hiddenWarehouseProductIdInput.value = this.dataset.wpId;
+                            suggestionsDiv.innerHTML = '';
+                            suggestionsDiv.classList.add('hidden');
+                            const batchInput = rowElement.querySelector('input[name$="-batch_number_counted"]');
+                            if(batchInput) batchInput.focus();
+                        });
+                        suggestionsDiv.appendChild(div);
+                    });
+                    suggestionsDiv.classList.remove('hidden');
+                } else {
+                    suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-gray-500">No products found.</div>';
+                    suggestionsDiv.classList.remove('hidden');
+                }
+            } catch (error) {
+                console.error('Error fetching product suggestions:', error);
+                suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-red-500">Error loading suggestions.</div>';
+                suggestionsDiv.classList.remove('hidden');
+            }
+        }, 250);
+
+        codeInput.addEventListener('input', function() { fetchSuggestions(this.value); if (this.value.trim() === '') { productNameDisplay.innerHTML = '&nbsp;'; hiddenWarehouseProductIdInput.value = ''; } });
+        document.addEventListener('click', function(event) { if (suggestionsDiv && !codeInput.contains(event.target) && !suggestionsDiv.contains(event.target)) { suggestionsDiv.classList.add('hidden'); } });
+        codeInput.addEventListener('keydown', function(event) { if (event.key === 'Enter' && suggestionsDiv && !suggestionsDiv.classList.contains('hidden') && suggestionsDiv.children.length > 0) { const firstClickableSuggestion = suggestionsDiv.querySelector('div[data-wp-id]'); if (firstClickableSuggestion) { event.preventDefault(); firstClickableSuggestion.click(); } } });
+    }
+
+    function markExistingRowForDeletion(rowElement) {
+        const deleteCheckbox = rowElement.querySelector('input[type="checkbox"][name$="-DELETE"]');
+        if (deleteCheckbox && !deleteCheckbox.disabled) { // Only act if checkbox is not disabled
+            deleteCheckbox.checked = true;
+            rowElement.style.opacity = '0.5';
+            rowElement.querySelectorAll('input:not([type="hidden"]), textarea, select, button.delete-row-btn').forEach(el => el.disabled = true);
+        }
+    }
+
+    function removeAndReindexNewRow(rowElementToRemove) {
+        const removedRowIndex = parseInt(rowElementToRemove.dataset.rowIndex);
+        rowElementToRemove.remove();
+
+        let currentTotalForms = parseInt(totalFormsInput.value);
+        totalFormsInput.value = currentTotalForms - 1;
+
+        const allRows = formsetContainer.querySelectorAll('tbody tr.formset-row');
+        allRows.forEach(row => {
+            const currentRowDomIndexStr = row.dataset.rowIndex;
+            if (typeof currentRowDomIndexStr === 'undefined') return;
+            const currentRowDomIndex = parseInt(currentRowDomIndexStr);
+
+            if (currentRowDomIndex > removedRowIndex) {
+                const newIdx = currentRowDomIndex - 1;
+                row.dataset.rowIndex = newIdx;
+                row.querySelectorAll('input, select, textarea, span[id]').forEach(el => {
+                    const nameAttr = el.getAttribute('name');
+                    const idAttr = el.getAttribute('id');
+                    if (nameAttr) el.setAttribute('name', nameAttr.replace(`${formsetPrefix}-${currentRowDomIndex}-`, `${formsetPrefix}-${newIdx}-`));
+                    if (idAttr) {
+                        const oldIdPattern = new RegExp(`(id_${formsetPrefix}-|${formsetPrefix}-)${currentRowDomIndex}(-|$)`);
+                        const newIdReplacement = `$1${newIdx}$2`;
+                        if (oldIdPattern.test(idAttr)) {
+                            el.setAttribute('id', idAttr.replace(oldIdPattern, newIdReplacement));
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    if (formsetContainer && totalFormsInput) {
+        formsetContainer.querySelectorAll('tbody tr.formset-row').forEach((row) => {
+            setupProductCodeSearch(row);
+        });
+
+        formsetContainer.addEventListener('click', function(event) {
+            const button = event.target.closest('.delete-row-btn');
+            if (button && !button.disabled) {
+                const rowElement = button.closest('tr.formset-row');
+                if (rowElement) {
+                    if (confirm('Are you sure you want to delete this row?')) {
+                        const idInput = rowElement.querySelector('input[name$="-id"][value]:not([value=""])');
+                        const rowIndex = parseInt(rowElement.dataset.rowIndex);
+                        if ((idInput && idInput.value) || rowIndex < initialFormsCount) {
+                            markExistingRowForDeletion(rowElement);
+                        } else {
+                            removeAndReindexNewRow(rowElement);
+                        }
+                    }
+                }
+            }
+        });
+
+        if (addRowsButton && numRowsToAddInput) { // These buttons might not exist if session is readonly
+            const templateNode = document.getElementById('stocktake-item-form-template');
+            if (!templateNode) {
+                console.error("Stocktake item form template not found!");
+            } else {
+                const templateHtml = templateNode.innerHTML;
+                addRowsButton.addEventListener('click', function() {
+                    // This button is only rendered if not is_session_readonly_for_operator,
+                    // so isSessionOperatorReadOnlyByJS check here is mostly redundant but safe.
+                    if (isSessionOperatorReadOnlyByJS && this.disabled) return;
+
+                    const numToAdd = parseInt(numRowsToAddInput.value);
+                    if (isNaN(numToAdd) || numToAdd < 1 || numToAdd > 20) {
+                        alert("Please enter a number between 1 and 20.");
+                        return;
+                    }
+
+                    const tableBody = formsetContainer.querySelector('tbody');
+                    let firstNewRowFirstInput = null;
+
+                    for (let i = 0; i < numToAdd; i++) {
+                        let actualFormIndex = parseInt(totalFormsInput.value);
+                        let newFormRowHtml = templateHtml.replace(/{prefix}/g, `${formsetPrefix}-${actualFormIndex}`);
+
+                        let tempContainer = document.createElement('tbody');
+                        tempContainer.innerHTML = newFormRowHtml;
+                        let newRowElement = tempContainer.firstElementChild;
+
+                        if (newRowElement) {
+                            newRowElement.dataset.rowIndex = actualFormIndex;
+                            // Template already has inputs disabled/readonly if is_session_readonly_for_template is true.
+                            // No need for additional JS disabling here if template is correct.
+
+                            tableBody.appendChild(newRowElement);
+                            setupProductCodeSearch(newRowElement);
+
+                            if (i === 0) {
+                                firstNewRowFirstInput = newRowElement.querySelector('input[type="text"]:not([readonly]):not([disabled]), input[type="number"]:not([readonly]):not([disabled]), input[type="date"]:not([readonly]):not([disabled])');
+                            }
+                            totalFormsInput.value = actualFormIndex + 1;
+                        } else {
+                            console.error("Failed to create new row from template for row index " + actualFormIndex);
+                        }
+                    }
+                    numRowsToAddInput.value = "1";
+                    if (firstNewRowFirstInput) {
+                        firstNewRowFirstInput.focus();
+                    }
+                });
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

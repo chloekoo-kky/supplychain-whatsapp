@@ -29,7 +29,6 @@
 
 {% block extra_js %}
 <!-- 引入 SweetAlert2 -->
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
 <script>
 const TAB_SPECIFIC_PARAMS = {
@@ -320,8 +319,6 @@ function openDetails(pk) {
 
     document.getElementById("modal-product-name").textContent = data.product;
     document.getElementById("modal-warehouse-name").textContent = data.warehouse;
-    document.getElementById("modal-batch-number").textContent = data.batch_number;
-    document.getElementById("modal-expiry-date").textContent = data.expiry_date;
     document.getElementById("modal-quantity").textContent = data.quantity;
     document.getElementById("modal-threshold").textContent = data.threshold;
 

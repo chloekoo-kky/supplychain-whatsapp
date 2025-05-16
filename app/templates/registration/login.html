@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}Login - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-center min-h-[calc(100vh-10rem)] py-12 px-4 sm:px-6 lg:px-8">
+  <div class="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-lg">
+    <div>
+      <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+        Sign in to your account
+      </h2>
+    </div>
+    <form class="mt-8 space-y-6" method="post" action="{% url 'login' %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next|default:'/' }}">
+
+      {% if form.non_field_errors %}
+        <div class="alert alert-error shadow-sm">
+          <div>
+            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <span>{% for error in form.non_field_errors %}{{ error }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</span>
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="rounded-md shadow-sm -space-y-px">
+        <div>
+          <label for="id_username" class="sr-only">{% translate 'Username or Email' %}</label>
+          <input id="id_username" name="username" type="text" autocomplete="username" required
+                 class="input input-bordered w-full rounded-t-md
+                        {% if form.username.errors %}input-error{% endif %}"
+                 placeholder="{% translate 'Username or Email' %}"
+                 value="{{ form.username.value|default:'' }}">
+          {% if form.username.errors %}
+            <label class="label pt-1">
+              {% for error in form.username.errors %}
+              <span class="label-text-alt text-error">{{ error }}</span>
+              {% endfor %}
+            </label>
+          {% endif %}
+        </div>
+        <div class="pt-2"> {# Add some space before password #}
+          <label for="id_password" class="sr-only">{% translate 'Password' %}</label>
+          <input id="id_password" name="password" type="password" autocomplete="current-password" required
+                 class="input input-bordered w-full rounded-b-md
+                        {% if form.password.errors %}input-error{% endif %}"
+                 placeholder="{% translate 'Password' %}">
+          {% if form.password.errors %}
+            <label class="label pt-1">
+              {% for error in form.password.errors %}
+              <span class="label-text-alt text-error">{{ error }}</span>
+              {% endfor %}
+            </label>
+          {% endif %}
+        </div>
+      </div>
+
+
+      <div>
+        <button type="submit" class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+          Sign in
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

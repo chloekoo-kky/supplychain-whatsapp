@@ -27,3 +27,4 @@
 #purchase-orders-list #item-list-container.initially-hidden {
   visibility: hidden; /* Or display: none; if you prefer, but visibility can be smoother */
 }
+
