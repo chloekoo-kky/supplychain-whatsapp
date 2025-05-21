@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block page_title %}{{ page_title|default:"ERP Stock Check Sessions" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
+        <a href="{% url 'inventory:upload_erp_stock_check' %}" class="btn btn-primary">Upload New ERP Report</a>
+    </div>
+
+
+    {% if sessions %}
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+            <table class="min-w-full table-auto">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-sm leading-normal">
+                    <tr>
+                        <th class="py-3 px-6 text-left">Session Name</th>
+                        <th class="py-3 px-6 text-left">Status</th>
+                        <th class="py-3 px-6 text-left">Uploaded By</th>
+                        <th class="py-3 px-6 text-left">Uploaded At</th>
+                        <th class="py-3 px-6 text-left">File Name</th>
+                        <th class="py-3 px-6 text-left">Evaluated At</th>
+                        <th class="py-3 px-6 text-left">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for session_item in sessions %} {# Renamed to session_item to avoid conflict with outer session #}
+                        <tr class="border-b border-gray-200 hover:bg-gray-50">
+                            <td class="py-3 px-6 text-left">{{ session_item.name }}</td>
+                            <td class="py-3 px-6 text-left">
+                                <span class="badge badge-sm
+                                    {% if session_item.status == 'PENDING_UPLOAD' or session_item.status == 'UPLOAD_FAILED' %}badge-error
+                                    {% elif session_item.status == 'PROCESSING' or session_item.status == 'EVALUATING' %}badge-warning
+                                    {% elif session_item.status == 'PENDING_EVALUATION' %}badge-info
+                                    {% elif session_item.status == 'EVALUATED' %}badge-success
+                                    {% elif session_item.status == 'CLOSED' %}badge-neutral
+                                    {% else %}badge-ghost
+                                    {% endif %}">
+                                    {{ session_item.get_status_display }}
+                                </span>
+                            </td>
+                            <td class="py-3 px-6 text-left">{{ session_item.uploaded_by.name|default:session_item.uploaded_by.email|default:"N/A" }}</td>
+                            <td class="py-3 px-6 text-left">{{ session_item.uploaded_at|date:"Y-m-d H:i" }}</td>
+                            <td class="py-3 px-6 text-left">{{ session_item.source_file_name|default:"-" }}</td>
+                            <td class="py-3 px-6 text-left">{{ session_item.evaluated_at|date:"Y-m-d H:i"|default:"-" }}</td>
+                            <td class="py-3 px-6 text-left">
+                                <a href="{% url 'inventory:erp_stock_check_detail' session_item.pk %}" class="btn btn-xs btn-outline btn-info">Details</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mt-6 rounded-md" role="alert">
+            <p class="font-bold">No ERP Stock Check Sessions Found</p>
+            <p>You can start by uploading an ERP report.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block page_title %}{{ page_title|default:"Upload ERP Stock Data" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
+        <a href="{% url 'inventory:erp_stock_check_list' %}" class="btn btn-outline btn-sm">View Sessions</a>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+
+                <div class="form-control w-full mb-4">
+                    {{ form.session_name.label_tag }}
+                    {{ form.session_name }}
+                    {% if form.session_name.help_text %}<div class="label"><span class="label-text-alt">{{ form.session_name.help_text }}</span></div>{% endif %}
+                    {% for error in form.session_name.errors %}<div class="text-error text-sm mt-1">{{ error }}</div>{% endfor %}
+                </div>
+
+                <div class="form-control w-full mb-6">
+                    {{ form.erp_file.label_tag }}
+                    {{ form.erp_file }}
+                    {% if form.erp_file.help_text %}<div class="label"><span class="label-text-alt">{{ form.erp_file.help_text }}</span></div>{% endif %}
+                    {% for error in form.erp_file.errors %}<div class="text-error text-sm mt-1">{{ error }}</div>{% endfor %}
+                </div>
+
+                {% if form.non_field_errors %}
+                    <div class="alert alert-error shadow-sm mb-4">
+                        {% for error in form.non_field_errors %}
+                            <p>{{ error }}</p>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <div class="card-actions justify-end">
+                    <button type="submit" class="btn btn-primary">Upload and Process File</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

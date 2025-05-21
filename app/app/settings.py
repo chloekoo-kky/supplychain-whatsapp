@@ -185,3 +185,43 @@ LOGIN_REDIRECT_URL = '/'      # Where to redirect after successful login (e.g., 
 # SECURE_HSTS_PRELOAD = not DEBUG
 # SECURE_BROWSER_XSS_FILTER = True
 # X_FRAME_OPTIONS = 'DENY'
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False, # Keep existing Django loggers
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'DEBUG', # Capture DEBUG and higher level messages
+            'class': 'logging.StreamHandler', # Outputs to stderr (console)
+            'formatter': 'simple', # Use the 'simple' formatter
+        },
+    },
+    'loggers': {
+        'django': { # Configure Django's built-in loggers
+            'handlers': ['console'],
+            'level': 'INFO', # Or 'WARNING' to reduce Django's own noise
+            'propagate': True,
+        },
+        'inventory': { # Logger for your 'inventory' app
+            'handlers': ['console'],
+            'level': 'DEBUG', # Capture DEBUG and INFO messages from your app
+            'propagate': False, # Don't pass to parent loggers if handled here
+        },
+        # You can add other app-specific loggers here
+        # To see logs from all apps (including yours if not specified above):
+        # '': { # Root logger
+        # 'handlers': ['console'],
+        # 'level': 'DEBUG',
+        # },
+    },
+}

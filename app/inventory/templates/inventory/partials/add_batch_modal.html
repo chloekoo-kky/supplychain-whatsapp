@@ -4,12 +4,12 @@
     <div class="modal-box max-w-lg">
         <form id="add-batch-form" method="POST" action="{% url 'inventory:add_inventory_batch' %}">
             {% csrf_token %}
-            <h3 class="font-bold text-xl mb-6">Add New Inventory Batch</h3>
+            <h3 class="font-bold text-xl mb-2">Add New Inventory Batch</h3>
 
             {# Warehouse Product Selection (Keep as is) #}
             {% for field in add_batch_form %}
                 {% if field.name == "warehouse_product" %}
-                    <div class="form-control w-full mb-4" id="wp-select-container">
+                    <div class="form-control w-full mb-2" id="wp-select-container">
                         <label class="label" for="{{ field.id_for_label }}">
                             <span class="label-text">{{ field.label }} {% if field.field.required %}<span class="text-error">*</span>{% endif %}</span>
                         </label>
@@ -17,7 +17,7 @@
                         {% if field.help_text %}<label class="label"><span class="label-text-alt">{{ field.help_text }}</span></label>{% endif %}
                         {% for error in field.errors %}<label class="label"><span class="label-text-alt text-error">{{ error }}</span></label>{% endfor %}
                     </div>
-                    <div class="form-control w-full mb-4" id="wp-display-container" style="display: none;">
+                    <div class="form-control w-full mb-2" id="wp-display-container" style="display: none;">
                         <label class="label"><span class="label-text">Warehouse Product</span></label>
                         <p id="selected_wp_display_in_modal" class="p-3 bg-base-200 rounded-md text-sm"></p>
                     </div>
@@ -26,7 +26,7 @@
             {% endfor %}
 
             {# Grid for Batch Number and Expiry Date (Keep as is) #}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
                 {% for field in add_batch_form %}
                     {% if field.name == "batch_number" %}
                         <div class="form-control w-full"> {# Batch Number #}
@@ -51,7 +51,7 @@
             </div>
 
             {# NEW Grid for Quantity and Location Label #}
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
                 {% for field in add_batch_form %}
                     {% if field.name == "quantity" %}
                         <div class="form-control w-full"> {# Quantity #}
@@ -78,7 +78,7 @@
             {# Remaining fields (Cost Price, Date Received) - full width #}
             {% for field in add_batch_form %}
                 {% if field.name != "warehouse_product" and field.name != "batch_number" and field.name != "expiry_date" and field.name != "quantity" and field.name != "location_label" %}
-                    <div class="form-control w-full mb-4">
+                    <div class="form-control w-full mb-2">
                         <label class="label" for="{{ field.id_for_label }}">
                             <span class="label-text">{{ field.label }} {% if field.field.required %}<span class="text-error">*</span>{% endif %}</span>
                         </label>

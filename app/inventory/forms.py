@@ -1,8 +1,8 @@
 # inventory/forms.py
 from django import forms
-from django.forms import inlineformset_factory, BaseInlineFormSet
+from django.forms import inlineformset_factory, BaseInlineFormSet, formset_factory, BaseFormSet
 from .models import InventoryBatchItem, StockTakeSession, StockTakeItem
-from warehouse.models import WarehouseProduct # Assuming WarehouseProduct is in warehouse.models
+from warehouse.models import Warehouse, WarehouseProduct # Assuming WarehouseProduct is in warehouse.models
 
 class InventoryBatchItemForm(forms.ModelForm):
     class Meta:
@@ -14,7 +14,7 @@ class InventoryBatchItemForm(forms.ModelForm):
             'expiry_date',
             'quantity',
             'cost_price',
-            'date_received'
+            'date_received',
         ]
         widgets = {
             'expiry_date': forms.DateInput(attrs={'type': 'date', 'class': 'input input-bordered w-full'}),
@@ -24,6 +24,7 @@ class InventoryBatchItemForm(forms.ModelForm):
             'location_label': forms.TextInput(attrs={'placeholder': 'eg A01-01', 'class': 'input input-bordered w-full'}),
             'quantity': forms.NumberInput(attrs={'min': '0', 'class': 'input input-bordered w-full'}),
             'cost_price': forms.NumberInput(attrs={'step': '0.01', 'placeholder': 'eg 10.50 (Optional)', 'class': 'input input-bordered w-full'}),
+
         }
 
     def __init__(self, *args, **kwargs):
@@ -66,30 +67,30 @@ class InventoryBatchItemForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        warehouse_product = cleaned_data.get('warehouse_product')
-        batch_number = cleaned_data.get('batch_number')
-        location_label = cleaned_data.get('location_label')
+        # warehouse_product = cleaned_data.get('warehouse_product')
+        # batch_number = cleaned_data.get('batch_number')
+        # location_label = cleaned_data.get('location_label')
 
-        if warehouse_product and batch_number: # location_label can be None
-            filter_kwargs = {
-                'warehouse_product': warehouse_product,
-                'batch_number': batch_number,
-                'location_label': location_label
-            }
+        # if warehouse_product and batch_number: # location_label can be None
+        #     filter_kwargs = {
+        #         'warehouse_product': warehouse_product,
+        #         'batch_number': batch_number,
+        #         'location_label': location_label
+        #     }
 
-            queryset = InventoryBatchItem.objects.filter(**filter_kwargs)
+        #     queryset = InventoryBatchItem.objects.filter(**filter_kwargs)
 
-            if self.instance and self.instance.pk:
-                queryset = queryset.exclude(pk=self.instance.pk)
+        #     if self.instance and self.instance.pk:
+        #         queryset = queryset.exclude(pk=self.instance.pk)
 
-            if queryset.exists():
-                loc_display = f"at location '{location_label}'" if location_label else "with no specific location label"
-                # Check if the existing item is the one being edited, if so, it's not a conflict for itself.
-                # This is already handled by `queryset = queryset.exclude(pk=self.instance.pk)` if self.instance.pk exists.
-                # So, if queryset still exists, it's a conflict with another record.
-                raise forms.ValidationError(
-                    f"An inventory batch item with batch number '{batch_number}' for this product/warehouse {loc_display} already exists."
-                )
+        #     if queryset.exists():
+        #         loc_display = f"at location '{location_label}'" if location_label else "with no specific location label"
+        #         # Check if the existing item is the one being edited, if so, it's not a conflict for itself.
+        #         # This is already handled by `queryset = queryset.exclude(pk=self.instance.pk)` if self.instance.pk exists.
+        #         # So, if queryset still exists, it's a conflict with another record.
+        #         raise forms.ValidationError(
+        #             f"An inventory batch item with batch number '{batch_number}' for this product/warehouse {loc_display} already exists."
+        #         )
         return cleaned_data
 
 
@@ -224,3 +225,88 @@ class StockTakeSessionSelectionForm(forms.Form):
                 code='no_selection_or_name'
             )
         return cleaned_data
+
+class ErpStockCheckUploadForm(forms.Form):
+    erp_file = forms.FileField(
+        label="Select ERP Stock Report Excel File",
+        help_text="Upload the .xlsx file from the ERP system (Sheet: 'Quantity grouped by product var').",
+        widget=forms.ClearableFileInput(attrs={'accept': '.xlsx', 'class': 'file-input file-input-bordered file-input-primary w-full'})
+    )
+    session_name = forms.CharField(
+        max_length=255,
+        label="Stock Check Session Name",
+        help_text="e.g., ERP Snapshot May 2025 - Main Warehouse",
+        widget=forms.TextInput(attrs={'class': 'input input-bordered w-full'})
+    )
+    # Optional: Allow user to specify a warehouse if the check is for a single one
+    # and the file might contain data for multiple.
+    # If file is always for one, or warehouse is determined from file content, this might not be needed.
+    warehouse = forms.ModelChoiceField(
+    queryset=Warehouse.objects.all(),
+    required=False,
+    label="Specific Warehouse (optional)",
+    help_text="Leave blank if the file covers multiple warehouses or if warehouse is in the file.",
+    widget=forms.Select(attrs={'class': 'select select-bordered w-full'})
+    )
+
+class DefaultPickItemForm(forms.Form):
+    """
+    Form for a single row in the "Manage Default Picks" modal.
+    Initially, only location_label is visible for search.
+    Other fields are populated via JS after search.
+    """
+    inventory_batch_item_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
+    warehouse_product_id = forms.IntegerField(widget=forms.HiddenInput(), required=False) # To know which WP this default belongs to
+
+    location_label_search = forms.CharField(
+        max_length=100,
+        required=False, # Not required for initial display of existing defaults
+        label="Location Label",
+        widget=forms.TextInput(attrs={
+            'class': 'input input-sm input-bordered w-full default-pick-location-search',
+            'placeholder': 'Search by Location Label'
+        })
+    )
+    # These fields will be displayed as text, not inputs, after search
+    product_name_display = forms.CharField(required=False, widget=forms.HiddenInput()) # Store for display
+    batch_number_display = forms.CharField(required=False, widget=forms.HiddenInput())
+    expiry_date_display = forms.CharField(required=False, widget=forms.HiddenInput())
+    quantity_display = forms.CharField(required=False, widget=forms.HiddenInput())
+
+    # Hidden field to mark for removal or to indicate it's a default
+    is_default = forms.BooleanField(required=False, widget=forms.HiddenInput(), initial=True) # Assume initially it is/will be default
+
+    def __init__(self, *args, **kwargs):
+        self.warehouse = kwargs.pop('warehouse', None) # For filtering search by user's warehouse
+        super().__init__(*args, **kwargs)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # If an item is being actively set (e.g., not just displayed),
+        # inventory_batch_item_id should be present.
+        # This form is more for capturing the selected batch_item_id via JS.
+        # Actual setting of pick_priority will happen in the view.
+        return cleaned_data
+
+
+class BaseDefaultPickItemFormSet(BaseFormSet):
+    def __init__(self, *args, **kwargs):
+        self.warehouse = kwargs.pop('warehouse', None)
+        super().__init__(*args, **kwargs)
+        for form in self.forms:
+            form.warehouse = self.warehouse # Pass warehouse to individual forms
+
+    def clean(self):
+        if any(self.errors):
+            return
+        # Add any formset-level validation if needed (e.g., ensuring no duplicate locations for the same WP)
+        # For now, the model's UniqueConstraint for pick_priority=0 handles uniqueness per WP.
+        pass
+
+
+DefaultPickItemFormSet = formset_factory(
+    DefaultPickItemForm,
+    formset=BaseDefaultPickItemFormSet,
+    extra=1, # Start with one empty form for adding
+    can_delete=True # Allows marking forms for deletion
+)

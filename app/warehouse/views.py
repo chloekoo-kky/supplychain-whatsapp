@@ -11,7 +11,7 @@ import logging
 
 
 from django.views.decorators.http import require_POST
-from django.db import transaction, models
+from django.db import transaction
 from django.utils import timezone
 from django.urls import reverse # For generating URLs in JSON response
 

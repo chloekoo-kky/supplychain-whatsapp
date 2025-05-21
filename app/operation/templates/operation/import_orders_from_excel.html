@@ -1,0 +1,139 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load i18n %} {# Optional: if you use {% translate %} or other i18n tags #}
+
+{% block page_title %}Import Orders from Excel{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="max-w-2xl mx-auto">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-800">Import Orders via Excel</h1>
+            <a href="{% url 'operation:order_list' %}" class="btn btn-sm btn-outline">View Imported Orders</a>
+        </div>
+
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+
+                    <div class="form-control w-full mb-4">
+                        {{ form.excel_file.label_tag }}
+                        {{ form.excel_file }}
+                        {% if form.excel_file.help_text %}
+                            <label class="label">
+                                <span class="label-text-alt">{{ form.excel_file.help_text }}</span>
+                            </label>
+                        {% endif %}
+                        {% for error in form.excel_file.errors %}
+                            <label class="label">
+                                <span class="label-text-alt text-error">{{ error }}</span>
+                            </label>
+                        {% endfor %}
+                    </div>
+
+                    {% if form.non_field_errors %}
+                        <div class="alert alert-error shadow-sm mb-4">
+                            <div>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <span>
+                                {% for error in form.non_field_errors %}
+                                    {{ error }}{% if not forloop.last %}<br>{% endif %}
+                                {% endfor %}
+                                </span>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <div class="card-actions justify-end mt-6">
+                        <button type="submit" class="btn btn-primary">Upload and Process File</button>
+                    </div>
+                </form>
+
+                <!-- <div class="divider">Instructions</div>
+                <div class="prose prose-sm max-w-none">
+                    <p>Please ensure your Excel file (.xlsx) adheres to the following format:</p>
+                    <ul>
+                        <li>The first sheet in the workbook will be used.</li>
+                        <li>The first row must contain the headers exactly as listed below.</li>
+                        <li>Each subsequent row should represent a single order item. If an order has multiple items, repeat the order-level details for each item row.</li>
+                    </ul>
+                    <p><strong>Expected Columns (in order):</strong></p>
+                    <ol>
+                        <li><code>ERP Order ID</code> (Text)</li>
+                        <li><code>Order Date</code> (Date, format YYYY-MM-DD e.g., 2024-12-31)</li>
+                        <li><code>Customer Name</code> (Text)</li>
+                        <li><code>Product SKU</code> (Text - must match an existing Product SKU in the system)</li>
+                        <li><code>Quantity Ordered</code> (Number - positive integer)</li>
+                        <li><code>Warehouse Name</code> (Text - must match an existing Warehouse Name in the system)</li>
+                        <li><em>(You can add more columns here as your import logic expands)</em></li>
+                    </ol>
+                    <p class="mt-4">
+                        <strong>Example:</strong>
+                    </p>
+                    <div class="overflow-x-auto">
+                        <table class="table table-xs table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>ERP Order ID</th>
+                                    <th>Order Date</th>
+                                    <th>Customer Name</th>
+                                    <th>Product SKU</th>
+                                    <th>Quantity Ordered</th>
+                                    <th>Warehouse Name</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>ORD-001</td>
+                                    <td>2024-05-20</td>
+                                    <td>John Doe</td>
+                                    <td>SKU00A</td>
+                                    <td>2</td>
+                                    <td>Main Warehouse</td>
+                                </tr>
+                                <tr>
+                                    <td>ORD-001</td>
+                                    <td>2024-05-20</td>
+                                    <td>John Doe</td>
+                                    <td>SKU00B</td>
+                                    <td>1</td>
+                                    <td>Main Warehouse</td>
+                                </tr>
+                                <tr>
+                                    <td>ORD-002</td>
+                                    <td>2024-05-21</td>
+                                    <td>Jane Smith</td>
+                                    <td>SKU00C</td>
+                                    <td>5</td>
+                                    <td>Secondary Warehouse</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div> -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add any client-side validation or interactivity for the form if needed.
+    // For example, a preview of the filename once selected.
+    const fileInput = document.querySelector('input[type="file"][name="excel_file"]');
+    if (fileInput) {
+        fileInput.addEventListener('change', function() {
+            if (this.files && this.files.length > 0) {
+                // You could display this.files[0].name somewhere if you like
+                console.log('File selected:', this.files[0].name);
+            } else {
+                console.log('File selection cleared.');
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

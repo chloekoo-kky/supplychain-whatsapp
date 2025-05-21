@@ -13,7 +13,8 @@ from datetime import datetime
 # Import your models
 from .models import (
     Product, Supplier, StockTransaction, InventoryBatchItem,
-    StockTakeSession, StockTakeItem # New Stock Take Models
+    StockTakeSession, StockTakeItem,
+     ErpStockCheckSession, ErpStockCheckItem, WarehouseProductDiscrepancy # New Stock Take Models
 )
 from warehouse.models import Warehouse, WarehouseProduct # Import WarehouseProduct
 from .models import StockDiscrepancy
@@ -194,17 +195,18 @@ class InventoryBatchItemAdmin(admin.ModelAdmin):
         'get_warehouse_product_sku',
         'product_name_display',
         'warehouse_name_display',
-        'get_supplier_code',
         'batch_number',
         'location_label', # Display location_label
         'expiry_date',
         'quantity',
+        'pick_priority',
         'cost_price',
         'date_received',
         'last_modified'
     )
     list_filter = (
         'warehouse_product__warehouse',
+        'pick_priority',
         'expiry_date',
         'date_received',
         'warehouse_product__product',
@@ -220,13 +222,14 @@ class InventoryBatchItemAdmin(admin.ModelAdmin):
         'warehouse_product__supplier__code',
         'warehouse_product__supplier__name',
     )
-    ordering = ('-date_received', 'warehouse_product__product__name', 'batch_number', 'location_label') # Added location_label to ordering
+    ordering = ('warehouse_product__product__name', 'pick_priority', 'expiry_date')
     readonly_fields = ('created_at', 'last_modified')
     autocomplete_fields = ['warehouse_product']
+    list_editable = ('pick_priority',) # Allow direct editing of priority
 
     fieldsets = (
         (None, {
-            'fields': ('warehouse_product', 'batch_number', 'location_label', 'quantity') # Added location_label
+            'fields': ('warehouse_product', 'batch_number', 'location_label', 'quantity', 'pick_priority') # Added pick_priority
         }),
         ('Dates', {
             'fields': ('expiry_date', 'date_received')
@@ -239,6 +242,11 @@ class InventoryBatchItemAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+
+    def pick_priority_display(self, obj):
+        return obj.get_pick_priority_display() # Uses Django's get_FOO_display for choices
+    pick_priority_display.short_description = 'Pick Priority'
+    pick_priority_display.admin_order_field = 'pick_priority'
 
     def get_warehouse_product_sku(self, obj):
         if obj.warehouse_product and obj.warehouse_product.product:
@@ -564,6 +572,7 @@ class StockDiscrepancyAdmin(admin.ModelAdmin):
         'is_resolved',
         'evaluated_at'
     )
+    list_editable = ('is_resolved',)
     list_filter = ('session__warehouse', 'discrepancy_type', 'is_resolved', 'evaluated_at', 'session')
     search_fields = (
         'session__name',
@@ -615,3 +624,34 @@ class StockDiscrepancyAdmin(admin.ModelAdmin):
             'warehouse_product__product',
             'warehouse_product__warehouse'
         )
+
+@admin.register(ErpStockCheckSession)
+class ErpStockCheckSessionAdmin(admin.ModelAdmin):
+    list_display = ('name', 'warehouse', 'status', 'uploaded_by', 'uploaded_at', 'evaluated_by', 'evaluated_at', 'source_file_name')
+    list_filter = ('status', 'warehouse', 'uploaded_at', 'evaluated_at')
+    search_fields = ('name', 'warehouse__name', 'uploaded_by__email', 'source_file_name')
+    readonly_fields = ('uploaded_at', 'processed_at', 'evaluated_at')
+    autocomplete_fields = ['warehouse', 'uploaded_by', 'evaluated_by']
+
+@admin.register(ErpStockCheckItem)
+class ErpStockCheckItemAdmin(admin.ModelAdmin):
+    list_display = ('session', 'warehouse_product_display', 'erp_quantity', 'is_matched', 'processing_comments')
+    list_filter = ('session__name', 'is_matched', 'warehouse_product__warehouse__name')
+    search_fields = ('session__name', 'warehouse_product__product__sku', 'warehouse_product__product__name', 'erp_product_sku_raw')
+    autocomplete_fields = ['session', 'warehouse_product']
+
+    def warehouse_product_display(self, obj):
+        return str(obj.warehouse_product)
+    warehouse_product_display.short_description = "Warehouse Product (System)"
+
+@admin.register(WarehouseProductDiscrepancy)
+class WarehouseProductDiscrepancyAdmin(admin.ModelAdmin):
+    list_display = ('session', 'warehouse_product_display', 'discrepancy_type', 'system_quantity', 'erp_quantity', 'discrepancy_quantity', 'is_resolved', 'created_at')
+    list_filter = ('session__name', 'discrepancy_type', 'is_resolved', 'warehouse_product__warehouse__name')
+    search_fields = ('session__name', 'warehouse_product__product__sku', 'warehouse_product__product__name')
+    readonly_fields = ('created_at', 'discrepancy_quantity') # Some fields are auto-calculated or set by system
+    autocomplete_fields = ['session', 'warehouse_product', 'erp_stock_check_item', 'resolved_by']
+
+    def warehouse_product_display(self, obj):
+        return str(obj.warehouse_product)
+    warehouse_product_display.short_description = "Warehouse Product"

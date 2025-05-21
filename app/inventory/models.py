@@ -1,9 +1,10 @@
 # inventory/models.py
-from django.db import models
+from django.db import models, transaction as db_transaction
 from django.utils import timezone
 from django.conf import settings
+from django.db.models import UniqueConstraint, Q, F
 
-from operation.models import Order
+
 from warehouse.models import Warehouse, WarehouseProduct
 
 class Supplier(models.Model):
@@ -54,7 +55,7 @@ class StockTransaction(models.Model):
     quantity = models.IntegerField()
     reference_note = models.CharField(max_length=255, blank=True)
     related_po = models.ForeignKey('warehouse.PurchaseOrder', null=True, blank=True, on_delete=models.SET_NULL)
-    related_order = models.ForeignKey(Order, null=True, blank=True, on_delete=models.SET_NULL) # Make sure Order is imported
+    related_order = models.ForeignKey('operation.Order', null=True, blank=True, on_delete=models.SET_NULL) # Make sure Order is imported
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -65,53 +66,108 @@ class StockTransaction(models.Model):
 
 
 class InventoryBatchItem(models.Model):
-    # Changed to string reference to avoid circular import issue
-    warehouse_product = models.ForeignKey('warehouse.WarehouseProduct', on_delete=models.CASCADE, related_name="batches")
-    batch_number = models.CharField(max_length=100, null=True, blank=False, verbose_name="Batch Number") # Batch number is likely required
-
-    # New field for location label
-    location_label = models.CharField(max_length=50, null=True, blank=True, verbose_name="Location Label (e.g., Box/Shelf ID)")
-
-    expiry_date = models.DateField(null=True, blank=True, verbose_name="Expiry Date") # Allow blank for expiry
-    quantity = models.PositiveIntegerField(default=0, verbose_name="Quantity in this Batch/Location")
-    cost_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, verbose_name="Cost Price (per unit)")
+    warehouse_product = models.ForeignKey(
+        'warehouse.WarehouseProduct',
+        on_delete=models.CASCADE,
+        related_name="batches"
+    )
+    batch_number = models.CharField(
+        max_length=100,
+        null=True,
+        blank=False,
+        verbose_name="Batch Number"
+    )
+    location_label = models.CharField(
+        max_length=50,
+        null=True,
+        blank=True,
+        verbose_name="Label"
+    )
+    expiry_date = models.DateField(null=True, blank=True, verbose_name="Expiry Date")
+    quantity = models.PositiveIntegerField(default=0, verbose_name="Qty")
+    cost_price = models.DecimalField(
+        max_digits=10, decimal_places=2,
+        null=True, blank=True,
+        verbose_name="Cost Price (per unit)"
+    )
     date_received = models.DateField(default=timezone.now, verbose_name="Date Received")
+
+    # New field for picking priority
+    pick_priority = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        choices=[(0, 'Default'), (1, 'Secondary')], # Optional: choices for admin display
+        help_text="Picking priority: 0 for Default, 1 for Secondary. Leave blank for normal FEFO."
+    )
+
     last_modified = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [['warehouse_product', 'batch_number', 'location_label']]
+        constraints = [
+            # Ensures only one 'Default' (0) per warehouse_product
+            UniqueConstraint(
+                fields=['warehouse_product'],
+                condition=Q(pick_priority=0),
+                name='unique_default_pick_priority_per_wp'
+            ),
+            # Ensures only one 'Secondary' (1) per warehouse_product
+            UniqueConstraint(
+                fields=['warehouse_product'],
+                condition=Q(pick_priority=1),
+                name='unique_secondary_pick_priority_per_wp'
+            )
+        ]
+        ordering = [
+            'warehouse_product__product__name',
+            'warehouse_product__warehouse__name',
+            F('pick_priority').asc(nulls_last=True), # Nulls (no priority) come last
+            F('expiry_date').asc(nulls_last=True),
+            'date_received',
+            'batch_number',
+            'location_label'
+        ]
+        verbose_name = "Inventory Batch Item"
+        verbose_name_plural = "Inventory Batch Items"
 
     def __str__(self):
         batch_display = self.batch_number if self.batch_number else "NO_BATCH_ID"
         location_display = f" (Loc: {self.location_label})" if self.location_label else ""
         wp_display = str(self.warehouse_product) if self.warehouse_product else "N/A WarehouseProduct"
-        return f"{wp_display} - Batch: {batch_display}{location_display} (Qty: {self.quantity})"
 
-    class Meta:
-        # Updated unique_together constraint
-        unique_together = [['warehouse_product', 'batch_number', 'location_label']]
-        ordering = ['warehouse_product__product__name', 'warehouse_product__warehouse__name', 'batch_number', 'location_label', 'expiry_date']
-        verbose_name = "Inventory Batch Item"
-        verbose_name_plural = "Inventory Batch Items"
+        priority_display = ""
+        if self.pick_priority == 0:
+            priority_display = " (Default Pick)"
+        elif self.pick_priority == 1:
+            priority_display = " (Secondary Pick)"
+
+        return f"{wp_display} - Batch: {batch_display}{location_display} (Qty: {self.quantity}){priority_display}"
 
     def save(self, *args, **kwargs):
-        # If batch_number is empty string, treat as null for uniqueness if your DB allows (PostgreSQL does)
-        # Or enforce that batch_number cannot be an empty string if it's part of unique key and not nullable.
-        # For now, assuming batch_number is required (blank=False).
-        # If location_label is an empty string, convert it to None to ensure uniqueness works correctly
-        # if the database treats NULLs differently from empty strings in unique constraints.
         if self.location_label == '':
             self.location_label = None
+
+        # If this batch's pick_priority is being set (to 0 or 1)
+        if self.pick_priority is not None and self.pick_priority in [0, 1]:
+            with db_transaction.atomic():
+                # Unset any other batch for the same warehouse_product that has the same pick_priority
+                InventoryBatchItem.objects.filter(
+                    warehouse_product=self.warehouse_product,
+                    pick_priority=self.pick_priority  # Clear existing item with this priority
+                ).exclude(pk=self.pk).update(pick_priority=None) # Set their priority to None
 
         super().save(*args, **kwargs)
 
     @property
-    def expiry_status_display(self): # Keep this useful property for frontend
+    def expiry_status_display(self):
         if not self.expiry_date:
             return None
         today = timezone.now().date()
         delta = self.expiry_date - today
         if delta.days < 0:
             return "Expired"
-        elif 0 <= delta.days <= 180: # Approx 6 months
+        elif 0 <= delta.days <= 180:
             return "≤6m"
         return None
 
@@ -420,6 +476,7 @@ class ErpStockCheckItem(models.Model):
     # Identifying information from the Excel (stored for reference/audit)
     erp_warehouse_name_raw = models.CharField(max_length=255, blank=True, null=True, help_text="Warehouse name as it appeared in the ERP file.")
     erp_product_sku_raw = models.CharField(max_length=100, blank=True, null=True, help_text="Product SKU as it appeared in the ERP file.")
+    erp_product_name_raw = models.CharField(max_length=255, blank=True, null=True, help_text="Product Name as it appeared in the ERP file for reference.") # <<<< ADD THIS FIELD
     erp_product_code_raw = models.CharField(max_length=100, blank=True, null=True, help_text="Warehouse Product Code as it appeared in the ERP file (if used for matching).")
 
     erp_quantity = models.IntegerField( # Assuming ERP quantities are integers
@@ -460,15 +517,21 @@ class WarehouseProductDiscrepancy(models.Model):
     warehouse_product = models.ForeignKey(
         WarehouseProduct,
         on_delete=models.PROTECT, # Keep discrepancy record even if WP is later deleted (though ideally it shouldn't be if there's a discrepancy)
+        null=True, blank=True, # <<<< ALLOW NULL
         help_text="The Warehouse Product this discrepancy relates to."
     )
     # Optional link back to the specific ErpStockCheckItem that triggered this (if applicable)
-    erp_stock_check_item = models.OneToOneField(
+    erp_stock_check_item = models.ForeignKey(
         ErpStockCheckItem,
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='discrepancy_record'
     )
+
+    # NEW Fields to store raw ERP data if warehouse_product is NULL
+    erp_warehouse_name_for_unmatched = models.CharField(max_length=255, blank=True, null=True, help_text="ERP Warehouse Name (if item not matched to system WP)")
+    erp_product_sku_for_unmatched = models.CharField(max_length=100, blank=True, null=True, help_text="ERP Product SKU (if item not matched to system WP)")
+    erp_product_name_for_unmatched = models.CharField(max_length=255, blank=True, null=True, help_text="ERP Product Name (if item not matched to system WP)")
 
     system_quantity = models.IntegerField(
         help_text="Quantity as per your system (WarehouseProduct.quantity) at time of evaluation."
@@ -520,3 +583,36 @@ class WarehouseProductDiscrepancy(models.Model):
             self.discrepancy_quantity = 0
 
         super().save(*args, **kwargs)
+
+
+def process_order_allocation(order_instance):
+    for item in order_instance.items.filter(status='PENDING_ALLOCATION'):
+        quantity_to_allocate = item.quantity_ordered - item.quantity_allocated
+        if quantity_to_allocate <= 0:
+            continue
+
+        suggested_batch = get_suggested_batch_for_order_item(item, quantity_to_allocate)
+
+        if suggested_batch:
+            item.suggested_batch_item = suggested_batch
+            # item.quantity_allocated += quantity_to_allocate # Or handle actual allocation decrement later
+            item.status = 'ALLOCATED' # Or 'PENDING_PICKING'
+            item.save() # This will trigger OrderItem's save to update display fields
+
+            # IMPORTANT: You would typically also "reserve" or decrement
+            # the quantity from `suggested_batch.quantity` here, within a transaction.
+            # For example:
+            # with transaction.atomic():
+            #     batch_to_decrement = InventoryBatchItem.objects.select_for_update().get(pk=suggested_batch.pk)
+            #     if batch_to_decrement.quantity >= quantity_to_allocate:
+            #         batch_to_decrement.quantity -= quantity_to_allocate
+            #         batch_to_decrement.save()
+            #         # ... save order item ...
+            #     else:
+            #         # Handle race condition or insufficient stock discovered late
+            #         item.status = 'ALLOCATION_FAILED'
+            #         item.save()
+
+        else:
+            item.status = 'ALLOCATION_FAILED'
+            item.save()

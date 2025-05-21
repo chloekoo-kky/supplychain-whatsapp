@@ -22,6 +22,15 @@
         align-items: center;
         gap: 0.5rem;
       }
+      .navbar .dropdown .btn {
+        height: 2rem;
+        min-height: 2rem;
+        padding-left: 0.75rem;
+        padding-right: 0.75rem;
+      }
+      .navbar .dropdown-content {
+        margin-top: 0.5rem;
+      }
     </style>
   </head>
   <body class="bg-gray-50 text-gray-900">
@@ -37,9 +46,9 @@
                       {% if request.resolver_match.url_name == 'inventory_batch_list_view' and request.resolver_match.app_name == 'inventory' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
                📋 Stock Now
             </a>
-            <a href="{% url 'operation:operation_management' %}"
+            <a href="{% url 'operation:order_list' %}"
                class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
-                      {% if request.resolver_match.url_name == 'operation_management' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
+                      {% if request.resolver_match.url_name == 'order_list' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
                 🚚 Operations
             </a>
             <a href="{% url 'warehouse:warehouse_management' %}"
@@ -76,7 +85,9 @@
               <li><a href="{% url 'inventory:stock_take_operator' %}">Start Stock Take</a></li>
               {% endif %}
               {% if user.is_superuser %}
-              <li><a href="{% url 'inventory:stock_take_session_list' %}">Stock Take Admin</a></li>
+              <li><a href="{% url 'inventory:stock_take_session_list' %}">Batch Stock Take</a></li>
+              <li><a href="{% url 'inventory:erp_stock_check_list' %}">LWA Stock Checks</a></li>
+
               {% endif %}
               {% if user.is_superuser %}
               <li><a href="{% url 'admin:index' %}" target="_blank">Django Admin</a></li>

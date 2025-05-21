@@ -1,0 +1,175 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block page_title %}{{ page_title|default:"ERP Stock Check Session Details" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
+        <a href="{% url 'inventory:erp_stock_check_list' %}" class="btn btn-outline btn-sm">Back to Sessions</a>
+    </div>
+
+    <div class="card bg-base-100 shadow-xl mb-8">
+        <div class="card-body">
+            <h2 class="card-title text-xl">Session Summary: {{ session.name }}</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <p><strong>Status:</strong>
+                    <span class="badge
+                        {% if session.status == 'PENDING_UPLOAD' or session.status == 'UPLOAD_FAILED' %}badge-error
+                        {% elif session.status == 'PROCESSING' or session.status == 'EVALUATING' %}badge-warning
+                        {% elif session.status == 'PENDING_EVALUATION' %}badge-info badge-lg text-white
+                        {% elif session.status == 'EVALUATED' %}badge-success badge-lg text-white
+                        {% elif session.status == 'CLOSED' %}badge-neutral
+                        {% else %}badge-ghost
+                        {% endif %}">
+                        {{ session.get_status_display }}
+                    </span>
+                </p>
+                <p><strong>Warehouse Filter (Session Level):</strong> {{ session.warehouse.name|default:"All (from file)" }}</p>
+                <p><strong>Uploaded By:</strong> {{ session.uploaded_by.name|default:session.uploaded_by.email|default:"N/A" }}</p>
+                <p><strong>Uploaded At:</strong> {{ session.uploaded_at|date:"Y-m-d H:i:s" }}</p>
+                <p><strong>Source File:</strong> {{ session.source_file_name|default:"N/A" }}</p>
+                {% if session.processed_at %}
+                <p><strong>Processed At:</strong> {{ session.processed_at|date:"Y-m-d H:i:s" }}</p>
+                {% endif %}
+                {% if session.evaluated_by %}
+                <p><strong>Evaluated By:</strong> {{ session.evaluated_by.name|default:session.evaluated_by.email|default:"N/A" }}</p>
+                {% endif %}
+                {% if session.evaluated_at %}
+                <p><strong>Evaluated At:</strong> {{ session.evaluated_at|date:"Y-m-d H:i:s" }}</p>
+                {% endif %}
+            </div>
+            {% if session.processing_notes %}
+            <div class="mt-4">
+                <h3 class="font-semibold text-md">Processing Notes:</h3>
+                <pre class="text-xs bg-gray-100 p-3 rounded whitespace-pre-wrap max-h-60 overflow-y-auto">{{ session.processing_notes }}</pre>
+            </div>
+            {% endif %}
+            {% if session.evaluation_notes %}
+            <div class="mt-4">
+                <h3 class="font-semibold text-md">Evaluation Notes:</h3>
+                <p class="text-sm bg-gray-50 p-2 rounded">{{ session.evaluation_notes|linebreaksbr }}</p>
+            </div>
+            {% endif %}
+            <div class="card-actions justify-end mt-4 space-x-2">
+                {% if session.status == 'PENDING_EVALUATION' or session.status == 'EVALUATED' %}
+                    <form method="post" action="{% url 'inventory:evaluate_erp_stock_check' session.pk %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-sm btn-warning"
+                                onclick="return confirm('{{ full_confirm_message|escapejs }}');"> {# Use escapejs filter #}
+                        {% if session.status == "EVALUATED" %}Re-{% endif %}Evaluate Discrepancies
+                        </button>
+                    </form>
+                {% endif %}
+                {# --- MODIFIED: Download ERP Evaluation Report Button --- #}
+                {% if session.status == 'EVALUATED' and session.discrepancies.exists %}
+                    <a href="{% url 'inventory:download_erp_evaluation_excel' session.pk %}" class="btn btn-sm btn-primary">Download ERP Evaluation</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Processed ERP Items ({{ items.count }})</h2>
+    {% if items %}
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg mb-8 max-h-96">
+            <table class="min-w-full table-auto table-sm">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal sticky top-0">
+                    <tr>
+                        <th class="py-2 px-4 text-left">System Product (SKU @ Warehouse)</th>
+                        <th class="py-2 px-4 text-left">ERP WH Name (Raw)</th>
+                        <th class="py-2 px-4 text-left">ERP SKU (Raw)</th>
+                        <th class="py-2 px-4 text-left">ERP Name (Raw)</th>
+                        <th class="py-2 px-4 text-right">ERP Qty</th>
+                        <th class="py-2 px-4 text-left">Matched?</th>
+                        <th class="py-2 px-4 text-left">Processing Comments</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for item in items %}
+                        <tr class="border-b border-gray-200 hover:bg-gray-50 {% if not item.is_matched %}bg-red-50{% endif %}">
+                            <td class="py-2 px-4 text-left">
+                                {% if item.warehouse_product %}
+                                    {{ item.warehouse_product.product.name }} ({{ item.warehouse_product.product.sku }})
+                                    <br><small class="text-gray-500">@ {{ item.warehouse_product.warehouse.name }}</small>
+                                {% else %}
+                                    <span class="text-error italic">Not Linked to System WP</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 px-4 text-left">{{ item.erp_warehouse_name_raw|default:"-" }}</td>
+                            <td class="py-2 px-4 text-left">{{ item.erp_product_sku_raw|default:"-" }}</td>
+                            <td class="py-2 px-4 text-left">{{ item.erp_product_name_raw|default:"-" }}</td>
+                            <td class="py-2 px-4 text-right font-semibold">{{ item.erp_quantity }}</td>
+                            <td class="py-2 px-4 text-left">
+                                {% if item.is_matched %}
+                                    <span class="badge badge-md badge-success text-white">Yes</span>
+                                {% else %}
+                                    <span class="badge badge-md badge-error">No</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 px-4 text-left text-xs">{{ item.processing_comments|default:"" }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mt-6 rounded-md mb-8" role="alert">
+            <p>No ERP items have been processed for this session yet, or the upload failed.</p>
+        </div>
+    {% endif %}
+
+    {% if session.status == 'EVALUATED' and discrepancies %}
+        <h2 class="text-2xl font-semibold text-gray-700 mb-4">Discrepancy Report ({{ discrepancies.count }})</h2>
+        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+            <table class="min-w-full table-auto table-sm">
+                <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal sticky top-0">
+                    <tr>
+                        <th class="py-2 px-4 text-left">Product Info</th>
+                        <th class="py-2 px-4 text-left">Type</th>
+                        <th class="py-2 px-4 text-right">System Qty</th>
+                        <th class="py-2 px-4 text-right">ERP Qty</th>
+                        <th class="py-2 px-4 text-right">Difference</th>
+                        <th class="py-2 px-4 text-left">Notes</th>
+                        <th class="py-2 px-4 text-left">Resolved?</th>
+                    </tr>
+                </thead>
+                <tbody class="text-gray-600 text-sm">
+                    {% for disc in discrepancies %}
+                        <tr class="border-b border-gray-200 hover:bg-gray-50
+                            {% if disc.discrepancy_type == 'SHORT_IN_SYSTEM' or disc.discrepancy_type == 'NOT_IN_SYSTEM' %}bg-red-50 text-red-700
+                            {% elif disc.discrepancy_type == 'OVER_IN_SYSTEM' or disc.discrepancy_type == 'NOT_IN_ERP' %}bg-yellow-50 text-yellow-700
+                            {% elif disc.discrepancy_type == 'MATCH' %}bg-green-50 text-green-700
+                            {% endif %}">
+                            <td class="py-2 px-4 text-left">
+                                {% if disc.warehouse_product %}
+                                    {{ disc.warehouse_product.product.name }} ({{ disc.warehouse_product.product.sku }})
+                                    <br><small class="text-gray-500">@ {{ disc.warehouse_product.warehouse.name }}</small>
+                                {% elif disc.erp_product_sku_for_unmatched %}
+                                    <span class="italic">ERP: {{ disc.erp_product_name_for_unmatched|default_if_none:disc.erp_product_sku_for_unmatched }}</span>
+                                    <br><small class="text-gray-500">@ ERP WH: {{ disc.erp_warehouse_name_for_unmatched }}</small>
+                                {% else %}
+                                    <span class="italic text-gray-400">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 px-4 text-left font-semibold">{{ disc.get_discrepancy_type_display }}</td>
+                            <td class="py-2 px-4 text-right">{{ disc.system_quantity|default:"N/A" }}</td>
+                            <td class="py-2 px-4 text-right">{{ disc.erp_quantity|default:"N/A" }}</td>
+                            <td class="py-2 px-4 text-right font-bold">{{ disc.discrepancy_quantity }}</td>
+                            <td class="py-2 px-4 text-left text-xs">{{ disc.notes|default:""|truncatewords:15 }}</td>
+                            <td class="py-2 px-4 text-left">
+                                {% if disc.is_resolved %}<span class="badge badge-md badge-outline">Yes</span>
+                                {% else %}<span class="badge badge-md badge-outline">No</span>{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% elif session.status == 'EVALUATED' %}
+         <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-6 rounded-md" role="alert">
+            <p class="font-bold">Evaluation Complete: No Discrepancies Found.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
