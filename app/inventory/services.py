@@ -1,6 +1,6 @@
 import requests
 from django.conf import settings
-from .models import InventoryBatchItem, OrderItem # If it's a model method
+from .models import InventoryBatchItem
 from inventory.models import InventoryBatchItem # If in a different app's service
 from django.db.models import F, Q
 from django.utils import timezone
@@ -26,29 +26,20 @@ def send_whatsapp_notification(to_number, message):
 def get_suggested_batch_for_order_item(order_item, quantity_needed: int):
     """
     Finds the best available InventoryBatchItem for a given OrderItem and quantity.
-
-    Args:
-        order_item: The OrderItem instance.
-        quantity_needed: The integer quantity required for this order item.
-
-    Returns:
-        An InventoryBatchItem instance if a suitable batch is found, otherwise None.
+    Priority: Default Pick (0), then Secondary Pick (1), then general FEFO.
     """
     if not order_item.warehouse_product:
-        # Cannot suggest if the order item is not linked to a specific WarehouseProduct
-        # (which links to a generic Product and a specific Warehouse)
         return None
 
     warehouse_product = order_item.warehouse_product
     today = timezone.now().date()
 
-    # Define a base queryset for available stock
-    # Available means quantity >= needed and not expired (or expiry is in the future/null)
+    # Base queryset for available stock (quantity >= needed, not expired)
     available_batches_base_qs = InventoryBatchItem.objects.filter(
         warehouse_product=warehouse_product,
-        quantity__gte=quantity_needed
+        quantity__gte=quantity_needed # Ensure the batch has enough quantity
     ).exclude(
-        expiry_date__isnull=False, expiry_date__lt=today # Exclude expired items
+        expiry_date__isnull=False, expiry_date__lt=today
     )
 
     # 1. Try to find a 'Default Pick' (pick_priority = 0)
@@ -57,19 +48,22 @@ def get_suggested_batch_for_order_item(order_item, quantity_needed: int):
     ).order_by(F('expiry_date').asc(nulls_last=True), 'date_received').first() # FEFO within default
 
     if default_pick_batch:
+        # If default pick has enough quantity, return it.
+        # The base query already filters for quantity__gte=quantity_needed
         return default_pick_batch
 
-    # 2. If no suitable default, try to find a 'Secondary Pick' (pick_priority = 1)
+    # 2. If no suitable default (or default had insufficient stock and was filtered out by base_qs),
+    #    try to find a 'Secondary Pick' (pick_priority = 1)
     secondary_pick_batch = available_batches_base_qs.filter(
         pick_priority=1
     ).order_by(F('expiry_date').asc(nulls_last=True), 'date_received').first() # FEFO within secondary
 
     if secondary_pick_batch:
+        # If secondary pick has enough quantity, return it.
         return secondary_pick_batch
 
     # 3. If no suitable default or secondary, fall back to general FEFO
-    #    for batches with no priority (pick_priority is None) or any priority if partial fulfillment is considered later.
-    #    The Meta.ordering of InventoryBatchItem already helps here if pick_priority is nulls_last.
+    #    for batches with no priority (pick_priority is None).
     general_fefo_batch = available_batches_base_qs.filter(
         pick_priority__isnull=True # Only consider those not explicitly prioritized
     ).order_by(F('expiry_date').asc(nulls_last=True), 'date_received').first() # FEFO for non-prioritized
@@ -77,20 +71,28 @@ def get_suggested_batch_for_order_item(order_item, quantity_needed: int):
     if general_fefo_batch:
         return general_fefo_batch
 
-    # 4. OPTIONAL: If no single batch can fulfill the quantity, but you want to check if
-    #    default or secondary picks have *any* stock (even if less than quantity_needed).
-    #    This is for scenarios where you might show a "partial suggestion" or alert.
-    #    For now, this function aims to find a single batch that can fulfill the entire quantity_needed.
-    #
-    #    If you wanted to check default/secondary even with insufficient stock:
-    #    default_with_any_stock = InventoryBatchItem.objects.filter(
-    #        warehouse_product=warehouse_product, pick_priority=0, quantity__gt=0
-    #    ).exclude(expiry_date__isnull=False, expiry_date__lt=today)
-    #    .order_by(F('expiry_date').asc(nulls_last=True), 'date_received').first()
-    #    if default_with_any_stock:
-    #        # Handle this case - e.g. log it, or suggest partial. For now, we return None.
-    #        pass
+    # 4. If still no batch found that can fulfill the entire quantity_needed,
+    #    check if default or secondary picks have *any* stock. This part is for
+    #    potential partial allocation or alternative logic if fullfillment is not possible from one batch.
+    #    This is a simplified check and might need more complex logic for actual partials.
 
+    # Check Default Pick again, but this time for *any* stock (quantity > 0)
+    default_pick_any_stock = InventoryBatchItem.objects.filter(
+        warehouse_product=warehouse_product,
+        pick_priority=0,
+        quantity__gt=0 # Check for any stock
+    ).exclude(expiry_date__isnull=False, expiry_date__lt=today) \
+     .order_by(F('expiry_date').asc(nulls_last=True), 'date_received').first()
 
-    # If no suitable batch is found by any criteria
+    if default_pick_any_stock:
+        # Default pick exists and has some stock, but not enough for the whole order_item.
+        # Depending on business rules, you might return this for partial allocation,
+        # or log it, or proceed to check secondary. For now, let's assume we prioritize it if available.
+        # If you implement partial allocations, this is where you'd return it.
+        # For now, the main queries above look for batches that can fulfill the *entire* quantity_needed.
+        # This block can be enhanced if partial fulfillment from default/secondary is desired.
+        # logger.info(f"Default pick {default_pick_any_stock.pk} has insufficient stock ({default_pick_any_stock.quantity}) for {quantity_needed} of {order_item.product.name}")
+        pass # Fall through to check secondary or general FEFO if no single batch can fulfill
+
+    # If no single batch can fulfill the quantity_needed by any of the prioritized methods.
     return None

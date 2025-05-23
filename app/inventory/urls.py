@@ -1,3 +1,4 @@
+# inventory/urls.py
 '''
 URL mappings for the inventory app.
 '''
@@ -36,4 +37,8 @@ urlpatterns = [
     path('default-picks/get/', views.get_default_pick_items_view, name='get_default_pick_items'),
     path('default-picks/update/', views.update_default_pick_items_view, name='update_default_pick_items'),
     path('batch/search-by-location/', views.search_batch_by_location_json_view, name='search_batch_by_location'),
+    # URLs for Secondary Pick Management
+    path('secondary-picks/get/', views.get_secondary_pick_items_view, name='get_secondary_pick_items'),
+    path('secondary-picks/update/', views.update_secondary_pick_items_view, name='update_secondary_pick_items'),
+
 ]

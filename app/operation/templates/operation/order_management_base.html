@@ -1,0 +1,485 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load i18n %}
+{% load humanize %}
+
+{% block page_title %}{{ page_title|default:"Operations Management" }}{% endblock %}
+
+{% block content %}
+    {# Tabs Navigation #}
+    <div class="shrink-0 mb-2 sticky top-[4rem] h-fit bg-base-100 rounded shadow z-10">
+        <div class="tabs max-w-7xl mx-auto">
+        <a class="tab tab-lifted text-lg transition
+           {% if active_tab == DEFAULT_CUSTOMER_ORDERS_TAB %}tab-active bg-blue-500 text-white{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}"
+           href="?tab={{ DEFAULT_CUSTOMER_ORDERS_TAB }}"
+           data-tab-url="?tab={{ DEFAULT_CUSTOMER_ORDERS_TAB }}">
+            Customer Orders
+        </a>
+        <a class="tab tab-lifted text-lg transition
+           {% if active_tab == DEFAULT_PARCELS_TAB %}tab-active bg-blue-500 text-white{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}"
+           href="?tab={{ DEFAULT_PARCELS_TAB }}"
+           data-tab-url="?tab={{ DEFAULT_PARCELS_TAB }}">
+            Parcel Details
+        </a>
+        </div>
+    </div>
+
+    {# Dynamic Content Area for Tabs #}
+    <div id="operation-tab-content">
+        {% if active_tab == DEFAULT_CUSTOMER_ORDERS_TAB %}
+            {% include 'operation/partials/customer_orders_table.html' %}
+        {% elif active_tab == DEFAULT_PARCELS_TAB %}
+            {% include 'operation/partials/parcels_table.html' %}
+        {% else %}
+            <p>Select a tab to view content.</p>
+        {% endif %}
+    </div>
+
+{# MODAL HTML for Excel Import #}
+<input type="checkbox" id="import-orders-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog">
+  <div class="modal-box max-w-lg">
+    <form method="post" enctype="multipart/form-data" action="{% url 'operation:import_orders_from_excel' %}">
+        {% csrf_token %}
+        <label for="import-orders-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
+        <h3 class="font-bold text-xl mb-4">Import Orders via Excel</h3>
+        <div class="form-control w-full mb-4">
+            {{ import_form.excel_file.label_tag }}
+            {{ import_form.excel_file }}
+            {% if import_form.excel_file.help_text %}<label class="label"><span class="label-text-alt">{{ import_form.excel_file.help_text }}</span></label>{% endif %}
+            {% for error in import_form.excel_file.errors %}<label class="label"><span class="label-text-alt text-error">{{ error }}</span></label>{% endfor %}
+        </div>
+        {% if import_form.non_field_errors %}
+            <div class="alert alert-error shadow-sm mb-4">
+                <div>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <span>{% for error in import_form.non_field_errors %}{{ error }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</span>
+                </div>
+            </div>
+        {% endif %}
+        <div class="modal-action mt-6">
+            <label for="import-orders-modal-toggle" class="btn btn-ghost">Cancel</label>
+            <button type="submit" class="btn btn-primary">Upload and Process</button>
+        </div>
+    </form>
+    <div class="divider mt-6 mb-2">Instructions</div>
+    <div class="prose prose-sm max-w-none text-xs">
+        <p>Ensure your Excel file (.xlsx or .xls) follows this format:</p>
+        <ul><li>First sheet, first row must be headers.</li><li>Each row is one order item. Repeat order details for multiple items in one order.</li></ul>
+        <p><strong>Expected Columns:</strong> <code>Order ID</code>, <code>Order Date</code> (YYYY-MM-DD or Month D,YYYY), <code>Address Name</code> (as Customer), <code>Product Name</code> (as SKU or Name), <code>Product Quantity</code>, <code>Warehouse Name</code>. Other columns like <code>Company</code>, <code>Address</code>, <code>isCold</code>, etc., will also be processed if present and mapped.</p>
+    </div>
+  </div>
+  <label class="modal-backdrop" for="import-orders-modal-toggle">Close</label>
+</div>
+
+{# Pack Order Modal #}
+<input type="checkbox" id="pack-order-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog" id="pack-order-modal-container">
+    <div class="modal-box max-w-3xl">
+        <label for="pack-order-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 modal-close-button">✕</label>
+        <h3 class="font-bold text-xl mb-1" id="pack-modal-title">Pack Order</h3>
+        <p class="text-sm text-gray-500 mb-4" id="pack-modal-customer"></p>
+        <form id="pack-order-form" method="POST">
+            {% csrf_token %}
+            <input type="hidden" name="order_pk_for_packing" id="order_pk_for_packing_modal_hidden_id">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 border p-3 rounded-md bg-gray-50">
+                <div>
+                    <label class="label" for="id_parcel-courier_name"><span class="label-text">Courier Name</span></label>
+                    <input type="text" name="parcel-courier_name" id="id_parcel-courier_name" class="input input-bordered input-sm w-full">
+                </div>
+                <div>
+                    <label class="label" for="id_parcel-tracking_number"><span class="label-text">Tracking Number</span></label>
+                    <input type="text" name="parcel-tracking_number" id="id_parcel-tracking_number" class="input input-bordered input-sm w-full">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="label" for="id_parcel-notes"><span class="label-text">Parcel Notes</span></label>
+                    <textarea name="parcel-notes" id="id_parcel-notes" class="textarea textarea-bordered textarea-sm w-full" rows="2"></textarea>
+                </div>
+            </div>
+            <h4 class="text-md font-semibold mb-2">Items to Pack:</h4>
+            <div id="pack-order-items-formset-container" class="mb-4 max-h-60 overflow-y-auto">
+                <p class="text-center py-4 text-gray-400">Loading items...</p>
+            </div>
+            <div class="modal-action mt-6">
+                <label for="pack-order-modal-toggle" class="btn btn-ghost modal-close-button">Cancel</label>
+                <button type="submit" class="btn btn-primary">Create Parcel & Pack Items</button>
+            </div>
+        </form>
+    </div>
+    <label class="modal-backdrop modal-close-button" for="pack-order-modal-toggle">Close</label>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const tabContainer = document.getElementById('operation-tab-content');
+    const mainPageTabs = document.querySelectorAll('.tabs a.tab');
+    const currentBaseUrl = "{% url 'operation:order_list' %}";
+    const DEFAULT_CUSTOMER_ORDERS_TAB = "{{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}";
+    const DEFAULT_PARCELS_TAB = "{{ DEFAULT_PARCELS_TAB|escapejs }}";
+
+    let currentCustomerOrderFilters = {};
+
+    function debounce(func, delay) {
+        let timeout;
+        const debounced = function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), delay);
+        };
+        debounced.cancel = () => { clearTimeout(timeout); };
+        return debounced;
+    }
+
+    function highlightActiveTab(activeTabName) {
+        mainPageTabs.forEach(tabLink => {
+            const hrefAttr = tabLink.dataset.tabUrl || tabLink.getAttribute('href');
+            if (!hrefAttr || !hrefAttr.includes('?')) {
+                tabLink.classList.remove('tab-active', 'bg-blue-500', 'text-white');
+                tabLink.classList.add('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
+                return;
+            }
+            const tabLinkParamValue = new URLSearchParams(hrefAttr.split('?')[1]).get('tab');
+
+            if (tabLinkParamValue === activeTabName) {
+                tabLink.classList.add('tab-active', 'bg-blue-500', 'text-white');
+                tabLink.classList.remove('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
+            } else {
+                tabLink.classList.remove('tab-active', 'bg-blue-500', 'text-white');
+                tabLink.classList.add('bg-gray-200', 'hover:bg-gray-300', 'text-gray-700');
+            }
+        });
+    }
+
+    function updateCustomerOrderFiltersUI() {
+        const filterPanel = document.querySelector('#operation-tab-content .operations-filter-panel');
+        if (!filterPanel) {
+            // If the filter panel is not in the current tab content (e.g., on Parcels tab), do nothing.
+            return;
+        }
+        // ... rest of the updateCustomerOrderFiltersUI logic remains the same
+        const activeWarehouse = currentCustomerOrderFilters.warehouse || "";
+        filterPanel.querySelectorAll('.warehouse-filter-btn').forEach(btn => {
+            if (btn.dataset.value === activeWarehouse) {
+                btn.classList.add('btn-neutral', 'text-white'); btn.classList.remove('btn-outline');
+            } else {
+                btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
+            }
+        });
+        const activeStatus = currentCustomerOrderFilters.status || "";
+        filterPanel.querySelectorAll('.status-filter-btn').forEach(btn => {
+            if (btn.dataset.value === activeStatus) {
+                btn.classList.add('btn-neutral', 'text-white'); btn.classList.remove('btn-outline');
+            } else {
+                btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
+            }
+        });
+        const searchInput = filterPanel.querySelector('.dynamic-search-input');
+        if (searchInput) {
+            searchInput.value = currentCustomerOrderFilters.q || "";
+        }
+    }
+
+    function loadInitialCustomerOrderFilters(urlParams) {
+        const currentTab = urlParams.get('tab') || DEFAULT_CUSTOMER_ORDERS_TAB;
+        if (currentTab === DEFAULT_CUSTOMER_ORDERS_TAB) {
+            currentCustomerOrderFilters.warehouse = urlParams.get('warehouse') || "";
+            currentCustomerOrderFilters.status = urlParams.get('status') || "";
+            currentCustomerOrderFilters.q = urlParams.get('q') || "";
+        } else {
+            currentCustomerOrderFilters = {};
+        }
+        updateCustomerOrderFiltersUI();
+    }
+
+    function applyCustomerOrderFilters() {
+        const params = new URLSearchParams();
+        params.set('tab', DEFAULT_CUSTOMER_ORDERS_TAB);
+        params.set('is_filter_action', 'true'); // Add this line to signal a filter action
+
+        if (currentCustomerOrderFilters.warehouse) {
+            params.set('warehouse', currentCustomerOrderFilters.warehouse);
+        }
+        if (currentCustomerOrderFilters.status) {
+            params.set('status', currentCustomerOrderFilters.status);
+        }
+        if (currentCustomerOrderFilters.q) {
+            params.set('q', currentCustomerOrderFilters.q);
+        }
+        // if (currentCustomerOrderFilters.page) { // For pagination if implemented later
+        //     params.set('page', currentCustomerOrderFilters.page);
+        // }
+
+
+        const newUrl = `${currentBaseUrl}?${params.toString()}`;
+        const tableBody = document.getElementById('customer-orders-list-tbody');
+        const orderCountSpan = document.querySelector('.operations-filter-panel .customer-order-count');
+
+
+        if (tableBody) {
+            tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-10"><span class="loading loading-dots loading-lg"></span></td></tr>';
+        }
+
+        history.pushState({path: newUrl, tab: DEFAULT_CUSTOMER_ORDERS_TAB}, '', newUrl);
+
+        fetch(newUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok for table refresh.');
+                const totalCountHeader = response.headers.get('X-Total-Orders-Count'); // Get total count from header
+                if (orderCountSpan && totalCountHeader) {
+                    orderCountSpan.textContent = `(${totalCountHeader} orders)`;
+                }
+                return response.text();
+            })
+            .then(html => {
+                if (tableBody) {
+                    tableBody.innerHTML = html;
+                    initializePackOrderButtons();
+
+                    // If X-Total-Orders-Count header wasn't processed or available earlier,
+                    // you might need a fallback to count rows if pagination isn't fully server-driven for count.
+                    // However, relying on the header is better.
+                    if (orderCountSpan && !orderCountSpan.textContent.includes('orders')) { // Fallback if header didn't update
+                        const newRowCount = tableBody.querySelectorAll('tr.order-row').length;
+                        const noOrdersRow = tableBody.querySelector('td[colspan="8"]');
+                        if (noOrdersRow && newRowCount === 1 && tableBody.firstChild.textContent.includes("No Customer Orders Found")) {
+                             orderCountSpan.textContent = '(0 orders)';
+                        } else {
+                             orderCountSpan.textContent = `(${newRowCount} orders display)`; // Indicate it's displayed count
+                        }
+                    }
+                }
+                 updateCustomerOrderFiltersUI();
+            })
+            .catch(error => {
+                console.error('Failed to refresh customer orders table:', error);
+                if (tableBody) tableBody.innerHTML = '<tr><td colspan="8" class="text-center py-10 text-red-500">Error loading orders.</td></tr>';
+                 if (orderCountSpan) orderCountSpan.textContent = '(Error)';
+            });
+    }
+
+
+    const debouncedApplyCustomerOrderFilters = debounce(applyCustomerOrderFilters, 400);
+
+    function loadTabContent(tabUrl, pushState = true) {
+        if (!tabContainer) return;
+        tabContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
+
+        const fetchedUrlParams = new URLSearchParams(tabUrl.split('?')[1]);
+        const targetTabName = fetchedUrlParams.get('tab') || DEFAULT_CUSTOMER_ORDERS_TAB;
+
+        fetch(tabUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok for tab content.');
+                return response.text();
+            })
+            .then(html => {
+                tabContainer.innerHTML = html;
+                if (pushState) {
+                    history.pushState({path: tabUrl, tab: targetTabName}, '', tabUrl);
+                }
+
+                highlightActiveTab(targetTabName); // Call the highlighting function
+
+                const loadedTabName = targetTabName;
+                if (loadedTabName === DEFAULT_CUSTOMER_ORDERS_TAB) {
+                    initializePackOrderButtons();
+                    loadInitialCustomerOrderFilters(fetchedUrlParams);
+                } else if (loadedTabName === DEFAULT_PARCELS_TAB) {
+                    // Initialize JS for parcel tab if needed
+                }
+            })
+            .catch(error => {
+                console.error('Failed to load tab content:', error);
+                tabContainer.innerHTML = '<p class="text-red-500 text-center">Error loading content. Please try again.</p>';
+            });
+    }
+
+    mainPageTabs.forEach(tab => {
+        tab.addEventListener('click', function(event) {
+            event.preventDefault();
+            const targetUrl = this.dataset.tabUrl || this.getAttribute('href');
+            loadTabContent(targetUrl);
+        });
+    });
+
+    window.onpopstate = function(event) {
+        let poppedUrl;
+        if (event.state && event.state.path) {
+            poppedUrl = event.state.path;
+        } else {
+            const params = new URLSearchParams(window.location.search);
+            const currentTabFromUrl = params.get('tab') || DEFAULT_CUSTOMER_ORDERS_TAB;
+            params.set('tab', currentTabFromUrl); // Ensure tab is in params
+            poppedUrl = `${currentBaseUrl}?${params.toString()}`;
+        }
+        loadTabContent(poppedUrl, false);
+    };
+
+    const operationTabContent = document.getElementById('operation-tab-content');
+    if (operationTabContent) {
+        // Delegate event listeners if the filter panel itself can be reloaded
+        operationTabContent.addEventListener('click', function(event) {
+            const target = event.target.closest('button');
+            if (!target) return;
+
+            // Ensure the clicked button is within the .operations-filter-panel
+            const filterPanel = target.closest('.operations-filter-panel');
+            if (!filterPanel) return; // Click was outside the filter panel
+
+            let filtersChanged = false;
+
+            if (target.classList.contains('warehouse-filter-btn')) {
+                currentCustomerOrderFilters.warehouse = target.dataset.value;
+                filtersChanged = true;
+            } else if (target.classList.contains('status-filter-btn')) {
+                currentCustomerOrderFilters.status = target.dataset.value;
+                filtersChanged = true;
+            } else if (target.classList.contains('reset-filters-btn')) {
+                currentCustomerOrderFilters = {}; // Reset all filters
+                const searchInputInPanel = filterPanel.querySelector('.dynamic-search-input');
+                if (searchInputInPanel) searchInputInPanel.value = ""; // Clear search input
+                filtersChanged = true;
+            }
+
+            if (filtersChanged) {
+                // When filters change, call applyCustomerOrderFilters which now only updates the table
+                applyCustomerOrderFilters();
+            }
+        });
+
+        operationTabContent.addEventListener('input', function(event) {
+            const target = event.target;
+            // Ensure the input event is from the search input within the .operations-filter-panel
+            if (target.matches('.dynamic-search-input') && target.closest('.operations-filter-panel')) {
+                currentCustomerOrderFilters.q = target.value.trim();
+                debouncedApplyCustomerOrderFilters(); // This will call the modified version
+            }
+        });
+    }
+
+    // Initial page load setup
+    const initialUrlParamsOnLoad = new URLSearchParams(window.location.search);
+    let initialTabNameOnLoad = initialUrlParamsOnLoad.get('tab') || DEFAULT_CUSTOMER_ORDERS_TAB;
+
+    // Ensure the 'tab' parameter is present for consistency, even if it's the default
+    if (!initialUrlParamsOnLoad.has('tab') && window.location.pathname === currentBaseUrl && currentBaseUrl.includes('operation/list')) { // Added check for operation/list
+      initialUrlParamsOnLoad.set('tab', initialTabNameOnLoad);
+      const newInitialFullUrl = `${currentBaseUrl}?${initialUrlParamsOnLoad.toString()}`;
+      history.replaceState({path: newInitialFullUrl, tab: initialTabNameOnLoad}, '', newInitialFullUrl);
+    }
+
+    highlightActiveTab(initialTabNameOnLoad);
+
+
+    if (initialTabNameOnLoad === DEFAULT_CUSTOMER_ORDERS_TAB) {
+        initializePackOrderButtons();
+        loadInitialCustomerOrderFilters(initialUrlParamsOnLoad);
+    } else if (initialTabNameOnLoad === DEFAULT_PARCELS_TAB) {
+        // Parcel tab specific JS on initial load
+    }
+
+    const importModalToggle = document.getElementById('import-orders-modal-toggle');
+    const importFileInput = document.querySelector('.modal input[type="file"][name="excel_file"]');
+    if (importModalToggle && importFileInput) {
+        const observer = new MutationObserver(function(mutationsList, observer) {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'checked') {
+                    if (!importModalToggle.checked) { importFileInput.value = ''; }
+                }
+            }
+        });
+        observer.observe(importModalToggle, { attributes: true });
+    }
+
+    const packModalToggle = document.getElementById('pack-order-modal-toggle');
+    const packForm = document.getElementById('pack-order-form');
+    const packFormsetContainer = document.getElementById('pack-order-items-formset-container');
+    const packModalTitle = document.getElementById('pack-modal-title');
+    const packModalCustomer = document.getElementById('pack-modal-customer');
+    const orderPkHiddenInput = document.getElementById('order_pk_for_packing_modal_hidden_id');
+
+    function initializePackOrderButtons() {
+        const currentPackButtonsContainer = document.querySelector('#operation-tab-content');
+        if (!currentPackButtonsContainer) return;
+
+        currentPackButtonsContainer.querySelectorAll('.pack-order-btn').forEach(button => {
+            if (button.dataset.listenerAttached === 'true') return;
+            button.addEventListener('click', function() {
+                const orderPk = this.dataset.orderPk;
+                if (!orderPk) { console.error('Order PK not found on pack button'); return; }
+
+                if(packFormsetContainer) packFormsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items to pack...</p>';
+                if(packModalToggle) packModalToggle.checked = true;
+
+                fetch(`/operation/order/${orderPk}/get-packing-items/`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            if(packModalTitle) packModalTitle.textContent = `Pack Order: ${data.erp_order_id || orderPk}`;
+                            if(packModalCustomer) packModalCustomer.textContent = `Customer: ${data.customer_name || 'N/A'}`;
+                            if(packFormsetContainer) packFormsetContainer.innerHTML = data.formset_html;
+                            if(packForm) packForm.action = `/operation/order/${orderPk}/process-packing/`;
+                            if(orderPkHiddenInput) orderPkHiddenInput.value = orderPk;
+
+                            packFormsetContainer.querySelectorAll('.available-batches-select').forEach(selectElement => {
+                                if (selectElement.dataset.listenerAttachedBatch === 'true') return;
+                                selectElement.addEventListener('change', function() {
+                                    const selectedBatchId = this.value;
+                                    const hiddenBatchInputId = this.id.replace('available_batches', 'selected_batch_item_id');
+                                    const hiddenBatchInput = document.getElementById(hiddenBatchInputId);
+                                    if (hiddenBatchInput) { hiddenBatchInput.value = selectedBatchId; }
+                                });
+                                selectElement.dataset.listenerAttachedBatch = 'true';
+                            });
+                        } else {
+                            if(packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center">${data.message || 'Failed to load items.'}</p>`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching items for packing:', error);
+                        if(packFormsetContainer) packFormsetContainer.innerHTML = '<p class="text-red-500 text-center">Error loading items.</p>';
+                    });
+            });
+            button.dataset.listenerAttached = 'true';
+        });
+    }
+
+    if (packForm) {
+        packForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            const formData = new FormData(packForm);
+            const saveBtn = packForm.querySelector('button[type="submit"]');
+            const originalBtnText = saveBtn.innerHTML;
+            saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Processing...';
+
+            fetch(packForm.action, {
+                method: 'POST', body: formData,
+                headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({toast: true, icon: 'success', title: data.message || 'Parcel created!', position: 'top-end', showConfirmButton: false, timer: 2500});
+                    if(packModalToggle) packModalToggle.checked = false; packForm.reset();
+
+                    const targetTabUrl = data.redirect_url || `${currentBaseUrl}?tab=${DEFAULT_CUSTOMER_ORDERS_TAB}`;
+                    loadTabContent(targetTabUrl, true);
+                } else {
+                    let errorMsg = data.message || 'Could not create parcel.';
+                    if (data.errors && typeof data.errors === 'object') {
+                        errorMsg += " Details: " + Object.entries(data.errors).map(([field, err]) => `${field.replace(/^parcel-/, '').replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
+                    }
+                    Swal.fire({ icon: 'error', title: 'Packing Failed', text: errorMsg, confirmButtonText: 'OK' });
+                }
+            })
+            .catch(error => {
+                console.error('Error submitting pack form:', error);
+                Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form. Please try again.'});
+            })
+            .finally(() => { if(saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; } });
+        });
+    }
+});
+</script>
+{% endblock %}

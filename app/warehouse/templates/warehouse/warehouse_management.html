@@ -3,7 +3,6 @@
 
 
 {% block content %}
-  <!-- Tabs 导航 -->
   <div class="shrink-0 mb-2 sticky top-[4rem] h-fit bg-base-100 rounded shadow z-10">
     <div class="tabs max-w-7xl mx-auto">
     <a href="?tab=warehouseproduct" class="tab tab-lifted text-lg transition bg-gray-200 hover:bg-gray-300 text-gray-700" data-tab="warehouseproduct">
@@ -16,7 +15,6 @@
 </div>
 
 
-  <!-- 内容区域 -->
   <div id="tab-content">
     {% if active_tab == 'purchaseorders' %}
       {% include "warehouse/purchase_orders_partial.html" %}
@@ -28,8 +26,6 @@
 
 
 {% block extra_js %}
-<!-- 引入 SweetAlert2 -->
-
 <script>
 const TAB_SPECIFIC_PARAMS = {
     'warehouseproduct': ['warehouse', 'supplier', 'q', 'page'], // URL keys
@@ -46,7 +42,7 @@ window.currentWarehouseFilters = {}; // For Warehouse Product tab
 function initWarehouseTab() {
     const container = document.querySelector('#tab-content');
     if (!container) return;
-    console.log("🚀 initWarehouseTab (v4)");
+    console.log("🚀 initWarehouseTab (v5)");
 
     window.currentWarehouseFilters = {}; // Use URL keys
     const currentUrlParams = new URLSearchParams(window.location.search);
@@ -63,7 +59,7 @@ function initWarehouseTab() {
     bindWarehouseFiltersButtons();    // Must ensure this calls updateWarehouseTabFilters with URL keys
     bindWarehouseSearchInput();     // Must ensure this calls updateWarehouseTabFilters with URL keys
     initSelectAll(); initCreatePoButton(); initHealthyLevel();
-    saveTabFiltersToSession('warehouseproduct', window.currentWarehouseFilters); // Save the state derived from URL
+    // saveTabFiltersToSession is called from refreshWarehouseProductList
 }
 
 // ======= WAREHOUSE tab =======INIT
@@ -71,9 +67,7 @@ window.currentWarehouseFilters = {}; // Used by warehouse product tab
 
 function bindWarehouseFiltersButtons() {
   const applyButtonHighlight = (key, value) => {
-    // Ensure querySelectorAll is scoped correctly if filter buttons appear in multiple tabs
-    // For warehouse tab, it might be within a specific container like '#warehouse-filters-panel'
-    const filterButtonContainer = document.querySelector('#tab-content'); // Or a more specific parent
+    const filterButtonContainer = document.querySelector('#tab-content');
     if (!filterButtonContainer) return;
 
     filterButtonContainer.querySelectorAll(`.btn[data-filter="${key}"]`).forEach(btn => {
@@ -88,28 +82,25 @@ function bindWarehouseFiltersButtons() {
     });
   };
 
-  // Scope this to the warehouse tab's filter buttons to avoid affecting other tabs
-  const warehouseTabContent = document.querySelector('#tab-content'); // Or a more specific container for warehouse filters
+  const warehouseTabContent = document.querySelector('#tab-content');
   if (!warehouseTabContent) return;
 
   warehouseTabContent.querySelectorAll('.btn[data-filter="warehouse"], .btn[data-filter="supplier"]').forEach(btn => {
-    // Check if this button is indeed part of the warehouse product filters
-    // This check might be more robust if you have a dedicated wrapper div for these filters.
-    // For example, if your warehouse filters are inside <div id="warehouse-specific-filters">
-    // then: if (!btn.closest('#warehouse-specific-filters')) return;
+    if (!btn.closest('#warehouse-specific-filters') && !btn.closest('.sticky.top-24')) { // Check if button is in warehouse filter panel
+        // This check needs to be specific to the warehouse product filter panel structure
+        // For example, if warehouse filters are inside a div with class 'warehouse-product-filters-container'
+        // if (!btn.closest('.warehouse-product-filters-container')) return;
+        // console.log("Skipping button not in warehouse filter context:", btn);
+    }
 
-    // Prevent double binding if this function could be called multiple times on static content
+
     if (btn.dataset.warehouseFilterBound === 'true') return;
 
     btn.addEventListener('click', () => {
-      const key = btn.dataset.filter; // This will be 'warehouse' or 'supplier'
+      const key = btn.dataset.filter;
       const value = btn.dataset.value;
-
-      // REMOVE: const updateKey = key + "Id";
-      // USE 'key' directly as it matches TAB_SPECIFIC_PARAMS and desired URL keys
-      updateWarehouseTabFilters({ [key]: value }); // e.g., { warehouse: '1' } or { supplier: '2' }
-
-      applyButtonHighlight(key, value); // Visually update the button
+      updateWarehouseTabFilters({ [key]: value });
+      applyButtonHighlight(key, value);
     });
     btn.dataset.warehouseFilterBound = 'true';
   });
@@ -117,29 +108,31 @@ function bindWarehouseFiltersButtons() {
 
 function bindWarehouseSearchInput() {
   const input = document.querySelector('#warehouse-search-form input[name="q"]');
-  if (!input) return;
+  if (!input || input.dataset.warehouseSearchBound === 'true') return;
 
   input.addEventListener("input", debounce(() => {
     const query = input.value.trim();
     updateWarehouseTabFilters({ q: input.value.trim() });
   }, 300));
+  input.dataset.warehouseSearchBound = 'true';
 }
 
 function resetWarehouseProductFilters() {
-    console.log("🔄 Resetting Warehouse Product Filters (v5)");
-    window.currentWarehouseFilters = {}; // Clear internal JS state (uses URL keys)
+    console.log("🔄 Resetting Warehouse Product Filters (v6)");
+    window.currentWarehouseFilters = {};
     clearTabFiltersFromSession('warehouseproduct');
-    updateWarehouseFilterControlsUI(); // Visually reset controls based on empty state
-    refreshWarehouseProductList(); // Will use empty currentWarehouseFilters
+    updateWarehouseFilterControlsUI();
+    refreshWarehouseProductList();
 }
 
 function initSelectAll() {
   const selectAll = document.getElementById("select-all");
-  if (!selectAll) return;
+  if (!selectAll || selectAll.dataset.selectAllBound === 'true') return;
 
   selectAll.addEventListener("change", function () {
     document.querySelectorAll(".select-item").forEach(cb => cb.checked = this.checked);
   });
+  selectAll.dataset.selectAllBound = 'true';
 }
 
 function initCreatePoButton() {
@@ -147,27 +140,32 @@ function initCreatePoButton() {
   const confirmBtn = document.getElementById("confirm-create-po");
 
   if (createPoBtn) {
+    if (createPoBtn.dataset.createPoBound === 'true') return;
     createPoBtn.addEventListener("click", function () {
       const selectedIds = Array.from(document.querySelectorAll('.select-item:checked')).map(cb => cb.value);
       if (selectedIds.length === 0) {
-        alert('Please select at least one product to create PO.');
+        Swal.fire('No Products Selected', 'Please select at least one product to create a Purchase Order.', 'info');
         return;
       }
       openCreatePoModal(selectedIds);
     });
+    createPoBtn.dataset.createPoBound = 'true';
   }
 
   if (confirmBtn) {
+    if (confirmBtn.dataset.confirmPoBound === 'true') return;
     confirmBtn.addEventListener("click", confirmCreatePo);
+    confirmBtn.dataset.confirmPoBound = 'true';
   }
 }
 
 function initHealthyLevel() {
   const healthyLevel = document.getElementById("healthy-level");
-  if (!healthyLevel) return;
+  if (!healthyLevel || healthyLevel.dataset.healthyLevelBound === 'true') return;
 
   healthyLevel.addEventListener("change", refreshGapInfo);
-  healthyLevel.dispatchEvent(new Event("change")); // 初始化触发
+  healthyLevel.dispatchEvent(new Event("change"));
+  healthyLevel.dataset.healthyLevelBound = 'true';
 }
 
 function refreshGapInfo() {
@@ -211,32 +209,25 @@ function refreshGapInfo() {
 
 
 // ======= WAREHOUSE tab =======UTILS
-function updateWarehouseTabFilters(newFilterStateChanges) { // e.g., { supplier: '1' } or { warehouse: '2'}
+function updateWarehouseTabFilters(newFilterStateChanges) {
     console.log("⚙️ updateWarehouseTabFilters received changes (expected URL keys):", newFilterStateChanges);
-
-    // Directly merge into window.currentWarehouseFilters, assuming keys are already URL-compatible
     window.currentWarehouseFilters = { ...window.currentWarehouseFilters, ...newFilterStateChanges };
-
-    for (const key in window.currentWarehouseFilters) { // Clean up empty/null values
-        if (!window.currentWarehouseFilters[key]) { // Handles "", null, undefined
+    for (const key in window.currentWarehouseFilters) {
+        if (!window.currentWarehouseFilters[key]) {
             delete window.currentWarehouseFilters[key];
         }
     }
-
-    // Reset to page 1 on any filter change (except if the change was to the page itself)
     const changedKeys = Object.keys(newFilterStateChanges);
     if ((TAB_SPECIFIC_PARAMS['warehouseproduct'] || []).includes('page') &&
         changedKeys.some(k => k !== 'page')) {
         window.currentWarehouseFilters.page = '1';
     } else if (!window.currentWarehouseFilters.page && (TAB_SPECIFIC_PARAMS['warehouseproduct'] || []).includes('page')) {
-         // If page was removed and other filters exist, set to 1. If no other filters, page can remain absent.
         if (Object.keys(window.currentWarehouseFilters).some(k=>k !== 'page' && window.currentWarehouseFilters[k])) {
              window.currentWarehouseFilters.page = '1';
         } else {
-            delete window.currentWarehouseFilters.page; // Explicitly remove if it became undefined/null
+            delete window.currentWarehouseFilters.page;
         }
     }
-
     console.log("⚙️ currentWarehouseFilters after update (URL keys):", JSON.parse(JSON.stringify(window.currentWarehouseFilters)));
     refreshWarehouseProductList();
 }
@@ -246,39 +237,36 @@ function refreshWarehouseProductList() {
     const paramsForFetchAndHistory = new URLSearchParams();
     const allowedParams = TAB_SPECIFIC_PARAMS['warehouseproduct'] || [];
 
-    // Build paramsForFetchAndHistory from window.currentWarehouseFilters (which now has URL keys)
     for (const key in window.currentWarehouseFilters) {
         if (allowedParams.includes(key) && window.currentWarehouseFilters[key]) {
             paramsForFetchAndHistory.set(key, window.currentWarehouseFilters[key]);
         }
     }
-
-    // If page is not in currentWarehouseFilters (e.g. after filter change without explicit page set)
-    // and it's an allowed param, and other filters are active, default to page 1 for fetch.
-    if (allowedParams.includes('page') && !paramsForFetchAndHistory.has('page') &&
-        Object.keys(window.currentWarehouseFilters).some(k => k !== 'page' && window.currentWarehouseFilters[k])) {
-        // paramsForFetchAndHistory.set('page', '1'); // Only add if other filters are present
-    }
-
     const queryStringForFetch = paramsForFetchAndHistory.toString();
     const paramsForHistoryWithTab = new URLSearchParams(paramsForFetchAndHistory);
     paramsForHistoryWithTab.set('tab', 'warehouseproduct');
     const newUrlForHistory = `?${paramsForHistoryWithTab.toString()}`;
 
-    history.pushState(null, '', newUrlForHistory);
-    // Pass the object with URL keys to saveTabFiltersToSession
+    history.pushState({path: newUrlForHistory, tab: 'warehouseproduct'}, '', newUrlForHistory);
     saveTabFiltersToSession('warehouseproduct', Object.fromEntries(paramsForFetchAndHistory.entries()));
+
+    const searchResultsContainer = document.getElementById("search-results");
+    if (searchResultsContainer) { // Show loading state
+        searchResultsContainer.innerHTML = '<tr><td colspan="10" class="text-center py-10"><span class="loading loading-dots loading-lg"></span></td></tr>';
+    }
 
     fetch(`/warehouse/search/?${queryStringForFetch}`, { headers: { "X-Requested-With": "XMLHttpRequest" } })
         .then(res => res.text())
         .then(html => {
-            const container = document.getElementById("search-results");
-            if (container) container.innerHTML = html;
+            if (searchResultsContainer) searchResultsContainer.innerHTML = html;
             requestAnimationFrame(refreshGapInfo);
             console.log("✅ Warehouse List refreshed. URL updated. Session saved.");
-            updateWarehouseFilterControlsUI();
+            updateWarehouseFilterControlsUI(); // Ensure UI controls reflect the state used for fetch
         })
-        .catch(err => console.error("🔴 Failed to refresh warehouse products:", err));
+        .catch(err => {
+            console.error("🔴 Failed to refresh warehouse products:", err);
+            if (searchResultsContainer) searchResultsContainer.innerHTML = '<tr><td colspan="10" class="text-center py-4 text-red-500">Error loading products.</td></tr>';
+        });
 }
 
 function updateWarehouseFilterControlsUI() {
@@ -288,16 +276,19 @@ function updateWarehouseFilterControlsUI() {
         console.warn("updateWarehouseFilterControlsUI: #tab-content not found, cannot update UI.");
         return;
     }
-
-    ["warehouse", "supplier"].forEach(filterKey => { // URL keys
+    ["warehouse", "supplier"].forEach(filterKey => {
         const activeValue = activeFilters[filterKey] || "";
-        whTabContent.querySelectorAll(`.btn[data-filter="${filterKey}"]`).forEach(btn => {
-            if (btn.dataset.value === activeValue) {
-                btn.classList.add("btn-neutral", "text-white"); btn.classList.remove("btn-outline");
-            } else {
-                btn.classList.remove("btn-neutral", "text-white"); btn.classList.add("btn-outline");
-            }
-        });
+        // Ensure we are only targeting buttons within the warehouse product filter panel
+        const filterPanel = whTabContent.querySelector('.sticky.top-24'); // Adjust selector if needed
+        if(filterPanel) {
+            filterPanel.querySelectorAll(`.btn[data-filter="${filterKey}"]`).forEach(btn => {
+                if (btn.dataset.value === activeValue) {
+                    btn.classList.add("btn-neutral", "text-white"); btn.classList.remove("btn-outline");
+                } else {
+                    btn.classList.remove("btn-neutral", "text-white"); btn.classList.add("btn-outline");
+                }
+            });
+        }
     });
     const searchInput = whTabContent.querySelector('#warehouse-search-form input[name="q"]');
     if (searchInput) searchInput.value = activeFilters.q || "";
@@ -316,13 +307,11 @@ function openDetails(pk) {
       alert("Failed to load details");
       return;
     }
-
     document.getElementById("modal-product-name").textContent = data.product;
     document.getElementById("modal-warehouse-name").textContent = data.warehouse;
     document.getElementById("modal-quantity").textContent = data.quantity;
     document.getElementById("modal-threshold").textContent = data.threshold;
-
-    document.getElementById("details-modal").checked = true;  // 打开 Modal
+    document.getElementById("details-modal").checked = true;
   })
   .catch(error => {
     console.error("Error loading details:", error);
@@ -332,12 +321,15 @@ function openDetails(pk) {
 
 function openCreatePoModal(selectedIds) {
   const multiplier = parseFloat(document.getElementById("healthy-level")?.value || 1.5);
+  const modalContentContainer = document.getElementById("create-po-modal-content");
+  if(modalContentContainer) modalContentContainer.innerHTML = '<div class="text-center p-4"><span class="loading loading-spinner text-primary"></span> Preparing PO data...</div>';
+
 
   fetch("{% url 'warehouse:prepare_po_from_selection' %}", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-CSRFToken": '{{ csrf_token }}',
+      "X-CSRFToken": getCsrfToken(),
     },
     body: JSON.stringify({
       selected_items: selectedIds,
@@ -347,26 +339,27 @@ function openCreatePoModal(selectedIds) {
   .then(response => response.json())
   .then(data => {
     if (!data.success) {
-      alert("Failed to prepare PO data");
+      Swal.fire('Error', data.message || "Failed to prepare PO data", 'error');
+      if(modalContentContainer) modalContentContainer.innerHTML = `<p class="text-red-500 p-4">${data.message || "Failed to prepare PO data"}</p>`;
       return;
     }
-
-    fillCreatePoModal(data.data); // ✨ 渲染modal
+    fillCreatePoModal(data.data);
     document.getElementById("create-po-modal").checked = true;
   })
   .catch(error => {
     console.error("Error preparing PO:", error);
+    Swal.fire('Error', "Could not prepare PO. Please try again.", 'error');
+    if(modalContentContainer) modalContentContainer.innerHTML = '<p class="text-red-500 p-4">Could not prepare PO data. Network or server error.</p>';
   });
 }
 
 function fillCreatePoModal(poData) {
   const container = document.getElementById('create-po-modal-content');
-  container.innerHTML = "";  // 清空旧内容
+  container.innerHTML = "";
 
   poData.forEach(po => {
     const supplierDiv = document.createElement('div');
     supplierDiv.classList.add('space-y-2', 'border', 'border-gray-200', 'rounded', 'p-4', 'mb-4');
-
     const supplierTitle = document.createElement('h4');
     supplierTitle.classList.add('text-lg', 'font-semibold', 'text-gray-700');
     supplierTitle.textContent = `Supplier: ${po.supplier_name}`;
@@ -375,7 +368,6 @@ function fillCreatePoModal(poData) {
     po.products.forEach(product => {
       const row = document.createElement('div');
       row.classList.add('flex', 'items-center', 'space-x-4', 'bg-gray-50', 'p-2', 'rounded');
-
       row.innerHTML = `
         <div class="w-1/3 truncate">${product.product_name} @ ${product.warehouse_name}</div>
         <div class="w-1/3 text-sm text-gray-500">Gap: ${product.gap}</div>
@@ -387,14 +379,10 @@ function fillCreatePoModal(poData) {
           <button type="button" class="btn btn-xs btn-error remove-row" title="Remove">✕</button>
         </div>
       `;
-
       supplierDiv.appendChild(row);
     });
-
     container.appendChild(supplierDiv);
   });
-
-  // ✅ 加载完后给所有 "Remove" 按钮绑定事件
   document.querySelectorAll('.remove-row').forEach(button => {
     button.addEventListener('click', function () {
       this.closest('.flex').remove();
@@ -405,23 +393,31 @@ function fillCreatePoModal(poData) {
 function confirmCreatePo() {
   const inputs = document.querySelectorAll('.quantity-input');
   const payload = {};
-
   inputs.forEach(input => {
     const supplierId = input.dataset.supplierId;
     const wpId = input.dataset.warehouseProductId;
     const quantity = parseInt(input.value, 10);
-
     if (!payload[supplierId]) {
       payload[supplierId] = [];
     }
-
-    payload[supplierId].push({
-      warehouse_product_id: wpId,
-      quantity: quantity,
-    });
+    if (quantity > 0) { // Only include items with quantity > 0
+        payload[supplierId].push({
+          warehouse_product_id: wpId,
+          quantity: quantity,
+        });
+    }
   });
+  // Filter out suppliers with no items
+  for (const supplierId in payload) {
+      if (payload[supplierId].length === 0) {
+          delete payload[supplierId];
+      }
+  }
+  if (Object.keys(payload).length === 0) {
+      Swal.fire('No Items', 'No items with quantity greater than 0 were specified for the PO.', 'info');
+      return;
+  }
 
-  // ✅ 显示加载 spinner（可选加按钮 disable）
   const confirmBtn = document.getElementById('confirm-create-po');
   if (confirmBtn) {
     confirmBtn.disabled = true;
@@ -432,45 +428,28 @@ function confirmCreatePo() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-CSRFToken": '{{ csrf_token }}',
+      "X-CSRFToken": getCsrfToken(),
     },
     body: JSON.stringify({ orders: payload })
   })
   .then(res => res.json())
   .then(data => {
     if (data.success) {
-      console.log("confirm_create_po response:", data);
       Swal.fire({
         icon: 'success',
         title: 'PO Created!',
         toast: true,
         position: 'top-end',
-        timer: 1500,
+        timer: 2000, // Increased timer slightly
         showConfirmButton: false
       });
+      document.getElementById('create-po-modal').checked = false; // Close modal
 
-      // ✅ 模拟点击 PurchaseOrders tab，自动切换 + 高亮 + 回到顶部
       setTimeout(() => {
-        const purchaseOrderTab = document.querySelector('.tabs a[href="?tab=purchaseorders"]');
-        if (purchaseOrderTab) {
-          purchaseOrderTab.click();
-
-          // ✅ Wait for the tab content to load before scrolling
-          const tabContentObserver = new MutationObserver((mutations) => {
-            const poCard = document.getElementById(`po-card-${data.latest_po_id}`);
-            if (poCard) {
-              poCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              tabContentObserver.disconnect(); // Stop observing
-            } else {
-              console.warn(`PO Card with ID 'po-card-${data.latest_po_id}' still not found after tab load.`);
-            }
-          });
-
-          const tabContent = document.getElementById('tab-content');
-          if (tabContent) {
-            tabContentObserver.observe(tabContent, { childList: true, subtree: true });
-          }
-
+        const purchaseOrderTabLink = document.querySelector('.tabs a[data-tab="purchaseorders"]');
+        if (purchaseOrderTabLink) {
+          purchaseOrderTabLink.click(); // This will trigger loadTab
+          // Scrolling to new PO will be handled inside loadTab's .then() for purchaseorders
         }
       }, 300);
 
@@ -498,10 +477,6 @@ function confirmCreatePo() {
   });
 }
 
-
-
-
-
 // =========================== PurchaseOrders Tab Initializer
 function initPurchaseOrderTab() {
     const container = document.querySelector('#tab-content');
@@ -509,10 +484,9 @@ function initPurchaseOrderTab() {
         console.warn("initPurchaseOrderTab: #tab-content container not found.");
         return;
     }
-    console.log("🚀 Initializing PurchaseOrder Tab JS (vJS-Standardized)");
+    console.log("🚀 Initializing PurchaseOrder Tab JS (vJS-Standardized-Refined)");
 
-    // Load initial filters from URL or session
-    pendingPOFilters = {}; // Reset or implement your existing loading logic
+    pendingPOFilters = {};
     const currentUrlParams = new URLSearchParams(window.location.search);
     const allowedParams = TAB_SPECIFIC_PARAMS['purchaseorders'] || [];
 
@@ -522,36 +496,19 @@ function initPurchaseOrderTab() {
         }
     });
 
-    // If coming to the tab with no specific filters from URL/session,
-    // ensure 'page' is not unnecessarily set, or set to '1' if a default list should load.
     if (Object.keys(pendingPOFilters).length === 0 && (TAB_SPECIFIC_PARAMS['purchaseorders'] || []).includes('page')) {
-        // If you always want page 1 to load by default even with no filters:
-        // pendingPOFilters.page = '1';
-        // Or, if no filters means no 'page' parameter:
         delete pendingPOFilters.page;
     }
 
     console.log("🚀 initPurchaseOrderTab: Initial pendingPOFilters determined:", JSON.parse(JSON.stringify(pendingPOFilters)));
-
-    // Bind the main filter panel controls (search, status dropdowns etc.)
-    // These listeners are on static elements or use delegation.
-    updatePOFilterControlsUI(); // Visually set filter controls based on pendingPOFilters
-    bindPOFilterControls(container); // Attaches listeners to filter controls
-
-    // Directly call refreshPOList to fetch data using the current pendingPOFilters.
-    // This ensures that the list is populated from the AJAX endpoint which includes status_dates.
-    refreshPOList();
-
-    // saveTabFiltersToSession is called within refreshPOList after data is fetched
-    // and pagination state (like current page) is confirmed.
+    updatePOFilterControlsUI();
+    bindPOFilterControls(container);
+    refreshPOList(); // This will fetch data and also re-setup delegated listeners via updatePOListUI
+                     // and then bindPOModalDirectInteractivity, etc.
 }
 
-
-
-
 // ======= PURCHASEORDER Tab =======INIT
-// --- New variables for Purchase Order filter debouncing ---
-const PO_FILTER_DEBOUNCE_DELAY = 400; // milliseconds
+const PO_FILTER_DEBOUNCE_DELAY = 400;
 
 function refreshPOList() {
     console.log("🚀 refreshPOList with pendingPOFilters (URL keys):", JSON.parse(JSON.stringify(pendingPOFilters)));
@@ -564,22 +521,20 @@ function refreshPOList() {
         }
     }
 
-    // Default to page 1 if page is an allowed param, not present, and other filters exist
-    if (allowedParams.includes('page') && !paramsForFetchAndHistory.has('page') &&
-        Array.from(paramsForFetchAndHistory.keys()).some(k => k !== 'page')) {
-        paramsForFetchAndHistory.set('page', '1');
-    }
-
     const queryStringForFetch = paramsForFetchAndHistory.toString();
     const paramsForHistoryWithTab = new URLSearchParams(paramsForFetchAndHistory);
     paramsForHistoryWithTab.set('tab', 'purchaseorders');
     const newUrlForHistory = `?${paramsForHistoryWithTab.toString()}`;
 
     history.pushState({ path: newUrlForHistory, tab: 'purchaseorders' }, '', newUrlForHistory);
-    // Save the actual parameters used for the fetch (including defaulted page 1)
     saveTabFiltersToSession('purchaseorders', Object.fromEntries(paramsForFetchAndHistory.entries()));
 
     const poListContainer = document.getElementById("purchase-orders-list");
+    const itemListContainer = poListContainer ? poListContainer.querySelector('#item-list-container') : null;
+    if (itemListContainer) { // Show loading state
+        itemListContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
+    }
+
 
     fetch(`/warehouse/purchaseorders/filter-data/?${queryStringForFetch}`, {
         headers: { "X-Requested-With": "XMLHttpRequest" }
@@ -589,42 +544,25 @@ function refreshPOList() {
         return response.json();
     })
     .then(data => {
-        console.log("[refreshPOList] Received JSON data from fetch. Type:", typeof data); // Value logged below
-        // console.log("[refreshPOList] Full JSON data from fetch:", JSON.stringify(data, null, 2)); // Keep for debugging
-
+        console.log("[refreshPOList] Received JSON data from fetch.");
         if (!data || typeof data.current_user_is_superuser === 'undefined') {
             console.error("[refreshPOList] CRITICAL: 'data' from fetch is invalid or missing current_user_is_superuser!", data);
-            if (poListContainer) {
-                const itemListContainerError = poListContainer.querySelector('#item-list-container');
-                if (itemListContainerError) itemListContainerError.innerHTML = '<p class="text-red-500 text-center">Error: Failed to fetch data (#E01).</p>';
-                else poListContainer.innerHTML = '<p class="text-red-500 text-center">Error: UI container missing (#E02).</p>';
-            }
+            if (itemListContainer) itemListContainer.innerHTML = '<p class="text-red-500 text-center">Error: Failed to fetch data (#E01-PO).</p>';
+            else if (poListContainer) poListContainer.innerHTML = '<p class="text-red-500 text-center">Error: UI container missing (#E02-PO).</p>';
             return;
         }
-
         if (poListContainer) {
-            updatePOListUI(poListContainer, data.purchase_orders, data); // This renders cards and modals
-            updatePaginationStates(data); // Updates pendingPOFilters.page and saves to session
-
-            // ---- START: Make the list visible after JS rendering ----
-          const itemListContainer = poListContainer.querySelector('#item-list-container');
-          if (itemListContainer) {
-            itemListContainer.classList.remove('initially-hidden');
-          }
-          // ---- END: Make the list visible ----
-
-            // Re-initialize or set up UI components for the newly rendered content
-            initializePOModalStatusButtons(poListContainer); // Sets visual state for status buttons in new modals
-            initLoadMorePOs(); // Sets up "Load More" button if present
-
-            // These setup delegated listeners on a persistent parent.
-            // They typically only need to be called once if the parent (#purchase-orders-list) is persistent.
-            // If #purchase-orders-list itself is replaced, they would need to be recalled.
-            // Assuming #purchase-orders-list is the persistent container for POs:
-            setupPOModalDelegatedInteractivity('#purchase-orders-list');
-            setupStatusButtonDelegation('#purchase-orders-list');
-            initReceiveItemsModal(); // Sets up delegated listener for "Receive Items"
-
+            updatePOListUI(poListContainer, data.purchase_orders, data);
+            updatePaginationStates(data);
+            const newlyLoadedItemListContainer = poListContainer.querySelector('#item-list-container');
+            if (newlyLoadedItemListContainer) {
+              newlyLoadedItemListContainer.classList.remove('initially-hidden');
+            }
+            initializePOModalStatusButtons(poListContainer);
+            initLoadMorePOs();
+            setupPOModalDelegatedInteractivity('#purchase-orders-list'); // Ensure this is robust
+            setupStatusButtonDelegation('#purchase-orders-list'); // Ensure this is robust
+            initReceiveItemsModal();
             console.log("✅ PO List refreshed via AJAX. UI updated and all dependent components initialized.");
         } else {
             console.error("[refreshPOList] poListContainer not found for applying updates!");
@@ -632,24 +570,23 @@ function refreshPOList() {
     })
     .catch(error => {
         console.error("❌ Failed to refresh PO list (FETCH CATCH BLOCK):", error);
-        if (poListContainer) {
-            const itemListContainerError = poListContainer.querySelector('#item-list-container');
-            if (itemListContainerError) itemListContainerError.innerHTML = `<p class="text-red-500 text-center">Error: ${error.message}.</p>`;
-            else poListContainer.innerHTML = `<p class="text-red-500 text-center">Error: ${error.message}. UI container missing. (#E03)</p>`;
-        }
+        if (itemListContainer) itemListContainer.innerHTML = `<p class="text-red-500 text-center p-4">Error: ${error.message}.</p>`;
+        else if (poListContainer) poListContainer.innerHTML = `<p class="text-red-500 text-center p-4">Error: ${error.message}. UI container missing. (#E03-PO)</p>`;
       });
 }
 
 const debouncedRefreshPOList = debounce(refreshPOList, PO_FILTER_DEBOUNCE_DELAY);
 
 function updatePOFilterControlsUI() {
-  const container = document.querySelector('#tab-content'); // Or a more specific filter panel container
+  const container = document.querySelector('#tab-content');
   if (!container) return;
+  const filterPanel = container.querySelector('.sticky.top-28'); // More specific selector for PO filter panel
+  if (!filterPanel) return;
 
-  // Update filter buttons (status, supplier)
+
   ["status", "supplier"].forEach(filterKey => {
     const activeValue = pendingPOFilters[filterKey] || "";
-    container.querySelectorAll(`.btn[data-filter="${filterKey}"]`).forEach(btn => {
+    filterPanel.querySelectorAll(`.btn[data-filter="${filterKey}"]`).forEach(btn => {
       if (btn.dataset.value === activeValue) {
         btn.classList.add("btn-neutral", "text-white");
         btn.classList.remove("btn-outline");
@@ -659,9 +596,7 @@ function updatePOFilterControlsUI() {
       }
     });
   });
-
-  // Update search input
-  const searchInput = container.querySelector('#po-search-form input[name="q"]');
+  const searchInput = filterPanel.querySelector('#po-search-form input[name="q"]');
   if (searchInput) {
     searchInput.value = pendingPOFilters.q || "";
   }
@@ -669,88 +604,78 @@ function updatePOFilterControlsUI() {
 }
 
 function bindPOFilterControls(container) {
-  // Event listener for filter buttons (status, supplier)
-  container.addEventListener("click", (e) => {
+  const filterPanel = container.querySelector('.sticky.top-28'); // Scope to PO filter panel
+  if (!filterPanel) return;
+
+  if (filterPanel.dataset.poFilterControlsBound === 'true') return;
+
+  filterPanel.addEventListener("click", (e) => {
     const btn = e.target.closest(".btn[data-filter]");
     if (!btn || (btn.dataset.filter !== "status" && btn.dataset.filter !== "supplier")) return;
-
     const key = btn.dataset.filter;
     const value = btn.dataset.value;
-
-    if (value === "") {
-      delete pendingPOFilters[key]; // Or pendingPOFilters[key] = "";
-    } else {
-      pendingPOFilters[key] = value;
-    }
-    pendingPOFilters.page = '1'; // Reset to page 1 on filter change
-
-    updatePOFilterControlsUI(); // Immediate visual feedback
+    if (value === "") delete pendingPOFilters[key];
+    else pendingPOFilters[key] = value;
+    pendingPOFilters.page = '1';
+    updatePOFilterControlsUI();
     debouncedRefreshPOList();
     console.log(`👉 PO Filter button clicked: ${key}=${value}. Pending:`, JSON.parse(JSON.stringify(pendingPOFilters)));
   });
 
-  // Event listener for search input
-  const searchInput = container.querySelector('#po-search-form input[name="q"]');
+  const searchInput = filterPanel.querySelector('#po-search-form input[name="q"]');
   if (searchInput) {
     searchInput.addEventListener("input", debounce(() => {
       const query = searchInput.value.trim();
-      if (query === "") {
-        delete pendingPOFilters.q;
-      } else {
-        pendingPOFilters.q = query;
-      }
-      pendingPOFilters.page = '1'; // Reset to page 1 on search change
-      // updatePOFilterControlsUI(); // Search input updates itself visually
+      if (query === "") delete pendingPOFilters.q;
+      else pendingPOFilters.q = query;
+      pendingPOFilters.page = '1';
       debouncedRefreshPOList();
       console.log(`🔍 PO Search input changed: q=${query}. Pending:`, JSON.parse(JSON.stringify(pendingPOFilters)));
-    }, PO_FILTER_DEBOUNCE_DELAY + 100)); // Slightly longer debounce for typing
+    }, PO_FILTER_DEBOUNCE_DELAY + 100));
   }
+  filterPanel.dataset.poFilterControlsBound = 'true';
 }
 
 function bindPOListPagination(poListContainer) {
-  poListContainer.querySelectorAll(".pagination-link").forEach(link => {
-    link.addEventListener("click", function(e) {
-      e.preventDefault();
-      const url = new URL(this.href);
-      const page = url.searchParams.get("page");
-      if (page) {
-        pendingPOFilters.page = page;
-        // updatePOFilterControlsUI(); // No direct filter controls change, but URL will
-        refreshPOList(); // Refresh immediately, no debounce for pagination
-        console.log(`📄 PO Pagination link clicked: page=${page}`);
-      }
-    });
+  if(!poListContainer || poListContainer.dataset.poPaginationBound === 'true') return;
+
+  poListContainer.addEventListener("click", function(e) {
+    const link = e.target.closest(".pagination-link");
+    if (link && link.tagName === 'A') { // Ensure it's a link and not already handled button
+        e.preventDefault();
+        const url = new URL(link.href);
+        const page = url.searchParams.get("page");
+        if (page) {
+            pendingPOFilters.page = page;
+            refreshPOList();
+            console.log(`📄 PO Pagination link clicked: page=${page}`);
+        }
+    }
   });
+  poListContainer.dataset.poPaginationBound = 'true';
 }
 
 function resetPurchaseOrderFilters() {
-    console.log("🔄 Resetting Purchase Order Filters (v4)");
-    pendingPOFilters = {}; // Clear internal JS state
+    console.log("🔄 Resetting Purchase Order Filters (v5)");
+    pendingPOFilters = {};
     if ((TAB_SPECIFIC_PARAMS['purchaseorders'] || []).includes('page')) {
-        // pendingPOFilters.page = '1'; // Don't force page=1 for a truly empty state
+        // pendingPOFilters.page = '1'; // No, let it be truly empty
     }
     clearTabFiltersFromSession('purchaseorders');
     debouncedRefreshPOList.cancel();
     updatePOFilterControlsUI();
-    refreshPOList(); // Will use empty pendingPOFilters, URL becomes ?tab=purchaseorders, session saves ""
+    refreshPOList();
 }
 
 function initializePOModalStatusButtons(container) {
     if (!container) return;
     console.log("🎨 Initializing PO Modal Status Button visuals within:", container.id || container.tagName);
-
     container.querySelectorAll('.modal-box[data-po-id]').forEach(modalBox => {
         const poId = modalBox.dataset.poId;
         const hiddenStatusInput = modalBox.querySelector(`input[type="hidden"][name="selected_status"][id="selected-status-${poId}"]`);
-        if (!hiddenStatusInput) return; // Skip if not an update PO modal
-
+        if (!hiddenStatusInput) return;
         const currentPoStatus = hiddenStatusInput.value;
         const statusButtons = modalBox.querySelectorAll(`.status-select-btn[data-po-id="${poId}"]:not([disabled])`);
-
-        if (statusButtons.length === 0) {
-            console.warn(`PO #${poId}: No ENABLED status-select-btn found during visual init.`);
-        }
-
         statusButtons.forEach(button => {
             const buttonStatusValue = button.dataset.status;
             if (buttonStatusValue === currentPoStatus) {
@@ -763,53 +688,33 @@ function initializePOModalStatusButtons(container) {
      console.log("👍 PO Modal Status Button visuals initialization complete.");
 }
 
-
-/**
- * Sets up event delegation for status button clicks within a persistent parent container.
- * This only needs to be called ONCE when the main tab structure is set up or the PO tab is first loaded.
- * @param {string} parentSelector - The selector for the persistent parent element (e.g., '#purchase-orders-list' or '#tab-content').
- */
 function setupStatusButtonDelegation(parentSelector) {
     const parentElement = document.querySelector(parentSelector);
     if (!parentElement) {
         console.error(`setupStatusButtonDelegation: Parent element "${parentSelector}" not found.`);
         return;
     }
-
-    if (parentElement.dataset.statusDelegationBound === 'true') {
-        console.log(`Status button delegation already bound to ${parentSelector}.`);
-        return;
-    }
+    if (parentElement.dataset.statusDelegationBound === 'true') return;
 
     console.log(`🚀 Setting up DELEGATED click listener for status buttons on "${parentSelector}"`);
     parentElement.addEventListener('click', function(event) {
-        console.log(`[DELEGATED] Click detected inside ${parentSelector}. Target:`, event.target);
         const statusButton = event.target.closest('.status-select-btn:not([disabled])');
-
         if (statusButton && statusButton.closest('.modal-box[data-po-id]')) {
-            console.log("[DELEGATED] Click target IS an enabled status button inside a PO modal box.");
             event.preventDefault();
             try {
                 const clickedPoId = statusButton.dataset.poId;
                 const newStatus = statusButton.dataset.status;
                 const parentModalBox = statusButton.closest('.modal-box');
                 const specificHiddenInput = parentModalBox.querySelector(`input#selected-status-${clickedPoId}`);
-
                 if (!specificHiddenInput) { console.error(`PO #${clickedPoId}: [DELEGATED] Critical - could not find hidden input on click!`); return; }
-
-                console.log(`PO #${clickedPoId}: [DELEGATED] Status btn '${newStatus}' CLICKED. Old hidden: '${specificHiddenInput.value}', New: '${newStatus}'`);
                 specificHiddenInput.value = newStatus;
-
                 parentModalBox.querySelectorAll(`.status-select-btn[data-po-id="${clickedPoId}"]:not([disabled])`).forEach(btn => {
                     btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
                 });
                 statusButton.classList.add('btn-neutral', 'text-white'); statusButton.classList.remove('btn-outline');
-                console.log(`PO #${clickedPoId}: [DELEGATED] Button '${newStatus}' visually set active.`);
             } catch (error) {
                 console.error("Error inside delegated status button click handler:", error);
             }
-        } else {
-             // console.log("[DELEGATED] Click target was not an enabled status button inside a PO modal box.");
         }
     });
     parentElement.dataset.statusDelegationBound = 'true';
@@ -821,130 +726,61 @@ function setupPOModalDelegatedInteractivity(parentSelector) {
         console.error(`setupPOModalDelegatedInteractivity: Parent element "${parentSelector}" not found.`);
         return;
     }
-
-    if (parentElement.dataset.poModalDelegationBound === 'true') {
-        console.log(`PO Modal Form/Delete delegation already bound to ${parentSelector}.`);
-        return;
-    }
+    if (parentElement.dataset.poModalDelegationBound === 'true') return;
 
     console.log(`🚀 Setting up DELEGATED listeners for PO Modal Forms & Delete on "${parentSelector}"`);
-
-    // Delegated listener for PO Update Form submissions
     parentElement.addEventListener('submit', function(event) {
-    const updateForm = event.target.closest('form.po-update-form'); // Changed variable name for clarity
+    const updateForm = event.target.closest('form.po-update-form');
     if (updateForm) {
         event.preventDefault();
         const poId = updateForm.dataset.poId;
-        console.log(`[DELEGATED SUBMIT] Caught submit for po-update-form. PO ID: ${poId}`);
-        console.log(`[DELEGATED SUBMIT] Form action: ${updateForm.action}`);
-        console.log(`[DELEGATED SUBMIT] Form element:`, updateForm);
-
-        // Ensure saveForm is being called with the correct parameters
         saveForm(updateForm, poId, `modal-update-po-${poId}`, "PO Updated!");
       }
     });
-
-    // Delegated listener for PO Edit Items Form submissions
     parentElement.addEventListener('submit', function(event) {
         const form = event.target.closest('form.po-edit-form');
         if (form) {
             event.preventDefault();
             const poId = form.dataset.poId;
-            console.log(`[DELEGATED] Submitting PO Edit Items form for PO ID: ${poId}`);
             saveForm(form, poId, `modal-edit-items-${poId}`, "PO Items Saved!");
         }
     });
-
-    // Delegated listener for Delete PO buttons
     parentElement.addEventListener('click', function(event) {
         const deleteButton = event.target.closest('button.delete-po-btn');
         if (deleteButton) {
-            // No preventDefault needed unless it's a submit button itself
             const poId = deleteButton.dataset.poId;
-            console.log(`[DELEGATED] Clicked Delete PO button for PO ID: ${poId}`);
             deletePo(poId);
         }
     });
-
     parentElement.dataset.poModalDelegationBound = 'true';
-
-    // Note: The initialization of status button *visuals* (making the current status active)
-    // still needs to happen after new modal content is loaded if it's not handled by CSS alone.
-    // The CLICK handling for status buttons is already delegated by setupStatusButtonDelegation.
-    // So, initializePOModalStatusButtons(container) might still be needed after AJAX updates
-    // if you need to dynamically set which button looks "active" based on data.
-}
-
-function bindPOModalDirectInteractivity(container) {
-    if (!container) { console.error("bindPOModalDirectInteractivity: Container not provided."); return; }
-    console.log("🔧 Binding PO Modal DIRECT Interactivity (Forms, Delete) & Init Visuals within:", container.id || container.tagName);
-
-    // Bind form submissions (Update PO)
-    container.querySelectorAll('form.po-update-form').forEach(form => {
-        if (form.dataset.directUpdateFormBound === 'true') return;
-        form.addEventListener('submit', function(e) { /* ... (saveForm logic) ... */ e.preventDefault(); const poId=this.dataset.poId; saveForm(this, poId, `modal-update-po-${poId}`, "PO Updated!"); });
-        form.dataset.directUpdateFormBound = 'true';
-    });
-
-    // Bind form submissions (Edit Items)
-    container.querySelectorAll('form.po-edit-form').forEach(form => {
-        if (form.dataset.directEditFormBound === 'true') return;
-        form.addEventListener('submit', function(e) { /* ... (saveForm logic) ... */ e.preventDefault(); const poId=this.dataset.poId; saveForm(this, poId, `modal-edit-items-${poId}`, "PO Items Saved!"); });
-        form.dataset.directEditFormBound = 'true';
-    });
-
-    // Bind delete buttons
-    container.querySelectorAll('button.delete-po-btn').forEach(button => {
-        if (button.dataset.directDeleteBtnBound === 'true') return;
-        button.addEventListener('click', function() { /* ... (deletePo logic) ... */ const poId=this.dataset.poId; deletePo(poId); });
-        button.dataset.directDeleteBtnBound = 'true';
-    });
-
-    // Initialize Status Button Visuals
-    initializePOModalStatusButtons(container);
-
-    console.log("👍 PO Modal DIRECT Interactivity binding complete.");
 }
 
 function initReceiveItemsModal() {
-  const poListContainer = document.getElementById("purchase-orders-list");
-  if (!poListContainer) {
-    console.warn("initReceiveItemsModal: #purchase-orders-list container not found.");
+  const poListParentContainer = document.getElementById("purchase-orders-list"); // Ensure this is the persistent parent
+  if (!poListParentContainer) {
+    console.warn("initReceiveItemsModal: #purchase-orders-list container not found for delegation.");
     return;
   }
-
-  // Check if the listener is already bound to prevent multiple attachments
-  if (poListContainer.dataset.receiveItemsDelegationBound === 'true') {
-    // console.log("Receive Items delegation already bound to #purchase-orders-list.");
-    return;
-  }
+  if (poListParentContainer.dataset.receiveItemsDelegationBound === 'true') return;
 
   console.log("🛍️ Setting up DELEGATED listener for 'Receive Items' buttons on #purchase-orders-list.");
-  poListContainer.addEventListener('click', (event) => {
-    // Target only the specific "Receive" trigger label with a data-po-id
+  poListParentContainer.addEventListener('click', (event) => {
     const receiveTriggerButton = event.target.closest('label.receive-items-trigger[data-po-id]');
-
     if (receiveTriggerButton) {
-      event.preventDefault(); // Good practice for labels acting as buttons
+      event.preventDefault();
       const poId = receiveTriggerButton.dataset.poId;
-
-      if (poId) {
-        console.log('[DELEGATED] Click detected on receive items trigger for PO ID:', poId);
-        openReceiveItemsModal(poId); // This should now be the only call path
-      } else {
-        console.warn("[DELEGATED] Receive items trigger clicked, but poId is missing from data-po-id attribute.", receiveTriggerButton);
-      }
+      if (poId) openReceiveItemsModal(poId);
+      else console.warn("[DELEGATED] Receive items trigger clicked, but poId is missing.", receiveTriggerButton);
     }
   });
-
-  poListContainer.dataset.receiveItemsDelegationBound = 'true';
+  poListParentContainer.dataset.receiveItemsDelegationBound = 'true';
 }
 
-
 function openReceiveItemsModal(poId) {
-  console.log("openReceiveItemsModal called with PO ID:", poId); // Debug
-  const modalContainer = document.getElementById('receive-items-modal-container');
-  modalContainer.innerHTML = '<span class="loading loading-spinner"></span> Loading...'; // Show loading
+  console.log("openReceiveItemsModal called with PO ID:", poId);
+  const modalContainer = document.getElementById('receive-items-modal-container'); // This is now a static container in purchase_orders_partial.html
+  if(!modalContainer){ console.error("Static modal container #receive-items-modal-container not found!"); return; }
+  modalContainer.innerHTML = '<div class="text-center p-4"><span class="loading loading-spinner text-primary"></span> Loading receipt items...</div>';
 
   fetch(`/warehouse/po/${poId}/get-items-for-receiving/`, {
     headers: {
@@ -954,18 +790,24 @@ function openReceiveItemsModal(poId) {
   .then(response => response.json())
   .then(data => {
     if (!data.success) {
-      modalContainer.innerHTML = `<p class="text-red-500">Error: ${data.message || 'Failed to load receipt data.'}</p>`;
+      modalContainer.innerHTML = `<p class="text-red-500 p-4">Error: ${data.message || 'Failed to load receipt data.'}</p>`;
       return;
     }
-
-    const modalContent = `
-      <input type="checkbox" id="modal-receive-items" class="modal-toggle" checked />
+    // This HTML structure assumes you have a global modal structure that can be revealed,
+    // or this dynamically creates the whole modal. For DaisyUI, often a checkbox controls visibility.
+    // The HTML below includes the <input type="checkbox" id="modal-receive-items".../> structure.
+    // This checkbox *must* be outside the 'modalContainer' if modalContainer's content is replaced.
+    // For simplicity, we assume the #receive-items-modal-container *is* the modal content area and the toggle is separate.
+    // Or, if `modalContainer` is the parent for the modal itself, adjust:
+    let modalHTML = `
+      <input type="checkbox" id="dynamic-receive-modal-toggle-${data.po_id}" class="modal-toggle" />
       <div class="modal" role="dialog">
         <div class="modal-box max-w-2xl">
+          <label for="dynamic-receive-modal-toggle-${data.po_id}" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
           <h3 class="font-bold text-lg mb-4">Receive Items for PO #${data.po_id}</h3>
           <form id="receive-items-form-${data.po_id}" data-po-id="${data.po_id}">
-            {% csrf_token %}
-            <table class="table w-full">
+            <input type="hidden" name="csrfmiddlewaretoken" value="${getCsrfToken()}">
+            <table class="table w-full table-sm">
               <thead>
                 <tr>
                   <th>SKU</th>
@@ -997,22 +839,30 @@ function openReceiveItemsModal(poId) {
                 `).join('')}
               </tbody>
             </table>
-            <textarea name="receipt_notes" class="textarea textarea-bordered w-full mt-4" placeholder="Receipt Notes"></textarea>
+            <textarea name="receipt_notes" class="textarea textarea-bordered w-full mt-4 textarea-sm" placeholder="Receipt Notes (optional)"></textarea>
             <div class="modal-action justify-between mt-4">
-              <label for="modal-receive-items" class="btn btn-sm">Cancel</label>
+              <label for="dynamic-receive-modal-toggle-${data.po_id}" class="btn btn-sm btn-ghost">Cancel</label>
               <button type="button" class="btn btn-sm btn-primary" onclick="submitReceiveItemsForm('${data.po_id}')">
                 Process Receipt
               </button>
             </div>
           </form>
         </div>
+         <label class="modal-backdrop" for="dynamic-receive-modal-toggle-${data.po_id}">Close</label>
       </div>
     `;
-    modalContainer.innerHTML = modalContent;
+    modalContainer.innerHTML = modalHTML;
+    // Ensure the modal toggle is checked to show the modal
+    const modalToggle = document.getElementById(`dynamic-receive-modal-toggle-${data.po_id}`);
+    if (modalToggle) {
+        modalToggle.checked = true;
+    } else {
+        console.error("Failed to find dynamic modal toggle for PO ID:", data.po_id);
+    }
   })
   .catch(error => {
     console.error("Error fetching receive items:", error);
-    modalContainer.innerHTML = `<p class="text-red-500">Error: ${error.message || 'Failed to load receipt data.'}</p>`;
+    modalContainer.innerHTML = `<p class="text-red-500 p-4">Error: ${error.message || 'Failed to load receipt data.'}</p>`;
   });
 }
 
@@ -1022,7 +872,6 @@ function submitReceiveItemsForm(poId) {
     console.error(`Form with ID 'receive-items-form-${poId}' not found.`);
     return;
   }
-
   const formData = new FormData(form);
   const items = [];
   form.querySelectorAll('.receive-qty-input').forEach(input => {
@@ -1032,11 +881,12 @@ function submitReceiveItemsForm(poId) {
       items.push({ po_item_id: parseInt(poItemId), quantity_received_now: quantityReceivedNow });
     }
   });
-
   const payload = {
     items: items,
     notes: formData.get('receipt_notes')
   };
+  const submitButton = form.querySelector('button[type="button"][onclick^="submitReceiveItemsForm"]');
+  if(submitButton){ submitButton.disabled = true; submitButton.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Processing...';}
 
   fetch(`/warehouse/po/${poId}/process-receipt/`, {
     method: 'POST',
@@ -1053,15 +903,14 @@ function submitReceiveItemsForm(poId) {
       Swal.fire({
         toast: true,
         icon: 'success',
-        title: 'Receipt Processed!',
+        title: data.message || 'Receipt Processed!',
         position: 'top-end',
-        timer: 1500,
+        timer: 2000,
         showConfirmButton: false
       });
-
-      // Close the modal and refresh the PO list
-      closeModal('modal-receive-items');
-      refreshPOList(); // Or update the specific PO card
+      const modalToggle = document.getElementById(`dynamic-receive-modal-toggle-${poId}`);
+      if(modalToggle) modalToggle.checked = false;
+      refreshPOList();
     } else {
       Swal.fire({
         icon: 'error',
@@ -1077,33 +926,21 @@ function submitReceiveItemsForm(poId) {
       title: 'Network Error',
       text: 'Please try again later.',
     });
+  })
+  .finally(()=>{
+      if(submitButton){ submitButton.disabled = false; submitButton.innerHTML = 'Process Receipt';}
   });
 }
 
-/**
- * MODIFIED FUNCTION
- * Updates the PO list UI by clearing and re-populating it.
- * @param {HTMLElement} poListContainer - The main container for the PO list (e.g., #purchase-orders-list).
- * @param {Array} purchaseOrdersJsonArray - Array of PO data objects.
- * @param {object} fullJsonData - The full JSON response from the server, including pagination and context.
- */
  function updatePOListUI(poListContainer, purchaseOrdersJsonArray, fullJsonData) {
-    console.log("--- updatePOListUI Function START (vJS-FullFrag) ---");
-    console.log("[updatePOListUI] Arg1 (poListContainer ID):", poListContainer ? poListContainer.id : 'null');
-    console.log("[updatePOListUI] Arg3 (fullJsonData type):", typeof fullJsonData);
-
-
+    console.log("--- updatePOListUI Function START (vJS-FullFrag-Refined) ---");
     const itemListContainer = poListContainer.querySelector('#item-list-container');
     if (!itemListContainer) {
         console.error("[updatePOListUI] CRITICAL: #item-list-container not found within poListContainer.");
         if (poListContainer) poListContainer.innerHTML = '<p class="text-red-500 text-center p-4">Error: UI sub-container #item-list-container is missing.</p>';
         return;
     }
-
-    // Clear previous PO cards from the item list
     itemListContainer.innerHTML = '';
-    // Clear previous dynamically added modals from the main poListContainer
-    // These modals are now identified by 'po-specific-modal-toggle' and 'po-specific-modal-container' classes
     poListContainer.querySelectorAll('.po-specific-modal-toggle, .po-specific-modal-container').forEach(el => el.remove());
 
     if (!fullJsonData || typeof fullJsonData.current_user_is_superuser === 'undefined') {
@@ -1111,11 +948,9 @@ function submitReceiveItemsForm(poId) {
         itemListContainer.innerHTML = '<p class="text-red-500 text-center p-4">Error: Critical display data missing from server response.</p>';
         return;
     }
-
     const isSuperuser = fullJsonData.current_user_is_superuser;
     const statusChoices = fullJsonData.status_choices || [];
     const statusDates = fullJsonData.status_dates || {};
-    // const nextStatuses = fullJsonData.next_statuses || {}; // Not directly used in modal HTML generation here but good to have
 
     if (!Array.isArray(purchaseOrdersJsonArray) || purchaseOrdersJsonArray.length === 0) {
         const noResultsMessage = document.createElement('p');
@@ -1125,21 +960,17 @@ function submitReceiveItemsForm(poId) {
     } else {
         const allCardsFragment = document.createDocumentFragment();
         const allModalsFragment = document.createDocumentFragment();
-
         purchaseOrdersJsonArray.forEach(poData => {
             const { cardHTMLFragment, modalsHTMLFragment } = createPoCardAndModalHTMLFragments(poData, isSuperuser, statusChoices, statusDates);
             allCardsFragment.appendChild(cardHTMLFragment);
             allModalsFragment.appendChild(modalsHTMLFragment);
         });
-        itemListContainer.appendChild(allCardsFragment); // Append all cards to their container
-        poListContainer.appendChild(allModalsFragment); // Append all modals to the main list container (or document.body if preferred)
+        itemListContainer.appendChild(allCardsFragment);
+        poListContainer.appendChild(allModalsFragment);
     }
 
-    // Manage "Load More" button (your existing logic for this should be here)
     const existingLoadMoreContainer = poListContainer.querySelector('div.load-more-button-container');
-    if (existingLoadMoreContainer) {
-        existingLoadMoreContainer.remove();
-    }
+    if (existingLoadMoreContainer) existingLoadMoreContainer.remove();
     if (fullJsonData && fullJsonData.has_next) {
         const loadMoreContainer = document.createElement('div');
         loadMoreContainer.className = 'text-center mt-4 load-more-button-container';
@@ -1148,14 +979,10 @@ function submitReceiveItemsForm(poId) {
         loadMoreButton.className = 'btn btn-outline';
         loadMoreButton.textContent = 'Explore More';
         loadMoreContainer.appendChild(loadMoreButton);
-        // Append directly to poListContainer, after itemListContainer
-        if(itemListContainer.nextSibling) {
-            poListContainer.insertBefore(loadMoreContainer, itemListContainer.nextSibling);
-        } else {
-            poListContainer.appendChild(loadMoreContainer);
-        }
+        if(itemListContainer.nextSibling) poListContainer.insertBefore(loadMoreContainer, itemListContainer.nextSibling);
+        else poListContainer.appendChild(loadMoreContainer);
     }
-    console.log("--- updatePOListUI Function END (vJS-FullFrag) ---");
+    console.log("--- updatePOListUI Function END ---");
 }
 
 function updatePoCard(card, po) {
@@ -1164,40 +991,23 @@ function updatePoCard(card, po) {
         console.error("PO data is null or undefined, skipping update");
         return;
     }
-
     if (po.status) {
         const statusLabel = card.querySelector('#status-label-' + po.id);
         if (statusLabel) {
             statusLabel.textContent = po.status_display || '';
             statusLabel.className = 'badge badge-lg py-5 font-semibold ' + getStatusBadgeClasses(po.status);
-            console.log("Updated status for PO:", po.id, "to:", po.status_display);
-        } else {
-            console.warn("Status label not found for PO:", po.id);
         }
     }
-
     if (po.eta !== undefined && po.eta !== null) {
         const etaElement = card.querySelector('p.text-sm.text-gray-500');
-        if (etaElement) {
-            etaElement.textContent = `ETA: ${po.eta}`;
-            console.log("Updated ETA for PO:", po.id, "to:", po.eta);
-        } else {
-            console.warn("ETA element not found for PO:", po.id);
-        }
+        if (etaElement) etaElement.textContent = `ETA: ${formatCustomDateForETA(po.eta)}`;
     } else if (po.eta === null) {
         const etaElement = card.querySelector('p.text-sm.text-gray-500');
-        if (etaElement) {
-            etaElement.textContent = `ETA: N/A`;
-            console.log("Updated ETA for PO:", po.id, "to: N/A");
-        } else {
-            console.warn("ETA element not found for PO:", po.id);
-        }
+        if (etaElement) etaElement.textContent = `ETA: N/A`;
     }
-
-    // Update items table
     const itemsTableBody = card.querySelector('table.table tbody');
     if (itemsTableBody && po.items && Array.isArray(po.items)) {
-        itemsTableBody.innerHTML = ''; // Clear existing rows
+        itemsTableBody.innerHTML = '';
         if (po.items.length > 0) {
             po.items.forEach(item => {
                 if (item) {
@@ -1214,202 +1024,38 @@ function updatePoCard(card, po) {
                     } catch (e) {
                         console.error("Error creating row for item:", item, e);
                     }
-                } else {
-                    console.warn("Invalid item data in PO:", po.id);
                 }
             });
-            console.log("Updated items table for PO:", po.id);
-        } else {
-            console.log("No items to update for PO:", po.id);
         }
-    } else {
-        console.warn("Items table or data invalid for PO:", po.id, po.items);
     }
-
-    // Update total amount
     const totalAmountElement = card.querySelector('.text-right.font-bold');
     if (po && po.total_amount !== undefined && po.total_amount !== null) {
-        totalAmountElement.textContent = `Total Amount: ${po.total_amount}`;
-        console.log("Updated total amount for PO:", po.id, "to:", po.total_amount);
-    } else {
-        console.warn("Total amount element or data invalid for PO:", po.id, po.total_amount);
-    }
+        const editButtonHTML = totalAmountElement.querySelector('label[for^="modal-edit-items-"]');
+        totalAmountElement.textContent = `Total Amount: ${po.total_amount} `; // Space for button
+        if(editButtonHTML) totalAmountElement.appendChild(editButtonHTML);
 
-    // Update the "Receive Items" button visibility
+    }
     const receiveItemsButton = card.querySelector('label[for="modal-receive-items"]');
     if (receiveItemsButton) {
         if (po.status === 'PARTIALLY_DELIVERED' || po.status === 'DELIVERED') {
-            receiveItemsButton.style.display = ''; // Show
+            receiveItemsButton.style.display = '';
         } else {
-            receiveItemsButton.style.display = 'none'; // Hide
+            receiveItemsButton.style.display = 'none';
         }
     }
-
-    // Update the "Update" and "Edit" buttons (Crucially Important)
     const updateButton = card.querySelector('label[for^="modal-update-po-"]');
-    if (updateButton) {
-        updateButton.style.display = 'inline-block'; // Ensure it's visible
-    } else {
-        console.warn("Update button not found for PO:", po.id);
-    }
-
-    const editButton = card.querySelector('label[for^="modal-edit-items-"]');
-    if (data.current_user_is_superuser) {
-        editButton.style.display = 'inline-block'; // Ensure it's visible
-    } else {
-        console.warn("Edit button not found for PO:", po.id);
-    }
+    if (updateButton) updateButton.style.display = 'inline-block';
 }
 
-function getPoStatusDate(poIdForDate, statusCode, allStatusDates) { // Added allStatusDates parameter
-    const poIdStr = String(poIdForDate);
-    if (allStatusDates && allStatusDates[poIdStr] && allStatusDates[poIdStr][statusCode]) {
-        // Use the new formatCustomDateTime helper
-        return formatCustomDateTime(allStatusDates[poIdStr][statusCode]);
-    }
-    // If the date isn't present in statusDates, it means it's an actionable button,
-    // so we don't return 'N/A' for the text itself, but the calling logic handles it.
-    // For the purpose of this function, if date is not found, return 'N/A' or an empty string
-    // to signify no date text should be displayed. Let's use 'N/A' for clarity if a date was expected.
-    // However, the `updateModalButtonsHTML` logic already handles this.
-    // This function is purely for formatting an *existing* date string.
-    return 'N/A'; // Should only be called if a date string exists.
-}
-
-
-// function createPoCard(po, isSuperuser) {
-//     if (!po || typeof po.id === 'undefined') {
-//         console.warn("[createPoCard] Invalid PO data received:", po);
-//         return null;
-//     }
-
-//     console.log("[createPoCard] Creating card for PO ID:", po.id, "isSuperuser:", isSuperuser);
-//     const card = document.createElement('div');
-//     card.id = `po-card-${po.id}`;
-//     card.className = 'bg-base-100 shadow rounded-xl p-4 relative mb-6 po-card';
-
-//     // Safely determine supplier name. Adjust if your JSON 'po.supplier' is always a string.
-//     const supplierName = (po.supplier && typeof po.supplier === 'object' && po.supplier.name) ? po.supplier.name : (po.supplier || 'N/A');
-
-//     let itemsHtml = '';
-//     if (po.items && Array.isArray(po.items)) {
-//         itemsHtml = po.items.map(item => {
-//             return item ? `
-//                 <tr>
-//                     <td>${item.sku || 'N/A'}</td>
-//                     <td>${item.name || 'N/A'}</td>
-//                     <td>${item.quantity || 0}</td>
-//                     <td>${item.price || '0.00'}</td>
-//                     <td>${item.total_price || '0.00'}</td>
-//                 </tr>
-//             ` : '';
-//         }).join('');
-//         if (!itemsHtml.trim()) { // If all items were null or produced empty strings
-//              itemsHtml = '<tr><td colspan="5" class="text-center">Item data seems incomplete.</td></tr>';
-//         }
-//     } else {
-//         itemsHtml = '<tr><td colspan="5" class="text-center">No items found for this PO.</td></tr>';
-//     }
-
-//     let etaDateFormatted = 'N/A';
-//     if (po.eta) {
-//         try {
-//             const dateObj = new Date(po.eta + 'T00:00:00'); // Ensure parsing as local date, not UTC
-//             if (!isNaN(dateObj)) {
-//                  etaDateFormatted = dateObj.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'long' });
-//             } else {
-//                 etaDateFormatted = po.eta; // Fallback if date is invalid
-//             }
-//         } catch (e) {
-//             console.warn(`[createPoCard] Could not parse ETA date for PO ${po.id}:`, po.eta, e);
-//             etaDateFormatted = po.eta;
-//         }
-//     }
-
-//     let lastUpdatedFormatted = 'N/A';
-//     if (po.last_updated_date) {
-//          try {
-//             const dateObj = new Date(po.last_updated_date);
-//              if (!isNaN(dateObj)) {
-//                 lastUpdatedFormatted = dateObj.toLocaleString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' });
-//             } else {
-//                 lastUpdatedFormatted = po.last_updated_date; // Fallback
-//             }
-//         } catch (e) {
-//             console.warn(`[createPoCard] Could not parse last_updated_date for PO ${po.id}:`, po.last_updated_date, e);
-//             lastUpdatedFormatted = po.last_updated_date;
-//         }
-//     }
-//     console.log(`[createPoCard] For PO ID: ${po.id}, isSuperuser value: ${isSuperuser}`); // <-- ADD THIS LOG
-
-//     card.innerHTML = `
-//         <div class="absolute top-0 left-0 h-2 w-full rounded-t-xl ${getStatusStripeClasses(po.status || 'UNKNOWN')}"></div>
-//         <div class="flex justify-between items-start mt-4">
-//             <div>
-//                 <h3 class="text-lg font-semibold">PO #${po.id} - ${supplierName}</h3>
-//                 <p class="text-sm text-gray-500">ETA: ${etaDateFormatted}</p>
-//             </div>
-//             <div class="flex items-center gap-x-4">
-//                 <span id="status-label-${po.id}" class="badge badge-lg py-5 font-semibold ${getStatusBadgeClasses(po.status || 'UNKNOWN')}">
-//                     ${po.status_display || po.status || 'Unknown Status'}
-//                 </span>
-//                 <label for="modal-update-po-${po.id}" class="btn btn-sm btn-outline">Update</label>
-//                 ${(po.status === 'PARTIALLY_DELIVERED' || po.status === 'DELIVERED') ?
-//                 `<label for="modal-receive-items" class="btn btn-sm btn-outline receive-items-trigger"
-//                   data-po-id="${po.id}"> Receive</label>`
-//         : ''
-//                 }
-//             </div>
-//         </div>
-//         <div class="mt-4">
-//             <table class="table w-full table-sm">
-//                 <thead>
-//                     <tr>
-//                         <th>SKU</th>
-//                         <th>Item</th>
-//                         <th>Qty</th>
-//                         <th>Unit Price</th>
-//                         <th>Total</th>
-//                     </tr>
-//                 </thead>
-//                 <tbody>
-//                     ${itemsHtml}
-//                 </tbody>
-//             </table>
-//             <div class="flex justify-between items-center mt-4">
-//                 <p class="text-sm text-gray-500">
-//                     Last updated: ${lastUpdatedFormatted}
-//                 </p>
-//                 <div class="text-right font-bold">
-//                     Total Amount: ${po.total_amount || '0.00'}
-//                     ${isSuperuser ? `<label for="modal-edit-items-${po.id}" class="btn btn-sm btn-outline edit-po-action">Edit PO</label>` : ''}
-//                 </div>
-//             </div>
-//         </div>
-//     `;
-//     return card;
-// }
-/**
- * NEW/REWRITTEN FUNCTION
- * Creates HTML fragments for a PO card and its associated modals.
- * @param {object} po - The purchase order data object.
- * @param {boolean} isSuperuser - Flag indicating if the current user is a superuser.
- * @param {Array} statusChoices - Array of [code, label] for status options.
- * @param {object} statusDates - Object mapping poId -> statusCode -> dateString.
- * @returns {object} An object like { cardHTMLFragment: DocumentFragment, modalsHTMLFragment: DocumentFragment }
- */
  function createPoCardAndModalHTMLFragments(po, isSuperuser, statusChoices = [], statusDates = {}) {
     const cardFragment = document.createDocumentFragment();
     const modalsFragment = document.createDocumentFragment();
-
     if (!po || typeof po.id === 'undefined') {
         console.warn("[createPoCardAndModalHTMLFragments] Invalid PO data received:", po);
         return { cardHTMLFragment: cardFragment, modalsHTMLFragment: modalsFragment };
     }
-
-    console.log(`[createPoCardAndModalHTMLFragments] Creating card & modals for PO ID: ${po.id}, isSuperuser: ${isSuperuser}`);
-
-    const supplierName = (po.supplier && typeof po.supplier.name === 'string') ? po.supplier.name : (typeof po.supplier === 'string' ? po.supplier : 'N/A');
+    const supplierName = (po.supplier && typeof po.supplier === 'string') ? po.supplier : // Assuming supplier is just code now
+                         (po.supplier_name || 'N/A'); // Fallback if full supplier object was passed with 'name'
 
     let itemsHtmlRows = '';
     if (po.items && Array.isArray(po.items) && po.items.length > 0) {
@@ -1431,12 +1077,10 @@ function getPoStatusDate(poIdForDate, statusCode, allStatusDates) { // Added all
         itemsHtmlRows = '<tr><td colspan="5" class="text-center py-2">Item data seems incomplete.</td></tr>';
     }
 
-
     let etaDateFormatted = formatCustomDateForETA(po.eta);
-    const etaForInput = po.eta || '';
+    const etaForInput = po.eta || ''; // Use raw YYYY-MM-DD for date input value
     let lastUpdatedFormatted = formatCustomDateTime(po.last_updated_date);
 
-    // --- Create Card Element ---
     const cardDiv = document.createElement('div');
     cardDiv.id = `po-card-${po.id}`;
     cardDiv.className = 'bg-base-100 shadow rounded-xl p-4 relative mb-6 po-card';
@@ -1473,54 +1117,31 @@ function getPoStatusDate(poIdForDate, statusCode, allStatusDates) { // Added all
         </div>
     `;
     cardFragment.appendChild(cardDiv);
-
-    // --- Create Update PO Modal HTML ---
-    const getPoStatusDate = (poIdForDate, statusCode) => {
-        const poIdStr = String(poIdForDate);
-        if (statusDates && statusDates[poIdStr] && statusDates[poIdStr][statusCode]) {
-            try {
-                const dateObj = new Date(statusDates[poIdStr][statusCode]);
-                if (!isNaN(dateObj)) {
-                    return dateObj.toLocaleString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit' });
-                }
-            } catch (e) { /* ignore */ }
-            return statusDates[poIdStr][statusCode]; // Fallback to raw if parse fails
-        }
-        return null;
-    };
-    console.log(`[createPoCardAndModalHTMLFragments] PO ID: ${po.id}, For Update Modal, statusChoices received:`, JSON.stringify(statusChoices));
-
     const updateModalButtonsHTML = statusChoices.map(([code, label]) => {
         const poIdStr = String(po.id);
         const poSpecificStatusDates = statusDates[poIdStr] || {};
         const rawDateString = poSpecificStatusDates[code];
-
-        if (rawDateString) { // If a date string exists for this status
-            const formattedDate = formatCustomDateTime(rawDateString); // Use the new helper
+        if (rawDateString) {
+            const formattedDate = formatCustomDateTime(rawDateString);
             return `
                 <div class="space-y-1">
                     <button type="button" class="btn btn-md w-full btn-neutral" disabled>${label}</button>
                     <div class="text-md text-center text-gray-500">${formattedDate}</div>
                 </div>`;
-        } else { // No date string, so it's an actionable button
+        } else {
             return `
                 <div class="space-y-1">
                     <button type="button" class="btn btn-md w-full status-select-btn btn-outline" data-po-id="${po.id}" data-status="${code}">${label}</button>
                 </div>`;
         }
     }).join('');
-
-
-    console.log(`[createPoCardAndModalHTMLFragments] PO ID: ${po.id}, For Update Modal, generated updateModalButtonsHTML:`, updateModalButtonsHTML);
-
     const updateModalInput = document.createElement('input');
     updateModalInput.type = 'checkbox';
     updateModalInput.id = `modal-update-po-${po.id}`;
-    updateModalInput.className = 'modal-toggle po-specific-modal-toggle'; // Class for potential cleanup
+    updateModalInput.className = 'modal-toggle po-specific-modal-toggle';
     modalsFragment.appendChild(updateModalInput);
-
     const updateModalDiv = document.createElement('div');
-    updateModalDiv.className = 'modal po-specific-modal-container'; // Class for potential cleanup
+    updateModalDiv.className = 'modal po-specific-modal-container';
     updateModalDiv.setAttribute('role', 'dialog');
     updateModalDiv.innerHTML = `
         <div class="modal-box max-w-5xl" data-po-id="${po.id}">
@@ -1542,10 +1163,9 @@ function getPoStatusDate(poIdForDate, statusCode, allStatusDates) { // Added all
                 </div>
             </form>
         </div>
+         <label class="modal-backdrop" for="modal-update-po-${po.id}">Close</label>
     `;
     modalsFragment.appendChild(updateModalDiv);
-
-    // --- Create Edit PO Modal HTML (if superuser) ---
     if (isSuperuser) {
         let editItemsTableRows = '';
         if (po.items && Array.isArray(po.items) && po.items.length > 0) {
@@ -1567,14 +1187,11 @@ function getPoStatusDate(poIdForDate, statusCode, allStatusDates) { // Added all
         if (!editItemsTableRows.trim()) {
             editItemsTableRows = '<tr><td colspan="4" class="text-center py-2">Item data for editing seems incomplete.</td></tr>';
         }
-
-
         const editModalInput = document.createElement('input');
         editModalInput.type = 'checkbox';
         editModalInput.id = `modal-edit-items-${po.id}`;
         editModalInput.className = 'modal-toggle po-specific-modal-toggle';
         modalsFragment.appendChild(editModalInput);
-
         const editModalDiv = document.createElement('div');
         editModalDiv.className = 'modal po-specific-modal-container';
         editModalDiv.setAttribute('role', 'dialog');
@@ -1598,50 +1215,35 @@ function getPoStatusDate(poIdForDate, statusCode, allStatusDates) { // Added all
                     </div>
                 </form>
             </div>
+            <label class="modal-backdrop" for="modal-edit-items-${po.id}">Close</label>
         `;
         modalsFragment.appendChild(editModalDiv);
     }
-
-    console.log(`[createPoCardAndModalHTMLFragments] PO ID: ${po.id}, Generated card querySelector '.text-right.font-bold' innerHTML:`, cardDiv.querySelector('.text-right.font-bold') ? cardDiv.querySelector('.text-right.font-bold').innerHTML : 'text-right div not found in cardHTML');
-
     return { cardHTMLFragment: cardFragment, modalsHTMLFragment: modalsFragment };
 }
 
 function updatePagination(poListContainer, data) {
-    const paginationContainer = poListContainer.querySelector('.pagination');
+    const paginationContainer = poListContainer.querySelector('.pagination'); // Ensure this selector matches your HTML
     if (!paginationContainer) return;
-
     let paginationHTML = '';
     if (data.has_prev) {
-        paginationHTML += `<a href="?page=${data.previous_page_number}" class="btn btn-sm pagination-link">« Prev</a>`;
+        paginationHTML += `<a href="?page=${data.previous_page_number}" class="btn btn-sm pagination-link">« Prev</a> `;
     }
-    for (let i = 1; i <= data.total_pages; i++) {
-        if (parseInt(data.page) === i) {
-            paginationHTML += `<button class="btn btn-sm btn-primary pagination-link">${i}</button>`;
-        } else {
-            paginationHTML += `<a href="?page=${i}" class="btn btn-sm pagination-link">${i}</a>`;
-        }
-    }
+    // Simple page number display, can be expanded with ellipses for many pages
+    paginationHTML += `<span class="btn btn-sm btn-disabled">Page ${data.page} of ${data.total_pages}</span> `;
     if (data.has_next) {
         paginationHTML += `<a href="?page=${data.next_page_number}" class="btn btn-sm pagination-link">Next »</a>`;
     }
     paginationContainer.innerHTML = paginationHTML;
+    bindPOListPagination(poListContainer); // Rebind after updating HTML
 }
 
 function updatePaginationStates(jsonDataFromServer) {
     console.log("updatePaginationStates called with data:", jsonDataFromServer);
     if (jsonDataFromServer && jsonDataFromServer.page !== undefined) {
         pendingPOFilters.page = jsonDataFromServer.page.toString();
-        console.log("pendingPOFilters.page updated by updatePaginationStates to:", pendingPOFilters.page);
-    } else {
-        // If page info isn't in jsonDataFromServer, it might be a sign that
-        // the current view (like after delete) should reset to page 1 or use existing pendingPOFilters.page
-        console.warn("updatePaginationStates: jsonDataFromServer or jsonDataFromServer.page is undefined. Current pendingPOFilters.page:", pendingPOFilters.page);
     }
-    // Any other global pagination state variables you might want to update from jsonDataFromServer
-    // (e.g., has_next, total_pages) can be handled here if needed by other parts of your JS.
-
-    saveTabFiltersToSession('purchaseorders', pendingPOFilters); // Save updated state
+    saveTabFiltersToSession('purchaseorders', pendingPOFilters);
 }
 
 function getStatusBadgeClasses(status) {
@@ -1670,66 +1272,60 @@ function getStatusStripeClasses(status) {
 
 function initLoadMorePOs() {
     console.log("Attempting to initialize Load More POs functionality...");
-    // The button is expected to be a direct child of .load-more-button-container, which is a child of #purchase-orders-list
     const poListContainer = document.getElementById("purchase-orders-list");
     if (!poListContainer) {
         console.warn("initLoadMorePOs: #purchase-orders-list container not found.");
         return;
     }
-
     const exploreMoreBtnElement = poListContainer.querySelector('#explore-more-pos-btn');
 
     if (exploreMoreBtnElement) {
-        console.log("Load More POs button (explore-more-pos-btn) found by initLoadMorePOs.");
+        console.log("Load More POs button (explore-more-pos-btn) found.");
+        if (exploreMoreBtnElement.dataset.loadMoreBound === 'true') return;
 
-        // Clone to remove previous listeners before adding a new one
-        const newExploreMoreBtn = exploreMoreBtnElement.cloneNode(true);
-        exploreMoreBtnElement.parentNode.replaceChild(newExploreMoreBtn, exploreMoreBtnElement);
-
-        newExploreMoreBtn.addEventListener('click', () => {
+        exploreMoreBtnElement.addEventListener('click', () => {
             const currentPageFromState = (parseInt(pendingPOFilters.page, 10) || 1);
             const nextPageToFetch = currentPageFromState + 1;
-
-            console.log(`Explore more POs clicked. Current last displayed page from state: ${currentPageFromState}. Fetching page: ${nextPageToFetch}`);
-
             let url = `/warehouse/po-load-more/?page=${nextPageToFetch}`;
             if (pendingPOFilters.q) url += `&q=${encodeURIComponent(pendingPOFilters.q)}`;
             if (pendingPOFilters.supplier) url += `&supplier=${pendingPOFilters.supplier}`;
             if (pendingPOFilters.status) url += `&status=${pendingPOFilters.status}`;
 
-            newExploreMoreBtn.disabled = true;
-            newExploreMoreBtn.innerHTML = '<span class="loading loading-spinner"></span> Loading...';
+            exploreMoreBtnElement.disabled = true;
+            exploreMoreBtnElement.innerHTML = '<span class="loading loading-spinner"></span> Loading...';
 
             fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(response => response.text())
                 .then(html => {
-                    // The button that was clicked (newExploreMoreBtn) and its container should be removed.
-                    // The incoming 'html' (from _po_list_items.html) will contain the next set of items
-                    // AND the next "Load More" button if applicable.
-                    if (newExploreMoreBtn.parentNode) {
-                        newExploreMoreBtn.parentNode.remove(); // Remove the container of the clicked button
-                    }
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = html;
+                    const newCardsFragment = document.createDocumentFragment();
+                    const newModalsFragment = document.createDocumentFragment();
+
+                    // Extract cards and modals from the fetched HTML (assuming they are direct children or identifiable)
+                    // This part needs to correctly parse the HTML from _po_list_items.html to separate cards and modals.
+                    // For now, a simpler approach: append all HTML, then re-initialize.
+                    // A more complex parser might be needed if modals aren't direct children or if structure is complex.
 
                     const itemListContainer = document.getElementById('item-list-container');
                     if (itemListContainer) {
-                        itemListContainer.insertAdjacentHTML('beforeend', html);
+                         // Remove the old "Load More" button's container before appending new items
+                        const oldLoadMoreContainer = poListContainer.querySelector('div.load-more-button-container');
+                        if (oldLoadMoreContainer) oldLoadMoreContainer.remove();
+
+                        itemListContainer.insertAdjacentHTML('beforeend', html); // This appends new cards AND new "load more" button if present
                     }
 
-                    pendingPOFilters.page = nextPageToFetch.toString(); // Update current page
+                    pendingPOFilters.page = nextPageToFetch.toString();
                     saveTabFiltersToSession('purchaseorders', pendingPOFilters);
 
-                    // Re-initialize interactivity for newly added PO cards
-                    if (itemListContainer) {
-                       bindPOModalDirectInteractivity(itemListContainer);
-                       initReceiveItemsModal(); // Specifically for elements within itemListContainer
-                    }
-                    // IMPORTANT: Call initLoadMorePOs again to find and attach listener to the *new* button
-                    // if it was rendered within the newly added 'html'.
-                    initLoadMorePOs();
+                    // Re-initialize relevant parts for potentially new content
+                    bindPOModalDirectInteractivity(itemListContainer); // Re-bind for newly added cards/modals
+                    initReceiveItemsModal(); // Re-check for receive buttons on new items
+                    initLoadMorePOs(); // Re-find and bind the NEW load more button if it exists
                 })
                 .catch(error => {
                     console.error('Error loading more PO items:', error);
-                    // Attempt to restore button if it wasn't removed or if error occurred before removal
                     const stillExistsButton = document.getElementById('explore-more-pos-btn');
                     if(stillExistsButton){
                         stillExistsButton.disabled = false;
@@ -1737,74 +1333,58 @@ function initLoadMorePOs() {
                     }
                 });
         });
+        exploreMoreBtnElement.dataset.loadMoreBound = 'true';
     } else {
-        console.log("Load More POs button (explore-more-pos-btn) NOT found by initLoadMorePOs at this time.");
+        console.log("Load More POs button (explore-more-pos-btn) NOT found at this time.");
     }
 }
-
-
-
 
 // ======= PurchaseOrder Modal UTILS =======
 function submitUpdateForm(form, poId) {
   const formData = new FormData(form);
   const saveBtn = form.querySelector('button[type="submit"]');
-
   saveBtn.disabled = true;
   saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Saving...';
 
   fetch(form.action, {
     method: "POST",
     headers: {
-      "X-Requested-With": "XMLHttpRequest"
+      "X-Requested-With": "XMLHttpRequest",
+       "X-CSRFToken": getCsrfToken()
     },
     body: formData
   })
   .then(response => {
     if (!response.ok) throw new Error('Network response was not ok');
-    return response.text();
+    return response.json(); // Expect JSON now
   })
-  .then(html => {
-    const tabContent = document.getElementById("tab-content");
-    tabContent.innerHTML = html;
+  .then(data => { // Process JSON response
+    if (data.success) {
+        Swal.fire({
+          toast: true,
+          position: 'top-end',
+          icon: 'success',
+          title: data.message || 'PO Updated!',
+          showConfirmButton: false,
+          timer: 1500
+        });
+        closeModal(`modal-update-po-${poId}`); // Close the specific modal
 
-    // ✅ 刷新后，必须等 requestAnimationFrame 再执行initPurchaseOrderTab
-    requestAnimationFrame(() => {
-      initPurchaseOrderTab();  // 重新绑定所有分页、保存表单、modal逻辑！
-
-      // ✅ 再下一帧执行滚动
-      requestAnimationFrame(() => {
-        const updatedCard = document.getElementById(`po-card-${poId}`);
-        if (updatedCard) {
-          updatedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          updatedCard.classList.add('po-highlight');
-          setTimeout(() => {
-            updatedCard.classList.add('po-highlight-fadeout'); // 过渡成透明
-          }, 1000); // 等高亮一会儿
-
-          setTimeout(() => {
-            updatedCard.classList.remove('po-highlight', 'po-highlight-fadeout'); // 清除干净
-          }, 2000);
+        if (data.refresh_po_list) {
+            refreshPOList(); // This will re-fetch the whole list with current filters
+        } else if (data.po_data) { // If only specific PO data is returned for update
+            const cardToUpdate = document.getElementById(`po-card-${poId}`);
+            if (cardToUpdate) {
+                updatePoCard(cardToUpdate, data.po_data); // You'd need a function to update card fields
+            }
         }
-      });
-    });
-
-    // ✅ 关闭 Modal
-    const modalToggle = document.getElementById(`modal-${poId}`);
-    if (modalToggle) {
-      modalToggle.checked = false;
+    } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Update Failed',
+          text: data.message || 'Could not update PO.'
+        });
     }
-
-    // ✅ 成功Toast
-    Swal.fire({
-      toast: true,
-      position: 'top-end',
-      icon: 'success',
-      title: 'PO Updated!',
-      showConfirmButton: false,
-      timer: 1500
-    });
-
   })
   .catch(error => {
     console.error('Error updating PO:', error);
@@ -1822,114 +1402,80 @@ function submitUpdateForm(form, poId) {
 
 function initStatusButtons(poId) {
   console.log(`initStatusButtons called for PO#${poId}`);
-
   const hiddenInput = document.getElementById(`selected-status-${poId}`);
   if (!hiddenInput) return;
+  const modalBoxForPO = document.querySelector(`.modal-box[data-po-id="${poId}"]`);
+  if(!modalBoxForPO) return;
 
-  // 初始化时，不选中任何按钮，所有 status-select-btn 保持 btn-outline
-  document.querySelectorAll(`.modal-box[data-po-id="${poId}"] .status-select-btn:not([disabled])`).forEach(button => {
-    button.classList.remove('btn-neutral');
-    button.classList.add('btn-outline');
-  });
-
-  // 点击时，切换高亮
-  document.querySelectorAll(`.modal-box[data-po-id="${poId}"] .status-select-btn:not([disabled])`).forEach(button => {
-    button.addEventListener('click', function() {
-      hiddenInput.value = this.dataset.status;  // 更新隐藏input的值
-
-      document.querySelectorAll(`.modal-box[data-po-id="${poId}"] .status-select-btn:not([disabled])`).forEach(btn => {
-        btn.classList.remove('btn-neutral');
-        btn.classList.add('btn-outline');
-      });
-
-      this.classList.remove('btn-outline');
-      this.classList.add('btn-neutral');
-    });
+  modalBoxForPO.querySelectorAll(`.status-select-btn:not([disabled])`).forEach(button => {
+    if(button.dataset.status === hiddenInput.value){
+        button.classList.add('btn-neutral', 'text-white');
+        button.classList.remove('btn-outline');
+    } else {
+        button.classList.remove('btn-neutral', 'text-white');
+        button.classList.add('btn-outline');
+    }
   });
 }
 
 function refreshPOAfterSave(poId, modalId = null, successMessage = "PO Updated!") {
-  const currentParams = new URLSearchParams(window.location.search);
-  const page = currentParams.get("page") || 1;
-
-  currentParams.set("tab", "purchaseorders");
-  currentParams.set("page", page);
-
-  const reloadUrl = `?${currentParams.toString()}`;
-
-  fetch(reloadUrl, {
-    headers: { "X-Requested-With": "XMLHttpRequest" }
-  })
-    .then(res => res.text())
-    .then(html => {
-      document.getElementById("tab-content").innerHTML = html;
-      requestAnimationFrame(() => {
-        initPurchaseOrderTab();
-
-        requestAnimationFrame(() => {
-          const card = document.getElementById(`po-card-${poId}`);
-          if (card) {
-            card.scrollIntoView({ behavior: "smooth", block: "center" });
-            card.classList.add("po-highlight");
-            setTimeout(() => card.classList.add("po-highlight-fadeout"), 1000);
-            setTimeout(() => card.classList.remove("po-highlight", "po-highlight-fadeout"), 2000);
-          }
-        });
-      });
-
-      if (modalId) closeModal(modalId);
-
-      Swal.fire({
-        toast: true,
-        icon: "success",
-        position: "top-end",
-        title: successMessage,
-        showConfirmButton: false,
-        timer: 1500
-      });
-    });
+  refreshPOList(); // Simplest way to ensure everything is up-to-date
+  if (modalId) closeModal(modalId);
+  Swal.fire({
+    toast: true,
+    icon: "success",
+    position: "top-end",
+    title: successMessage,
+    showConfirmButton: false,
+    timer: 1500
+  });
 }
 
 function saveForm(form, poId, modalId = null, successMessage = "PO Saved!") {
   console.log(`[saveForm] Called for PO ID: ${poId}, Modal ID: ${modalId}`);
-  console.log(`[saveForm] Form element:`, form);
-
   const saveBtn = form.querySelector('button[type="submit"]');
   const formData = new FormData(form);
-
-  console.log(`[saveForm] FormData entries:`);
-  for (let [key, value] of formData.entries()) {
-        console.log(`  ${key}: ${value}`);
-    }
-
-  saveBtn.disabled = true;
-  saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Saving...';
+  if(saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Saving...';}
 
   fetch(form.action, {
     method: "POST",
     headers: {
-      "X-Requested-With": "XMLHttpRequest"
+      "X-Requested-With": "XMLHttpRequest",
+      "X-CSRFToken": getCsrfToken()
     },
     body: formData
   })
     .then(response => {
-      if (!response.ok) throw new Error("Form submission failed");
-      return response.text();  // 预留可扩展：未来可解析 JSON
+      if (!response.ok) return response.json().then(errData => { throw {status: response.status, data: errData}; }); // Throw object for better error handling
+      return response.json();
     })
-    .then(() => {
-      refreshPOAfterSave(poId, modalId, successMessage);
+    .then((data) => { // Expecting JSON
+        if (data.success) {
+            refreshPOAfterSave(poId, modalId, data.message || successMessage);
+        } else {
+            Swal.fire({
+              icon: "error",
+              title: "Save Failed",
+              text: data.message || data.error || "Could not save changes."
+            });
+        }
     })
-    .catch(error => {
-      console.error("Error saving form:", error);
+    .catch(errorObj => { // Catch the object thrown
+      console.error("Error saving form:", errorObj);
+      let errorText = 'Please try again later.';
+      if (errorObj && errorObj.data && errorObj.data.error) {
+          errorText = errorObj.data.error;
+      } else if (errorObj && errorObj.message) {
+          errorText = errorObj.message;
+      }
       Swal.fire({
         icon: "error",
         title: "Save Failed",
-        text: "Please try again later."
+        text: errorText
       });
     })
     .finally(() => {
-      saveBtn.disabled = false;
-      saveBtn.innerHTML = "Save Changes";
+      if(saveBtn) {saveBtn.disabled = false; saveBtn.innerHTML = "Save Changes";}
     });
 }
 
@@ -1939,51 +1485,46 @@ function deletePo(poId) {
         text: "This PO will be permanently deleted!",
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonColor: '#d33', // Red for delete
-        cancelButtonColor: '#3085d6', // Blue for cancel
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
         confirmButtonText: 'Yes, delete it!'
     }).then((result) => {
         if (result.isConfirmed) {
-            // Make sure the URL is correct for your Django setup
             const deleteUrl = `/warehouse/po/${poId}/delete/`;
-
             fetch(deleteUrl, {
                 method: 'POST',
                 headers: {
-                    'X-CSRFToken': getCsrfToken(), // Ensure getCsrfToken() is defined
+                    'X-CSRFToken': getCsrfToken(),
                     'X-Requested-With': 'XMLHttpRequest'
                 }
             })
-            .then(response => {
-                if (!response.ok) {
-                    // Try to get error message from response if possible
-                    return response.text().then(text => {
-                        throw new Error(`Failed to delete PO (${response.status}): ${text || 'Server error'}`);
+            .then(response => response.json()) // Expect JSON response
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        toast: true,
+                        icon: 'success',
+                        title: 'Deleted!',
+                        text: data.message || 'Purchase Order has been deleted.',
+                        position: 'top-end',
+                        showConfirmButton: false,
+                        timer: 1500
+                    });
+                    refreshPOList();
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Deletion Failed',
+                        text: data.error || 'Could not delete the PO.'
                     });
                 }
-                // Check if response has content, might be empty on success
-                return response.text();
-            })
-            .then((responseText) => { // Optional: check response if needed
-                console.log(`PO #${poId} deleted successfully.`);
-                Swal.fire({
-                    toast: true,
-                    icon: 'success',
-                    title: 'Deleted!',
-                    text: 'Purchase Order has been deleted.',
-                    position: 'top-end',
-                    showConfirmButton: false,
-                    timer: 1500
-                });
-                // Refresh the current PO list using the existing filters
-                refreshPOList(); // <<< CORRECTED: Call refreshPOList
             })
             .catch(error => {
                 console.error(`Error deleting PO #${poId}:`, error);
                 Swal.fire({
                     icon: 'error',
                     title: 'Deletion Failed',
-                    text: error.message || 'Could not delete the PO. Please try again.'
+                    text: 'Could not delete the PO. Please try again.'
                 });
             });
         }
@@ -1998,12 +1539,6 @@ function getNowDatetimeStr() {
          String(now.getHours()).padStart(2,'0') + ":" +
          String(now.getMinutes()).padStart(2,'0');
 }
-
-
-
-
-
-
 
 // =========================== CORE UTILS
 function debounce(fn, delay = 300) {
@@ -2020,114 +1555,97 @@ function debounce(fn, delay = 300) {
   return debounced;
 }
 
-function closeModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (modal) modal.checked = false;
+function closeModal(modalIdOrToggleId) {
+  // Accepts either the modal container ID or the toggle checkbox ID
+  let toggleCheckbox = document.getElementById(modalIdOrToggleId);
+  if (toggleCheckbox && toggleCheckbox.type === 'checkbox' && toggleCheckbox.classList.contains('modal-toggle')) {
+    toggleCheckbox.checked = false;
+  } else {
+    // Fallback: if modalIdOrToggleId was the ID of the modal container, try to find its associated toggle
+    // This part might be fragile if there's no standard naming convention.
+    // For DaisyUI, if the modal div has id="my-modal", the toggle usually has id="my-modal-toggle" or similar.
+    // Or, if the label's `for` attribute matches the modal's toggle checkbox ID.
+    // For simplicity, we'll assume the ID passed is for the checkbox toggle.
+    console.warn(`closeModal: Could not find toggle checkbox with ID '${modalIdOrToggleId}', or it was not a modal toggle.`);
+  }
 }
 
-// Modified getCsrfToken function to use the cached value
 function getCsrfToken() {
     if (CSRF_TOKEN) {
         return CSRF_TOKEN;
     }
-    // Fallback (less ideal if called after initial input might be gone)
     const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
     if (csrfInput) {
         console.warn("getCsrfToken: Had to re-query DOM for CSRF token.");
         return csrfInput.value;
     }
     console.error("getCsrfToken: CSRF Token is null and input field not found in DOM!");
-    return ""; // Or handle error appropriately
+    return "";
 }
 
-// Add these helper functions in your <script> block
-
-/**
- * Formats a date string (assumed to be ISO 8601 UTC) to "dd/mm/yyyy, DayOfWeek, HH:MM AM/PM".
- * @param {string} dateString - The ISO 8601 UTC date string (e.g., "2025-05-12T06:31:00Z").
- * @returns {string} The formatted date-time string or the original string if formatting fails.
- */
  function formatCustomDateTime(dateString) {
     if (!dateString) return 'N/A';
     try {
         const dateObj = new Date(dateString);
         if (isNaN(dateObj.getTime())) {
             console.warn('[JS] Invalid date string for formatCustomDateTime:', dateString);
-            return dateString; // Fallback for invalid dates
+            return dateString;
         }
-
-        // Get "dd/mm/yyyy" using en-GB
         const datePartOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
         const formattedDate = dateObj.toLocaleDateString('en-GB', datePartOptions);
-
-        // Get "DayOfWeek"
         const weekdayOptions = { weekday: 'long' };
-        const formattedWeekday = dateObj.toLocaleDateString('en-GB', weekdayOptions); // Using en-GB for consistency, but weekday is often similar across locales
-
-        // Get "HH:MM AM/PM"
+        const formattedWeekday = dateObj.toLocaleDateString('en-GB', weekdayOptions);
         const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true };
-        const formattedTime = dateObj.toLocaleTimeString('en-US', timeOptions); // Using 'en-US' for a common hh:mm AM/PM format, adjust if needed
-
+        const formattedTime = dateObj.toLocaleTimeString('en-US', timeOptions);
         return `${formattedDate}, ${formattedWeekday}, ${formattedTime}`;
-
     } catch (e) {
         console.warn(`[JS] Could not parse or format date-time:`, dateString, e);
-        return dateString; // Fallback to original string
+        return dateString;
     }
 }
 
-
-/**
- * Formats a date string (YYYY-MM-DD) to "dd/mm/yyyy, DayOfWeek" for ETA.
- * @param {string} dateOnlyString - The date string in YYYY-MM-DD format (e.g., "2025-05-13").
- * @returns {string} The formatted date string or the original string if formatting fails.
- */
- function formatCustomDateForETA(yyyyMmDdString) {
-    if (!yyyyMmDdString) return 'N/A'; // Handle null or empty input
+ function formatCustomDateForETA(dateOnlyString) { // Changed name to be more specific
+    if (!dateOnlyString) return 'N/A';
     try {
-        const parts = yyyyMmDdString.split('-');
+        // Assuming dateOnlyString is 'YYYY-MM-DD'
+        const parts = dateOnlyString.split('-');
         if (parts.length !== 3) {
-            console.warn('[JS] Invalid YYYY-MM-DD format for ETA:', yyyyMmDdString);
-            return yyyyMmDdString; // Return original if not YYYY-MM-DD
+            // If not YYYY-MM-DD, try parsing directly; might be a full datetime string already
+            const directDateObj = new Date(dateOnlyString);
+            if(!isNaN(directDateObj.getTime())) {
+                return directDateObj.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'long'});
+            }
+            console.warn('[JS] Invalid YYYY-MM-DD format or unparseable date string for ETA:', dateOnlyString);
+            return dateOnlyString;
         }
-
         const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1; // JavaScript months are 0-indexed (0-11)
+        const month = parseInt(parts[1], 10) - 1;
         const day = parseInt(parts[2], 10);
+        const dateObj = new Date(Date.UTC(year, month, day)); // Use UTC to avoid timezone shifts affecting the date part
 
-        // Create a Date object representing midnight in the local timezone for that specific date
-        const dateObj = new Date(year, month, day);
-
-        if (isNaN(dateObj.getTime())) { // Check if the constructed date is valid
-            console.warn('[JS] Invalid date constructed for formatCustomDateForETA:', yyyyMmDdString);
-            return yyyyMmDdString; // Fallback for invalid dates
+        if (isNaN(dateObj.getTime())) {
+            console.warn('[JS] Invalid date constructed for formatCustomDateForETA:', dateOnlyString);
+            return dateOnlyString;
         }
-
-        // Get "dd/mm/yyyy" using 'en-GB' locale option
-        const datePartOptions = { day: '2-digit', month: '2-digit', year: 'numeric' };
+        const datePartOptions = { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }; // Specify UTC for consistency
         const formattedDate = dateObj.toLocaleDateString('en-GB', datePartOptions);
-
-        // Get "DayOfWeek" (e.g., "Tuesday")
-        const weekdayOptions = { weekday: 'long' };
-        const formattedWeekday = dateObj.toLocaleDateString('en-GB', weekdayOptions); // 'en-GB' for consistency, but weekday name is usually fine
-
-        return `${formattedDate}, ${formattedWeekday}`; // "dd/mm/yyyy, DayOfWeek"
-
+        const weekdayOptions = { weekday: 'long', timeZone: 'UTC' };
+        const formattedWeekday = dateObj.toLocaleDateString('en-GB', weekdayOptions);
+        return `${formattedDate}, ${formattedWeekday}`;
     } catch (e) {
-        console.warn(`[JS] Error formatting ETA date:`, yyyyMmDdString, e);
-        return yyyyMmDdString; // Fallback to original string in case of error
+        console.warn(`[JS] Error formatting ETA date:`, dateOnlyString, e);
+        return dateOnlyString;
     }
 }
-
-
-
 
 // =========================== TAB ROUTER INIT
 function initTabs() {
-    console.log("✅ initTabs initialized (v4)");
+    console.log("✅ initTabs initialized (v5 - Smoother Highlighting)");
     const tabLinks = document.querySelectorAll(".tabs a[data-tab]");
+    const tabContentEl = document.getElementById("tab-content");
 
     tabLinks.forEach(tabLink => {
+        if (tabLink.dataset.tabListenerAttached === 'true') return; // Prevent multiple bindings
         tabLink.addEventListener("click", function (e) {
             e.preventDefault();
             const targetTabName = this.dataset.tab;
@@ -2142,15 +1660,17 @@ function initTabs() {
 
             const paramsFromSession = loadTabFiltersFromSession(targetTabName);
             paramsFromSession.set("tab", targetTabName);
-            if ((TAB_SPECIFIC_PARAMS[targetTabName] || []).includes('page') && !paramsFromSession.has('page') && paramsFromSession.toString() !== `tab=${targetTabName}`) {
-                // Add page=1 if other filters are loaded from session for this tab but page is missing
-                // paramsFromSession.set('page', '1');
-            }
-
+            // No need to force page=1 here, let the tab's init logic handle it if necessary
 
             const finalUrl = `?${paramsFromSession.toString()}`;
             console.log(`Navigating to tab ${targetTabName} with URL: ${finalUrl}`);
+
             history.pushState({ path: finalUrl, tab: targetTabName }, '', finalUrl);
+            highlightActiveTabFromURL(); // << Highlight immediately after URL change
+
+            if (tabContentEl) { // Show loading indicator
+                tabContentEl.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
+            }
 
             fetch(finalUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(res => {
@@ -2158,17 +1678,20 @@ function initTabs() {
                     return res.text();
                 })
                 .then(html => {
-                    const tabContentEl = document.getElementById("tab-content");
                     if (tabContentEl) tabContentEl.innerHTML = html;
                     else return console.error("#tab-content element not found.");
-                    highlightActiveTabFromURL();
-                    requestAnimationFrame(() => {
+                    // highlightActiveTabFromURL(); // Already called
+                    requestAnimationFrame(() => { // Defer tab-specific JS init
                         if (targetTabName === "purchaseorders") initPurchaseOrderTab();
                         else if (targetTabName === "warehouseproduct") initWarehouseTab();
                     });
                 })
-                .catch(error => console.error("Failed to load tab content:", error));
+                .catch(error => {
+                    console.error("Failed to load tab content:", error);
+                    if (tabContentEl) tabContentEl.innerHTML = '<p class="text-red-500 text-center">Error loading tab. Please try again.</p>';
+                });
         });
+        tabLink.dataset.tabListenerAttached = 'true';
     });
 }
 
@@ -2178,224 +1701,105 @@ function getCurrentTabNameFromUrl() {
 function saveTabFiltersToSession(tabName, filterStateToSave) {
     const paramsForStorage = new URLSearchParams();
     const allowedParams = TAB_SPECIFIC_PARAMS[tabName] || [];
-
     if (!filterStateToSave) {
-        console.warn(`💾 Attempted to save null/undefined filter state for ${tabName}. Saving empty.`);
         sessionStorage.setItem(`tabParams_${tabName}`, "");
         return;
     }
-
     const sourceParams = (filterStateToSave instanceof URLSearchParams) ? filterStateToSave : new URLSearchParams(filterStateToSave);
-
     allowedParams.forEach(key => {
         if (sourceParams.has(key) && sourceParams.get(key)) {
             paramsForStorage.set(key, sourceParams.get(key));
         }
     });
-
-    // Handle 'page' specifically: only save if it's > 1 or if other filters are present.
-    // This avoids saving "page=1" for a truly empty/reset filter state.
     if (allowedParams.includes('page')) {
         const pageValue = sourceParams.get('page');
         if (pageValue && (paramsForStorage.toString().replace(`page=${pageValue}`, '').replace(/^&|&$/, '') || parseInt(pageValue) > 1) ) {
-            // If other filters exist (excluding page itself) OR page > 1, then include page.
              if (!paramsForStorage.has('page')) paramsForStorage.set('page', pageValue);
         } else {
-            paramsForStorage.delete('page'); // Don't save page=1 if no other filters
+            paramsForStorage.delete('page');
         }
     }
-
     const paramsString = paramsForStorage.toString();
-    console.log(`💾 Saving params for ${tabName}: "${paramsString}" (Source: object)`);
     sessionStorage.setItem(`tabParams_${tabName}`, paramsString);
 }
 function loadTabFiltersFromSession(tabName) {
     const storedParamsString = sessionStorage.getItem(`tabParams_${tabName}`);
-    console.log(`💾 Loading params for ${tabName} from session: "${storedParamsString}"`);
     return new URLSearchParams(storedParamsString || '');
 }
 function clearTabFiltersFromSession(tabName) {
-    console.log(`🗑️ Clearing session storage for tab: ${tabName}`);
     sessionStorage.removeItem(`tabParams_${tabName}`);
 }
 function clearAllTabFiltersFromSession() {
-    console.log(`🗑️ Clearing session storage for ALL tabs.`);
     for (const tabName in TAB_SPECIFIC_PARAMS) {
         sessionStorage.removeItem(`tabParams_${tabName}`);
     }
 }
 
-function getActiveTab() {
+function getActiveTab() { // Used by highlightActiveTabFromURL
   const params = new URLSearchParams(window.location.search);
-  return params.get("tab") || "warehouseproduct";
-}
-
-function runTabInit(tabName) {
-  if (!tabInitStatus[tabName]) {
-    tabInitStatus[tabName] = true;
-    TAB_INIT_MAP[tabName]?.();
-  }
-}
-
-function storeTabParams(tabName, params) {
-  sessionStorage.setItem(`tab_params_${tabName}`, params.toString());
-}
-
-function getStoredTabParams(tabName) {
-  const stored = sessionStorage.getItem(`tab_params_${tabName}`);
-  return stored ? new URLSearchParams(stored) : null;
-}
-
-function loadTab(tabName, customParams = null, reset = false) {
-  const cleanParams = new URLSearchParams();
-  cleanParams.set("tab", tabName);
-
-  const allowedKeys = TAB_PARAM_KEYS[tabName] || [];
-
-  let paramsToUse;
-  if (reset) {
-    paramsToUse = new URLSearchParams();
-    allowedKeys.forEach(k => paramsToUse.set(k, ""));
-  } else if (customParams) {
-    paramsToUse = new URLSearchParams(customParams);
-  } else {
-    const stored = getStoredTabParams(tabName);
-    paramsToUse = stored || new URLSearchParams();
-  }
-
-  // Clear irrelevant params
-  const allParamKeys = ["warehouse", "supplier", "q", "status", "page"]; // ALL possible params
-  allParamKeys.forEach(key => {
-    if (!allowedKeys.includes(key)) {
-      paramsToUse.delete(key);
-    }
-  });
-
-  // 清除非该 tab 的无关参数
-  allowedKeys.forEach(k => {
-    const v = paramsToUse.get(k);
-    if (v !== null) cleanParams.set(k, v);
-  });
-
-  const finalUrl = `?${cleanParams.toString()}`;
-  storeTabParams(tabName, cleanParams);
-
-  history.pushState(null, '', finalUrl);
-
-  fetch(finalUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-    .then(res => res.text())
-    .then(html => {
-      const container = document.getElementById("tab-content");
-      container.innerHTML = html;
-      highlightActiveTabFromURL();
-
-      // 清除旧的 init 状态（每次加载 HTML 后必须）
-      Object.keys(tabInitStatus).forEach(k => tabInitStatus[k] = false);
-      highlightActiveTabFromURL();
-
-      requestAnimationFrame(() => runTabInit(tabName));
-    });
+  return params.get("tab") || DEFAULT_TAB; // Ensure it defaults if 'tab' is missing
 }
 
 function highlightActiveTabFromURL() {
-  const activeTab = getActiveTab();
-
-  document.querySelectorAll('.tabs a').forEach(tab => {
-    const tabUrl = new URL(tab.getAttribute("href"), window.location.origin);
-    const tabParam = new URLSearchParams(tabUrl.search).get("tab") || "warehouseproduct";
-
-    const activeClasses = ['bg-blue-500', 'text-white'];
+  const activeTabName = getActiveTab();
+  document.querySelectorAll('.tabs a[data-tab]').forEach(tabLink => {
+    const tabLinkName = tabLink.dataset.tab;
+    const activeClasses = ['bg-blue-500', 'text-white', 'tab-active']; // DaisyUI 'tab-active' for semantics
     const inactiveClasses = ['bg-gray-200', 'text-gray-700', 'hover:bg-gray-300'];
 
-    if (tabParam === activeTab) {
-      tab.classList.remove(...inactiveClasses);
-      tab.classList.add(...activeClasses);
+    if (tabLinkName === activeTabName) {
+      tabLink.classList.remove(...inactiveClasses);
+      tabLink.classList.add(...activeClasses);
     } else {
-      tab.classList.remove(...activeClasses);
-      tab.classList.add(...inactiveClasses);
+      tabLink.classList.remove(...activeClasses);
+      tabLink.classList.add(...inactiveClasses);
+      tabLink.classList.remove('tab-active'); // Ensure DaisyUI active class is also removed
     }
   });
+   console.log(`🎨 Tab highlighting updated. Active tab: ${activeTabName}`);
 }
-
-// // =========================== load more
-// const exploreMoreBtnForPagination = document.querySelector('#explore-more-pos-btn'); // Correctly select by ID
-// const paginationContainer = exploreMoreBtnForPagination ? exploreMoreBtnForPagination.parentNode : null;
-// let currentPage = 1; // Default current page value
-// if (paginationContainer && paginationContainer.dataset && paginationContainer.dataset.nextPage) {
-//     currentPage = parseInt(paginationContainer.dataset.nextPage, 10);
-// } else {
-//     if (!exploreMoreBtnForPagination) {
-//         console.warn("Button with ID 'explore-more-pos-btn' not found. Load more functionality might be affected.");
-//     } else {
-//         console.warn("'data-next-page' attribute not found on the parent of '#explore-more-pos-btn'. Defaulting currentPage to 1. Load more functionality might be affected.");
-//     }
-// }
-
-// const exploreMoreBtn = document.getElementById('explore-more-pos-btn');
-// const itemListContainer = document.getElementById('item-list-container');
-
-// if (exploreMoreBtn) {
-//     exploreMoreBtn.addEventListener('click', () => {
-//         const currentTab = getActiveTab();
-//         let url = `?tab=<span class="math-inline">\{currentTab\}&page\=</span>{currentPage}`;
-//         const currentFilters = getCurrentTabFilters(currentTab);
-//         if (currentFilters) {
-//             url += '&' + new URLSearchParams(currentFilters).toString();
-//         }
-
-//         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-//             .then(response => response.text())
-//             .then(html => {
-//                 itemListContainer.insertAdjacentHTML('beforeend', html);
-//                 currentPage++;
-//                 paginationContainer.dataset.nextPage = currentPage; // Update the data attribute
-//                 // ... (Update button visibility if needed) ...
-//             })
-//             .catch(error => console.error('Error loading more items:', error));
-//     });
-// }
-
-
-function getCurrentTabFilters(tabName) {
-    if (tabName === 'warehouseproduct') return window.currentWarehouseFilters;
-    if (tabName === 'purchaseorders') return pendingPOFilters;
-    return null;
-}
-
-
-
 
 // =========================== BOOTSTRAP
 let CSRF_TOKEN = null;
 
-// DOMContentLoaded 初始化
 document.addEventListener("DOMContentLoaded", function () {
-  // Cache the CSRF token once the initial DOM is loaded
   const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
     if (csrfInput) {
         CSRF_TOKEN = csrfInput.value;
-        console.log("CSRF Token cached on DOMContentLoaded:", CSRF_TOKEN ? 'OK' : 'NOT FOUND');
     } else {
         console.error("CSRF Token input field not found on DOMContentLoaded!");
     }
 
-  initTabs();
+  initTabs(); // Initialize tab click listeners
+
     let initialTabName = getCurrentTabNameFromUrl();
     let paramsForInitialLoad = new URLSearchParams(window.location.search);
 
-    if (!window.location.search || window.location.search === "?") {
-        console.log("Navigated to base URL. Clearing all tab session storages and loading default tab.");
-        clearAllTabFiltersFromSession();
-        initialTabName = DEFAULT_TAB;
-        paramsForInitialLoad = new URLSearchParams();
-        paramsForInitialLoad.set("tab", initialTabName);
-    } else {
-        console.log(`Initial load with URL params: "${paramsForInitialLoad.toString()}" for tab "${initialTabName}"`);
+    if (!paramsForInitialLoad.has('tab') && window.location.pathname.endsWith('/warehouse/management/')) {
+        paramsForInitialLoad.set('tab', initialTabName); // Ensure 'tab' is in URL
     }
+
+    // If coming from a fresh load to base /warehouse/management/ or /warehouse/management/?
+    if (window.location.pathname.endsWith('/warehouse/management/') &&
+        (window.location.search === "" || window.location.search === "?")) {
+        console.log("Navigated to base /warehouse/management/. Clearing all tab session storages and loading default tab.");
+        clearAllTabFiltersFromSession(); // Clear for all potential tabs
+        initialTabName = DEFAULT_TAB; // Reset to default tab
+        paramsForInitialLoad = new URLSearchParams(); // Start with fresh params
+        paramsForInitialLoad.set("tab", initialTabName);
+    }
+
 
     const finalInitialUrl = `?${paramsForInitialLoad.toString()}`;
     console.log(`Final initial URL for page load: ${finalInitialUrl}`);
     history.replaceState({ path: finalInitialUrl, tab: initialTabName }, '', finalInitialUrl);
+
+    highlightActiveTabFromURL(); // << Call highlighting immediately after URL is set
+
+    const tabContentEl = document.getElementById("tab-content");
+    if (tabContentEl) { // Show loading indicator
+        tabContentEl.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
+    }
 
     fetch(finalInitialUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         .then(res => {
@@ -2403,19 +1807,21 @@ document.addEventListener("DOMContentLoaded", function () {
              return res.text();
         })
         .then(html => {
-            document.getElementById("tab-content").innerHTML = html;
-            highlightActiveTabFromURL();
-            requestAnimationFrame(() => {
+            if (tabContentEl) tabContentEl.innerHTML = html;
+            else console.error("#tab-content element not found for initial HTML injection.");
+            // highlightActiveTabFromURL(); // Called earlier
+            requestAnimationFrame(() => { // Defer tab-specific JS init
                 if (initialTabName === "purchaseorders") {
                     initPurchaseOrderTab();
-                } else {
+                } else { // Default or "warehouseproduct"
                     initWarehouseTab();
                 }
             });
         })
-        .catch(error => console.error("Error loading initial tab:", error));
+        .catch(error => {
+            console.error("Error loading initial tab:", error);
+            if (tabContentEl) tabContentEl.innerHTML = '<p class="text-red-500 text-center">Error loading initial content.</p>';
+        });
 });
-
-
 </script>
 {% endblock %}

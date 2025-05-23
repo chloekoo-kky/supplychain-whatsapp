@@ -52,7 +52,7 @@ def _get_po_context_for_rendering(purchase_orders_page_obj):
             status_code_key = field_name_base.replace('_date', '').upper() # e.g., DRAFT
             date_val = getattr(po, field_name_base, None)
             if date_val and hasattr(date_val, 'strftime'):
-                dates[status_code_key] = date_val.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if po.last_updated_date else None,
+                dates[status_code_key] = date_val.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if po.last_updated_date else None
             else:
                 dates[status_code_key] = None # Or handle backfilling here if desired
         status_dates_dict[po_id_str] = dates

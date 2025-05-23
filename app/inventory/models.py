@@ -1,16 +1,17 @@
-# inventory/models.py
+# app/inventory/models.py
 from django.db import models, transaction as db_transaction
 from django.utils import timezone
 from django.conf import settings
 from django.db.models import UniqueConstraint, Q, F
 
-
 from warehouse.models import Warehouse, WarehouseProduct
+# इं Ensure this line is REMOVED from the top-level imports:
+# from .services import get_suggested_batch_for_order_item # <<< REMOVE THIS LINE IF PRESENT AT THE TOP
 
 class Supplier(models.Model):
     name = models.CharField(max_length=100, null=True)
     code = models.CharField(max_length=20, unique=True, null=True)
-    address = models.TextField(null=True, blank=True) # Allow blank for address
+    address = models.TextField(null=True, blank=True)
     whatsapp_number = models.CharField(max_length=20, null=True, blank=True)
     email = models.EmailField(blank=True, null=True)
 
@@ -32,10 +33,6 @@ class Product(models.Model):
         verbose_name = "Product"
         verbose_name_plural = "Products"
 
-    # increase_stock and decrease_stock methods are usually better handled
-    # at the WarehouseProduct level or via StockTransactions, not directly on Product.
-    # Removing them here unless they have a specific global meaning.
-
 
 class StockTransaction(models.Model):
     TRANSACTION_TYPES = [
@@ -44,18 +41,17 @@ class StockTransaction(models.Model):
         ('RETURN', 'Return In'),
         ('CANCEL', 'Cancel / Restore'),
         ('ADJUST', 'Manual Adjustment'),
-        ('PO_ITEM_DEL_ADJ', 'PO Item Deletion Adjustment'), # Added for clarity
+        ('PO_ITEM_DEL_ADJ', 'PO Item Deletion Adjustment'),
     ]
 
     warehouse = models.ForeignKey('warehouse.Warehouse', on_delete=models.CASCADE)
-    # Changed to string reference to avoid circular import if WarehouseProduct is in warehouse.models
     warehouse_product = models.ForeignKey('warehouse.WarehouseProduct', on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES) # Increased max_length
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     quantity = models.IntegerField()
     reference_note = models.CharField(max_length=255, blank=True)
     related_po = models.ForeignKey('warehouse.PurchaseOrder', null=True, blank=True, on_delete=models.SET_NULL)
-    related_order = models.ForeignKey('operation.Order', null=True, blank=True, on_delete=models.SET_NULL) # Make sure Order is imported
+    related_order = models.ForeignKey('operation.Order', null=True, blank=True, on_delete=models.SET_NULL)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -91,28 +87,23 @@ class InventoryBatchItem(models.Model):
         verbose_name="Cost Price (per unit)"
     )
     date_received = models.DateField(default=timezone.now, verbose_name="Date Received")
-
-    # New field for picking priority
     pick_priority = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
-        choices=[(0, 'Default'), (1, 'Secondary')], # Optional: choices for admin display
+        choices=[(0, 'Default'), (1, 'Secondary')],
         help_text="Picking priority: 0 for Default, 1 for Secondary. Leave blank for normal FEFO."
     )
-
     last_modified = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = [['warehouse_product', 'batch_number', 'location_label']]
         constraints = [
-            # Ensures only one 'Default' (0) per warehouse_product
             UniqueConstraint(
                 fields=['warehouse_product'],
                 condition=Q(pick_priority=0),
                 name='unique_default_pick_priority_per_wp'
             ),
-            # Ensures only one 'Secondary' (1) per warehouse_product
             UniqueConstraint(
                 fields=['warehouse_product'],
                 condition=Q(pick_priority=1),
@@ -122,7 +113,7 @@ class InventoryBatchItem(models.Model):
         ordering = [
             'warehouse_product__product__name',
             'warehouse_product__warehouse__name',
-            F('pick_priority').asc(nulls_last=True), # Nulls (no priority) come last
+            F('pick_priority').asc(nulls_last=True),
             F('expiry_date').asc(nulls_last=True),
             'date_received',
             'batch_number',
@@ -135,28 +126,22 @@ class InventoryBatchItem(models.Model):
         batch_display = self.batch_number if self.batch_number else "NO_BATCH_ID"
         location_display = f" (Loc: {self.location_label})" if self.location_label else ""
         wp_display = str(self.warehouse_product) if self.warehouse_product else "N/A WarehouseProduct"
-
         priority_display = ""
         if self.pick_priority == 0:
             priority_display = " (Default Pick)"
         elif self.pick_priority == 1:
             priority_display = " (Secondary Pick)"
-
         return f"{wp_display} - Batch: {batch_display}{location_display} (Qty: {self.quantity}){priority_display}"
 
     def save(self, *args, **kwargs):
         if self.location_label == '':
             self.location_label = None
-
-        # If this batch's pick_priority is being set (to 0 or 1)
         if self.pick_priority is not None and self.pick_priority in [0, 1]:
             with db_transaction.atomic():
-                # Unset any other batch for the same warehouse_product that has the same pick_priority
                 InventoryBatchItem.objects.filter(
                     warehouse_product=self.warehouse_product,
-                    pick_priority=self.pick_priority  # Clear existing item with this priority
-                ).exclude(pk=self.pk).update(pick_priority=None) # Set their priority to None
-
+                    pick_priority=self.pick_priority
+                ).exclude(pk=self.pk).update(pick_priority=None)
         super().save(*args, **kwargs)
 
     @property
@@ -167,63 +152,41 @@ class InventoryBatchItem(models.Model):
         delta = self.expiry_date - today
         if delta.days < 0:
             return "Expired"
-        elif 0 <= delta.days <= 180:
+        elif 0 <= delta.days <= 180: # 6 months * 30 days approx
             return "≤6m"
         return None
 
 class StockTakeSession(models.Model):
-    """
-    Represents a single stock-taking session/event.
-    """
     STATUS_CHOICES = [
         ('PENDING', 'Pending Operator Input'),
-        ('COMPLETED_BY_OPERATOR', 'Completed'), # Operator has finished inputting
+        ('COMPLETED_BY_OPERATOR', 'Completed'),
         ('EVALUATED', 'Evaluated by Superuser'),
         ('CLOSED', 'Closed/Archived'),
     ]
-
     name = models.CharField(max_length=255, help_text="e.g., Full Stock Take - 2025-05-15 - Main Warehouse")
     warehouse = models.ForeignKey(
         Warehouse,
-        on_delete=models.PROTECT, # Prevent deleting a warehouse if stock takes depend on it
+        on_delete=models.PROTECT,
         help_text="The warehouse where the stock take was performed."
     )
     initiated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name='stock_takes_initiated',
         on_delete=models.SET_NULL,
-        null=True,
-        blank=True, # Can be system-initiated or by any user with permission
+        null=True, blank=True,
         help_text="User who started or is responsible for this stock take session."
     )
-    initiated_at = models.DateTimeField(
-        default=timezone.now,
-        help_text="Timestamp when the stock take session was created/initiated."
-    )
-    completed_by_operator_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="Timestamp when the warehouse operator marked their counting as complete."
-    )
+    initiated_at = models.DateTimeField(default=timezone.now, help_text="Timestamp when the stock take session was created/initiated.")
+    completed_by_operator_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when the warehouse operator marked their counting as complete.")
     evaluated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name='stock_takes_evaluated',
         on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        null=True, blank=True,
         help_text="Superuser who evaluated this stock take."
     )
-    evaluated_at = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="Timestamp when the stock take was evaluated."
-    )
-    status = models.CharField(
-        max_length=30,
-        choices=STATUS_CHOICES,
-        default='PENDING',
-        help_text="Current status of the stock take session."
-    )
+    evaluated_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when the stock take was evaluated.")
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='PENDING', help_text="Current status of the stock take session.")
     notes = models.TextField(blank=True, help_text="General notes for this stock take session.")
 
     class Meta:
@@ -236,137 +199,52 @@ class StockTakeSession(models.Model):
 
 
 class StockTakeItem(models.Model):
-    """
-    Represents a single item entry recorded during a stock take session.
-    This captures what the operator physically observed and counted.
-    """
-    session = models.ForeignKey(
-        StockTakeSession,
-        related_name='items',
-        on_delete=models.CASCADE, # If session is deleted, its items are deleted
-        help_text="The stock take session this item belongs to."
-    )
-    # Operator selects the WarehouseProduct they believe they are counting.
-    # This links the count to a known SKU and product in a specific warehouse.
-    warehouse_product = models.ForeignKey(
-        WarehouseProduct,
-        on_delete=models.PROTECT, # Protect WarehouseProduct from deletion if part of a stock take
-        help_text="The system's Warehouse Product record this count refers to."
-    )
-    # Fields below capture the *actual observed* details by the operator
-    location_label_counted = models.CharField(
-        max_length=50,
-        blank=True,
-        null=True,
-        help_text="The physical location label where the item was found and counted (e.g., -01)."
-    )
-    batch_number_counted = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        help_text="The batch number observed on the physical product."
-    )
-    expiry_date_counted = models.DateField(
-        blank=True,
-        null=True,
-        help_text="The expiry date observed on the physical product."
-    )
-    counted_quantity = models.PositiveIntegerField(
-        help_text="The quantity of this item physically counted at this location/batch/expiry."
-    )
-    # Timestamps and notes for the individual item entry
-    counted_at = models.DateTimeField(
-        default=timezone.now, # Or auto_now_add=True if entry is created immediately
-        help_text="Timestamp when this specific item was counted/entered."
-    )
+    session = models.ForeignKey(StockTakeSession, related_name='items', on_delete=models.CASCADE, help_text="The stock take session this item belongs to.")
+    warehouse_product = models.ForeignKey(WarehouseProduct, on_delete=models.PROTECT, help_text="The system's Warehouse Product record this count refers to.")
+    location_label_counted = models.CharField(max_length=50, blank=True, null=True, help_text="The physical location label where the item was found and counted (e.g., -01).")
+    batch_number_counted = models.CharField(max_length=100, blank=True, null=True, help_text="The batch number observed on the physical product.")
+    expiry_date_counted = models.DateField(blank=True, null=True, help_text="The expiry date observed on the physical product.")
+    counted_quantity = models.PositiveIntegerField(help_text="The quantity of this item physically counted at this location/batch/expiry.")
+    counted_at = models.DateTimeField(default=timezone.now, help_text="Timestamp when this specific item was counted/entered.")
     notes = models.TextField(blank=True, help_text="Optional notes specific to this counted item.")
 
     class Meta:
         ordering = ['session', 'warehouse_product__product__name', 'location_label_counted', 'batch_number_counted']
         verbose_name = "Stock Take Item"
         verbose_name_plural = "Stock Take Items"
-        # Consider unique constraints if needed, e.g., unique per session, warehouse_product, location, batch, expiry?
-        # For now, allowing multiple entries for the same combo, sum them up later or enforce via form.
-        # unique_together = [['session', 'warehouse_product', 'location_label_counted', 'batch_number_counted', 'expiry_date_counted']]
-
 
     def __str__(self):
         return f"Count for {self.warehouse_product.product.sku} in {self.session.name}: {self.counted_quantity} units"
 
 class StockDiscrepancy(models.Model):
-    """
-    Records a discrepancy found during the evaluation of a stock take session.
-    Compares a counted item (or aggregation of counts) with system records.
-    """
     DISCREPANCY_TYPES = [
-        ('MATCH', 'Match'), # System and Counted quantities match for the given details
-        ('OVER', 'Over Count'), # Counted quantity is more than system quantity
-        ('SHORT', 'Short Count'), # Counted quantity is less than system quantity
-        ('NOT_IN_SYSTEM', 'Not in System'), # Item counted but no matching system record (batch/location)
-        ('NOT_COUNTED', 'Not Counted'), # Item in system (batch/location) but not found in stock take items
-        ('DETAIL_MISMATCH', 'Detail Mismatch'), # e.g. Qty matches but batch/expiry/location differs
+        ('MATCH', 'Match'),
+        ('OVER', 'Over Count'),
+        ('SHORT', 'Short Count'),
+        ('NOT_IN_SYSTEM', 'Not in System'),
+        ('NOT_COUNTED', 'Not Counted'),
+        ('DETAIL_MISMATCH', 'Detail Mismatch'),
     ]
-
-    session = models.ForeignKey(
-        StockTakeSession,
-        related_name='discrepancies',
-        on_delete=models.CASCADE,
-        help_text="The stock take session this discrepancy belongs to."
-    )
-    warehouse_product = models.ForeignKey(
-        WarehouseProduct,
-        on_delete=models.PROTECT,
-        help_text="The system's Warehouse Product record this discrepancy primarily relates to."
-    )
-
-    # Details from the System (InventoryBatchItem)
-    system_inventory_batch_item = models.ForeignKey(
-        InventoryBatchItem,
-        on_delete=models.SET_NULL, # Keep discrepancy record even if system batch is deleted/merged
-        null=True, blank=True,
-        related_name='discrepancies_found',
-        help_text="The specific system batch item this discrepancy refers to (if applicable)."
-    )
+    session = models.ForeignKey(StockTakeSession, related_name='discrepancies', on_delete=models.CASCADE, help_text="The stock take session this discrepancy belongs to.")
+    warehouse_product = models.ForeignKey(WarehouseProduct, on_delete=models.PROTECT, help_text="The system's Warehouse Product record this discrepancy primarily relates to.")
+    system_inventory_batch_item = models.ForeignKey(InventoryBatchItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='discrepancies_found', help_text="The specific system batch item this discrepancy refers to (if applicable).")
     system_location_label = models.CharField(max_length=50, blank=True, null=True)
     system_batch_number = models.CharField(max_length=100, blank=True, null=True)
     system_expiry_date = models.DateField(blank=True, null=True)
     system_quantity = models.IntegerField(null=True, blank=True, help_text="Quantity as per system records at time of evaluation.")
-
-    # Details from the Stock Take (StockTakeItem or aggregation)
-    stock_take_item_reference = models.ForeignKey( # Optional: link to a specific counted item if discrepancy is 1-to-1
-        StockTakeItem,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='discrepancies_identified'
-    )
+    stock_take_item_reference = models.ForeignKey(StockTakeItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='discrepancies_identified')
     counted_location_label = models.CharField(max_length=50, blank=True, null=True)
     counted_batch_number = models.CharField(max_length=100, blank=True, null=True)
     counted_expiry_date = models.DateField(blank=True, null=True)
     counted_quantity = models.IntegerField(null=True, blank=True, help_text="Quantity as per physical count.")
-
-    # Discrepancy Details
-    discrepancy_quantity = models.IntegerField(
-        help_text="Difference: counted_quantity - system_quantity. Positive for over, negative for short."
-    )
-    discrepancy_type = models.CharField(
-        max_length=20,
-        choices=DISCREPANCY_TYPES,
-        help_text="Type of discrepancy found."
-    )
-
+    discrepancy_quantity = models.IntegerField(help_text="Difference: counted_quantity - system_quantity. Positive for over, negative for short.")
+    discrepancy_type = models.CharField(max_length=20, choices=DISCREPANCY_TYPES, help_text="Type of discrepancy found.")
     notes = models.TextField(blank=True, help_text="Notes explaining the discrepancy or actions taken.")
     is_resolved = models.BooleanField(default=False, help_text="Has this discrepancy been addressed/resolved?")
     resolution_notes = models.TextField(blank=True, help_text="Notes on how the discrepancy was resolved.")
-
     evaluated_at = models.DateTimeField(default=timezone.now)
     resolved_at = models.DateTimeField(null=True, blank=True)
-    resolved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='discrepancies_resolved'
-    )
-
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='discrepancies_resolved')
 
     class Meta:
         ordering = ['session', 'discrepancy_type', 'warehouse_product__product__name']
@@ -379,71 +257,32 @@ class StockDiscrepancy(models.Model):
     def save(self, *args, **kwargs):
         if self.counted_quantity is not None and self.system_quantity is not None:
             self.discrepancy_quantity = self.counted_quantity - self.system_quantity
-        elif self.counted_quantity is not None: # Not in system
+        elif self.counted_quantity is not None:
             self.discrepancy_quantity = self.counted_quantity
-        elif self.system_quantity is not None: # Not counted
+        elif self.system_quantity is not None:
             self.discrepancy_quantity = -self.system_quantity
         else:
             self.discrepancy_quantity = 0
-
         super().save(*args, **kwargs)
 
 class ErpStockCheckSession(models.Model):
-    """
-    Represents a session for checking WarehouseProduct quantities against an ERP export.
-    """
     SESSION_STATUS_CHOICES = [
         ('PENDING_UPLOAD', 'Pending Upload'),
         ('PROCESSING', 'Processing Uploaded File'),
         ('UPLOAD_FAILED', 'Upload Failed'),
-        ('PENDING_EVALUATION', 'Pending Evaluation'), # File uploaded, items created, ready for comparison
+        ('PENDING_EVALUATION', 'Pending Evaluation'),
         ('EVALUATING', 'Evaluating Discrepancies'),
         ('EVALUATED', 'Evaluated'),
         ('CLOSED', 'Closed/Archived'),
     ]
-
-    name = models.CharField(
-        max_length=255,
-        help_text="e.g., ERP Quantity Snapshot - 2025-05-16"
-    )
-    warehouse = models.ForeignKey(
-        Warehouse,
-        on_delete=models.SET_NULL, # Or PROTECT, depends on if you want to keep sessions for deleted warehouses
-        null=True, blank=True, # Can be for a specific warehouse or all (if null)
-        help_text="Specific warehouse for this check, or leave blank for all applicable warehouses in the file."
-    )
-    uploaded_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        related_name='erp_stock_checks_uploaded',
-        on_delete=models.SET_NULL,
-        null=True,
-        help_text="User who uploaded the ERP data file."
-    )
-    uploaded_at = models.DateTimeField(
-        default=timezone.now,
-        help_text="Timestamp when the ERP data file was uploaded."
-    )
-    processed_at = models.DateTimeField(
-        null=True, blank=True,
-        help_text="Timestamp when the uploaded file was successfully processed into ErpStockCheckItems."
-    )
-    evaluated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        related_name='erp_stock_checks_evaluated',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        help_text="User who initiated the evaluation."
-    )
-    evaluated_at = models.DateTimeField(
-        null=True, blank=True,
-        help_text="Timestamp when the evaluation was completed."
-    )
-    status = models.CharField(
-        max_length=30,
-        choices=SESSION_STATUS_CHOICES,
-        default='PENDING_UPLOAD',
-        help_text="Current status of this ERP stock check session."
-    )
+    name = models.CharField(max_length=255, help_text="e.g., ERP Quantity Snapshot - 2025-05-16")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.SET_NULL, null=True, blank=True, help_text="Specific warehouse for this check, or leave blank for all applicable warehouses in the file.")
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='erp_stock_checks_uploaded', on_delete=models.SET_NULL, null=True, help_text="User who uploaded the ERP data file.")
+    uploaded_at = models.DateTimeField(default=timezone.now, help_text="Timestamp when the ERP data file was uploaded.")
+    processed_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when the uploaded file was successfully processed into ErpStockCheckItems.")
+    evaluated_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='erp_stock_checks_evaluated', on_delete=models.SET_NULL, null=True, blank=True, help_text="User who initiated the evaluation.")
+    evaluated_at = models.DateTimeField(null=True, blank=True, help_text="Timestamp when the evaluation was completed.")
+    status = models.CharField(max_length=30, choices=SESSION_STATUS_CHOICES, default='PENDING_UPLOAD', help_text="Current status of this ERP stock check session.")
     source_file_name = models.CharField(max_length=255, blank=True, null=True, help_text="Original name of the uploaded ERP file.")
     processing_notes = models.TextField(blank=True, help_text="Notes or errors from file processing stage.")
     evaluation_notes = models.TextField(blank=True, help_text="General notes from the evaluation stage.")
@@ -458,30 +297,13 @@ class ErpStockCheckSession(models.Model):
 
 
 class ErpStockCheckItem(models.Model):
-    """
-    Represents a single WarehouseProduct's quantity as reported by the ERP system
-    for a specific ErpStockCheckSession.
-    """
-    session = models.ForeignKey(
-        ErpStockCheckSession,
-        related_name='items',
-        on_delete=models.CASCADE,
-        help_text="The ERP stock check session this item belongs to."
-    )
-    warehouse_product = models.ForeignKey(
-        WarehouseProduct,
-        on_delete=models.PROTECT, # Critical to not delete WP if it's part of a check
-        help_text="The Warehouse Product record in your system."
-    )
-    # Identifying information from the Excel (stored for reference/audit)
+    session = models.ForeignKey(ErpStockCheckSession, related_name='items', on_delete=models.CASCADE, help_text="The ERP stock check session this item belongs to.")
+    warehouse_product = models.ForeignKey(WarehouseProduct, on_delete=models.PROTECT, help_text="The Warehouse Product record in your system.")
     erp_warehouse_name_raw = models.CharField(max_length=255, blank=True, null=True, help_text="Warehouse name as it appeared in the ERP file.")
     erp_product_sku_raw = models.CharField(max_length=100, blank=True, null=True, help_text="Product SKU as it appeared in the ERP file.")
-    erp_product_name_raw = models.CharField(max_length=255, blank=True, null=True, help_text="Product Name as it appeared in the ERP file for reference.") # <<<< ADD THIS FIELD
+    erp_product_name_raw = models.CharField(max_length=255, blank=True, null=True, help_text="Product Name as it appeared in the ERP file for reference.")
     erp_product_code_raw = models.CharField(max_length=100, blank=True, null=True, help_text="Warehouse Product Code as it appeared in the ERP file (if used for matching).")
-
-    erp_quantity = models.IntegerField( # Assuming ERP quantities are integers
-        help_text="Quantity of this product in the ERP system."
-    )
+    erp_quantity = models.IntegerField(help_text="Quantity of this product in the ERP system.")
     is_matched = models.BooleanField(default=False, help_text="Was this ERP item successfully matched to a WarehouseProduct in your system?")
     processing_comments = models.CharField(max_length=255, blank=True, null=True, help_text="Comments from the matching/processing stage, e.g., 'New item not in system'.")
 
@@ -489,77 +311,36 @@ class ErpStockCheckItem(models.Model):
         ordering = ['session', 'warehouse_product__product__name']
         verbose_name = "ERP Stock Check Item"
         verbose_name_plural = "ERP Stock Check Items"
-        unique_together = [['session', 'warehouse_product']] # Only one ERP quantity per WP per session
+        unique_together = [['session', 'warehouse_product']]
 
     def __str__(self):
         return f"ERP Qty for {self.warehouse_product.product.sku} in {self.session.name}: {self.erp_quantity}"
 
 
 class WarehouseProductDiscrepancy(models.Model):
-    """
-    Records a discrepancy found when comparing WarehouseProduct.quantity (your system)
-    with ErpStockCheckItem.erp_quantity (ERP system).
-    """
     DISCREPANCY_TYPES = [
         ('MATCH', 'Match'),
-        ('OVER_IN_SYSTEM', 'Over in Your System'), # Your system has more than ERP
-        ('SHORT_IN_SYSTEM', 'Short in Your System'),  # Your system has less than ERP
-        ('NOT_IN_ERP', 'Not in ERP'),       # WarehouseProduct exists in your system but not in ERP upload for that warehouse
-        ('NOT_IN_SYSTEM', 'Not in Your System'), # Item in ERP upload but no matching WarehouseProduct found (less common if you pre-validate WP)
+        ('OVER_IN_SYSTEM', 'Over in Your System'),
+        ('SHORT_IN_SYSTEM', 'Short in Your System'),
+        ('NOT_IN_ERP', 'Not in ERP'),
+        ('NOT_IN_SYSTEM', 'Not in Your System'),
     ]
-
-    session = models.ForeignKey(
-        ErpStockCheckSession,
-        related_name='discrepancies',
-        on_delete=models.CASCADE,
-        help_text="The ERP stock check session this discrepancy belongs to."
-    )
-    warehouse_product = models.ForeignKey(
-        WarehouseProduct,
-        on_delete=models.PROTECT, # Keep discrepancy record even if WP is later deleted (though ideally it shouldn't be if there's a discrepancy)
-        null=True, blank=True, # <<<< ALLOW NULL
-        help_text="The Warehouse Product this discrepancy relates to."
-    )
-    # Optional link back to the specific ErpStockCheckItem that triggered this (if applicable)
-    erp_stock_check_item = models.ForeignKey(
-        ErpStockCheckItem,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='discrepancy_record'
-    )
-
-    # NEW Fields to store raw ERP data if warehouse_product is NULL
+    session = models.ForeignKey(ErpStockCheckSession, related_name='discrepancies', on_delete=models.CASCADE, help_text="The ERP stock check session this discrepancy belongs to.")
+    warehouse_product = models.ForeignKey(WarehouseProduct, on_delete=models.PROTECT, null=True, blank=True, help_text="The Warehouse Product this discrepancy relates to.")
+    erp_stock_check_item = models.ForeignKey(ErpStockCheckItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='discrepancy_record')
     erp_warehouse_name_for_unmatched = models.CharField(max_length=255, blank=True, null=True, help_text="ERP Warehouse Name (if item not matched to system WP)")
     erp_product_sku_for_unmatched = models.CharField(max_length=100, blank=True, null=True, help_text="ERP Product SKU (if item not matched to system WP)")
     erp_product_name_for_unmatched = models.CharField(max_length=255, blank=True, null=True, help_text="ERP Product Name (if item not matched to system WP)")
-
-    system_quantity = models.IntegerField(
-        help_text="Quantity as per your system (WarehouseProduct.quantity) at time of evaluation."
-    )
-    erp_quantity = models.IntegerField(
-        null=True, blank=True, # Can be null if type is NOT_IN_ERP
-        help_text="Quantity as per ERP system records from the uploaded file."
-    )
-    discrepancy_quantity = models.IntegerField(
-        help_text="Difference: system_quantity - erp_quantity. Positive if your system has more, negative if less."
-    )
-    discrepancy_type = models.CharField(
-        max_length=20,
-        choices=DISCREPANCY_TYPES,
-        help_text="Type of discrepancy found."
-    )
-
+    system_quantity = models.IntegerField(help_text="Quantity as per your system (WarehouseProduct.quantity) at time of evaluation.")
+    erp_quantity = models.IntegerField(null=True, blank=True, help_text="Quantity as per ERP system records from the uploaded file.")
+    discrepancy_quantity = models.IntegerField(help_text="Difference: system_quantity - erp_quantity. Positive if your system has more, negative if less.")
+    discrepancy_type = models.CharField(max_length=20, choices=DISCREPANCY_TYPES, help_text="Type of discrepancy found.")
     notes = models.TextField(blank=True, help_text="Notes explaining the discrepancy or actions to be taken.")
     is_resolved = models.BooleanField(default=False, help_text="Has this discrepancy been addressed/resolved?")
     resolution_notes = models.TextField(blank=True, help_text="Notes on how the discrepancy was resolved.")
-    created_at = models.DateTimeField(auto_now_add=True) # When the discrepancy record was created (i.e., evaluation time)
+    created_at = models.DateTimeField(auto_now_add=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
-    resolved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='wp_discrepancies_resolved'
-    )
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='wp_discrepancies_resolved')
 
     class Meta:
         ordering = ['session', 'discrepancy_type', 'warehouse_product__product__name']
@@ -570,49 +351,48 @@ class WarehouseProductDiscrepancy(models.Model):
         return f"{self.get_discrepancy_type_display()} for {self.warehouse_product.product.sku} in Session {self.session.id}"
 
     def save(self, *args, **kwargs):
-        # Auto-calculate discrepancy_quantity
         if self.discrepancy_type == 'NOT_IN_ERP':
-            self.discrepancy_quantity = self.system_quantity # System has items, ERP has 0
-            self.erp_quantity = 0 # Explicitly set for clarity
+            self.discrepancy_quantity = self.system_quantity
+            self.erp_quantity = 0
         elif self.discrepancy_type == 'NOT_IN_SYSTEM':
-            self.discrepancy_quantity = -(self.erp_quantity if self.erp_quantity is not None else 0) # ERP has items, system has 0
+            self.discrepancy_quantity = -(self.erp_quantity if self.erp_quantity is not None else 0)
         elif self.system_quantity is not None and self.erp_quantity is not None:
             self.discrepancy_quantity = self.system_quantity - self.erp_quantity
         else:
-            # This case should ideally be prevented by how discrepancy_type is set
             self.discrepancy_quantity = 0
-
         super().save(*args, **kwargs)
 
 
 def process_order_allocation(order_instance):
+    """
+    Processes an order to suggest batch items for its order items.
+    This function should be called after an order and its items are created/updated.
+    """
+    # MOVE THE IMPORT HERE:
+    from .services import get_suggested_batch_for_order_item
+
     for item in order_instance.items.filter(status='PENDING_ALLOCATION'):
         quantity_to_allocate = item.quantity_ordered - item.quantity_allocated
         if quantity_to_allocate <= 0:
+            if item.quantity_ordered == item.quantity_allocated and item.status == 'PENDING_ALLOCATION':
+                item.status = 'ALLOCATED'
+                item.suggested_batch_item = None
+                item.suggested_batch_number_display = None
+                item.suggested_batch_expiry_date_display = None
+                item.save(update_fields=['status', 'suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display'])
             continue
 
         suggested_batch = get_suggested_batch_for_order_item(item, quantity_to_allocate)
 
         if suggested_batch:
             item.suggested_batch_item = suggested_batch
-            # item.quantity_allocated += quantity_to_allocate # Or handle actual allocation decrement later
-            item.status = 'ALLOCATED' # Or 'PENDING_PICKING'
-            item.save() # This will trigger OrderItem's save to update display fields
-
-            # IMPORTANT: You would typically also "reserve" or decrement
-            # the quantity from `suggested_batch.quantity` here, within a transaction.
-            # For example:
-            # with transaction.atomic():
-            #     batch_to_decrement = InventoryBatchItem.objects.select_for_update().get(pk=suggested_batch.pk)
-            #     if batch_to_decrement.quantity >= quantity_to_allocate:
-            #         batch_to_decrement.quantity -= quantity_to_allocate
-            #         batch_to_decrement.save()
-            #         # ... save order item ...
-            #     else:
-            #         # Handle race condition or insufficient stock discovered late
-            #         item.status = 'ALLOCATION_FAILED'
-            #         item.save()
-
+            item.suggested_batch_number_display = suggested_batch.batch_number
+            item.suggested_batch_expiry_date_display = suggested_batch.expiry_date
+            item.status = 'ALLOCATED'
+            item.save(update_fields=['suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display', 'status'])
         else:
             item.status = 'ALLOCATION_FAILED'
-            item.save()
+            item.suggested_batch_item = None
+            item.suggested_batch_number_display = "N/A" # Or None, depending on desired display
+            item.suggested_batch_expiry_date_display = None
+            item.save(update_fields=['status', 'suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display'])

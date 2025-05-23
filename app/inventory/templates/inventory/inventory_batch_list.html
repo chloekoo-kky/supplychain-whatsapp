@@ -7,34 +7,35 @@
 {% block content %}
 <div class="container mx-auto px-4">
     {# Sticky Header Bar #}
-<div class="sticky top-16 bg-base-100 py-3 px-0 md:px-4 mb-4 z-40 shadow-sm rounded -mx-4 md:mx-0">
-    <div class="container mx-auto px-4 md:px-0">
-        <div class="flex flex-col sm:flex-row justify-between items-center mb-2">
-            <h1 class="text-3xl font-bold text-gray-800 flex-grow mr-4 mb-2 sm:mb-0">{{ page_title|default:"Inventory List" }}</h1>
-            <div class="flex items-center space-x-2 flex-shrink-0">
-                {# Existing Filter Buttons #}
-                <button id="toggle-expiry-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Expiry Filter (≤ 6 Months)">
-                    <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Exp&nbsp;≤6m</span>
-                </button>
-                <button id="toggle-unbatched-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Unbatched Quantity Filter">
-                    <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Unbatched</span>
-                </button>
-                <button id="toggle-newly-received-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Newly Received (within 14 days) Filter">
-                    <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">New Receipts</span>
-                </button>
+    <div class="sticky top-16 bg-base-100 py-3 px-0 md:px-4 mb-4 z-40 shadow-sm rounded -mx-4 md:mx-0">
+        <div class="container mx-auto px-4 md:px-0">
+            <div class="flex flex-col sm:flex-row justify-between items-center mb-2">
+                <h1 class="text-3xl font-bold text-gray-800 flex-grow mr-4 mb-2 sm:mb-0">{{ page_title|default:"Inventory List" }}</h1>
+                <div class="flex items-center space-x-2 flex-shrink-0">
+                    {# Existing Filter Buttons #}
+                    <button id="toggle-expiry-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Expiry Filter (≤ 6 Months)">
+                        <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Exp&nbsp;≤6m</span>
+                    </button>
+                    <button id="toggle-unbatched-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Unbatched Quantity Filter">
+                        <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Unbatched</span>
+                    </button>
+                    <button id="toggle-newly-received-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Newly Received (within 14 days) Filter">
+                        <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">New Receipts</span>
+                    </button>
+                </div>
             </div>
-        </div>
 
-        <div class="flex flex-col md:flex-row justify-between items-center mt-2 mb-2 space-y-2 md:space-y-0 md:space-x-4">
-            <div class="flex-grow w-full md:w-auto">
-                <input type="text" id="inventory-search-input" placeholder="Search SKU or Product Name..." class="input input-bordered input-sm w-full md:max-w-md lg:max-w-lg">
-            </div>
-            <div class="flex-shrink-0">
-                <label for="manage-default-picks-modal-toggle" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">Manage Default Picks</label>
+            <div class="flex flex-col md:flex-row justify-between items-center mt-2 mb-2 space-y-2 md:space-y-0 md:space-x-4">
+                <div class="flex-grow w-full md:w-auto">
+                    <input type="text" id="inventory-search-input" placeholder="Search SKU or Product Name..." class="input input-bordered input-sm w-full md:max-w-md lg:max-w-lg">
+                </div>
+                <div class="flex-shrink-0 space-x-2">
+                    <label for="manage-default-picks-modal-toggle" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">Manage Default Picks</label>
+                    <label for="manage-secondary-picks-modal-toggle" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">Manage Secondary Picks</label>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
     {% if warehouse_products %}
         <div class="overflow-x-auto bg-white shadow-md rounded-lg">
@@ -43,7 +44,7 @@
                     <tr>
                         <th class="py-3 px-6 text-left">SKU</th>
                         <th class="py-3 px-6 text-left">Product Name</th>
-                        <th class="py-3 px-6 text-left width-[10px]">Warehouse</th>
+                        <th class="py-3 px-6 text-left w-[120px]">Warehouse</th>
                         <th class="py-3 px-6 text-right">Total Stock</th>
                         <th class="py-3 px-6 text-center">Batch Details & Unbatched</th>
                     </tr>
@@ -60,7 +61,7 @@
                                     <table class="min-w-full my-1 nested-batch-table">
                                         <thead class="text-xs text-gray-500 uppercase">
                                             <tr>
-                                                <th class="px-1 py-1 text-left"></th>
+                                                <th class="px-1 py-1 text-left w-6">P</th>
                                                 <th class="px-2 py-1 text-left">Batch No.</th>
                                                 <th class="px-2 py-1 text-left">Location</th>
                                                 <th class="px-2 py-1 text-left">Expiry Date</th>
@@ -73,22 +74,22 @@
                                         {% for batch_item in wp.processed_batches %}
                                             <tr class="batch-item-row border-t border-gray-200 hover:bg-gray-50"
                                                 data-expiry-date="{{ batch_item.expiry_date|date:'Y-m-d'|default:'' }}"
-                                                data-received-date="{{ batch_item.date_received|date:'Y-m-d'|default:'' }}">
-
-                                                <td>
+                                                data-received-date="{{ batch_item.date_received|date:'Y-m-d'|default:'' }}"
+                                                data-batch-pk="{{ batch_item.pk }}">
+                                                <td class="px-1 py-1 text-center pick-priority-indicator-cell">
                                                     {% if batch_item.pick_priority == 0 %}
-                                                        <span class="inline-flex items-center mr-1" title="Default Pick Location">
-                                                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                                <circle cx="12" cy="12" r="10" fill="black"/>
-                                                                <path d="M7.5 12.5L10.5 15.5L16.5 9.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                                            </svg>
+                                                        <span class="inline-flex items-center" title="Default Pick Location">
+                                                            <svg class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 20 20" fill="currentColor"> <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /> </svg>
                                                         </span>
+                                                    {% elif batch_item.pick_priority == 1 %}
+                                                         <span class="inline-flex items-center" title="Secondary Pick Location">
+                                                            <svg class="w-3.5 h-3.5 text-orange-500" viewBox="0 0 20 20" fill="currentColor"> <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /> </svg>
+                                                        </span>
+                                                    {% else %}
+                                                        <span class="inline-block w-3.5 h-3.5"></span>
                                                     {% endif %}
                                                 </td>
-
-                                                <td class="px-2 py-1 batch-number-cell">
-                                                    {{ batch_item.batch_number|default:"N/A" }}</td>
-
+                                                <td class="px-2 py-1 batch-number-cell">{{ batch_item.batch_number|default:"N/A" }}</td>
                                                 <td class="px-2 py-1 location-label-cell">{{ batch_item.location_label|default:"-" }}</td>
                                                 <td class="px-2 py-1 expiry-date-cell">
                                                     {{ batch_item.expiry_date|date:"d/m/Y"|default:"N/A" }}
@@ -147,17 +148,18 @@
 {% include "inventory/partials/add_batch_modal.html" with add_batch_form=add_batch_form %}
 {% include "inventory/partials/edit_batch_modals.html" with all_inventory_batches=all_inventory_batches %}
 
+{# Manage Default Picks Modal #}
 <input type="checkbox" id="manage-default-picks-modal-toggle" class="modal-toggle" />
 <div id="manage-default-picks-modal" class="modal" role="dialog">
   <div class="modal-box w-11/12 max-w-4xl">
     <label for="manage-default-picks-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
-    <h3 class="font-bold text-xl mb-4">Manage Default Pick Locations</h3>
+    <h3 class="font-bold text-xl mb-4">Manage Default Pick Locations (Priority 0)</h3>
 
     <form id="default-picks-form" method="POST" action="{% url 'inventory:update_default_pick_items' %}">
         {% csrf_token %}
         {{ default_pick_formset.management_form }}
-        <div class="overflow-x-auto max-h-[60vh] overflow-y-auto mb-4 pr-1 pb-20 default-picks-scroll-container stock-table-scroll-container">
-            <table class="table w-full table-compact default-picks-table stock-take-items-table" id="default-picks-table">
+        <div class="overflow-x-auto max-h-[60vh] overflow-y-auto mb-4 pr-1 pb-20 default-picks-scroll-container pick-locations-scroll-container">
+            <table class="table w-full table-compact default-picks-table pick-locations-table" id="default-picks-table">
                 <thead>
                     <tr>
                         <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-2/6">Location (Search & Select)</th>
@@ -168,13 +170,10 @@
                         <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-auto px-1 text-center">Remove</th>
                     </tr>
                 </thead>
-                <tbody id="default-picks-formset-body">
-                    {# Rows will be populated by JS #}
-                </tbody>
+                <tbody id="default-picks-formset-body"></tbody>
             </table>
         </div>
         <button type="button" id="add-default-pick-row-btn" class="btn btn-sm btn-outline btn-accent mb-4">Add Location</button>
-
         <div class="modal-action mt-6">
           <label for="manage-default-picks-modal-toggle" class="btn btn-ghost">Cancel</label>
           <button type="submit" class="btn btn-primary">Save Default Picks</button>
@@ -184,28 +183,81 @@
   <label class="modal-backdrop" for="manage-default-picks-modal-toggle">Close</label>
 </div>
 
-{# Template for new formset rows (for Default Picks Modal) #}
 <template id="default-pick-item-form-template">
-    <tr class="default-pick-formset-row new-row mb-2" data-row-index="{form_idx}" data-is-existing-default="false">
-        {# **** MODIFIED: Moved all hidden inputs and DELETE checkbox into a single hidden <td> **** #}
+    <tr class="pick-formset-row mb-2 default-pick-formset-row" data-pick-type="default" data-row-index="{form_idx}" data-is-existing="false">
         <td style="display:none;">
             <input type="hidden" name="{form_prefix}-{form_idx}-id" id="id_{form_prefix}-{form_idx}-id">
             <input type="hidden" name="{form_prefix}-{form_idx}-inventory_batch_item_id" id="id_{form_prefix}-{form_idx}-inventory_batch_item_id" class="selected-batch-id">
             <input type="hidden" name="{form_prefix}-{form_idx}-warehouse_product_id" id="id_{form_prefix}-{form_idx}-warehouse_product_id" class="selected-wp-id">
-            <input type="hidden" name="{form_prefix}-{form_idx}-is_default" value="on" id="id_{form_prefix}-{form_idx}-is_default">
-            <input type="checkbox" name="{form_prefix}-{form_idx}-DELETE" id="id_{form_prefix}-{form_idx}-DELETE" class="delete-checkbox"> {/* Removed visual hiding classes, td hides it */}
+            <input type="hidden" name="{form_prefix}-{form_idx}-pick_priority_value" value="0" class="pick-priority-value-input">
+            <input type="checkbox" name="{form_prefix}-{form_idx}-DELETE" id="id_{form_prefix}-{form_idx}-DELETE" class="delete-checkbox">
         </td>
-
         <td class="py-1 px-1 align-middle relative">
-            <input type="text" name="{form_prefix}-{form_idx}-location_label_search" class="input input-sm input-bordered w-full default-pick-location-search" placeholder="Type Location Label" id="id_{form_prefix}-{form_idx}-location_label_search">
-            <div class="location-suggestions hidden bg-white border border-gray-300 shadow-lg rounded mt-1 absolute z-50 w-full max-h-40 overflow-y-auto"></div>
+            <input type="text" name="{form_prefix}-{form_idx}-location_label_search" class="input input-sm input-bordered w-full location-search-input" placeholder="Type Location Label" id="id_{form_prefix}-{form_idx}-location_label_search">
+            <div class="location-suggestions hidden bg-white border border-gray-300 shadow-lg rounded mt-1 absolute z-50 w-[600px] max-h-40 overflow-y-auto"></div>
         </td>
         <td class="py-1 px-1 align-middle product-name-display text-xs"></td>
         <td class="py-1 px-1 align-middle batch-number-display text-xs"></td>
         <td class="py-1 px-1 align-middle expiry-date-display text-xs"></td>
         <td class="py-1 px-1 align-middle quantity-display text-xs text-right"></td>
-        <td class="py-1 px-1 align-middle text-center">
-            <button type="button" class="btn btn-xs btn-ghost text-error remove-default-pick-row" title="Remove this row/default">&times;</button>
+        <td class="py-1 px-1 align-middle text-center action-cell">
+            <button type="button" class="btn btn-xs btn-ghost text-error remove-pick-row" title="Remove this row/default">&times;</button>
+        </td>
+    </tr>
+</template>
+
+<input type="checkbox" id="manage-secondary-picks-modal-toggle" class="modal-toggle" />
+<div id="manage-secondary-picks-modal" class="modal" role="dialog">
+  <div class="modal-box w-11/12 max-w-4xl">
+    <label for="manage-secondary-picks-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
+    <h3 class="font-bold text-xl mb-4">Manage Secondary Pick Locations (Priority 1)</h3>
+    <form id="secondary-picks-form" method="POST" action="{% url 'inventory:update_secondary_pick_items' %}">
+        {% csrf_token %}
+        {{ secondary_pick_formset.management_form }}
+        <div class="overflow-x-auto max-h-[60vh] overflow-y-auto mb-4 pr-1 pb-20 secondary-picks-scroll-container pick-locations-scroll-container">
+            <table class="table w-full table-compact secondary-picks-table pick-locations-table" id="secondary-picks-table">
+                <thead>
+                    <tr>
+                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-2/6">Location (Search & Select)</th>
+                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-2/6">Product</th>
+                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-1/6">Batch No.</th>
+                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-1/6">Expiry</th>
+                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-1/12 text-right">Qty</th>
+                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-auto px-1 text-center">Remove</th>
+                    </tr>
+                </thead>
+                <tbody id="secondary-picks-formset-body"></tbody>
+            </table>
+        </div>
+        <button type="button" id="add-secondary-pick-row-btn" class="btn btn-sm btn-outline btn-accent mb-4">Add Location</button>
+        <div class="modal-action mt-6">
+          <label for="manage-secondary-picks-modal-toggle" class="btn btn-ghost">Cancel</label>
+          <button type="submit" class="btn btn-primary">Save Secondary Picks</button>
+        </div>
+    </form>
+  </div>
+  <label class="modal-backdrop" for="manage-secondary-picks-modal-toggle">Close</label>
+</div>
+
+<template id="secondary-pick-item-form-template">
+    <tr class="pick-formset-row mb-2 secondary-pick-formset-row" data-pick-type="secondary" data-row-index="{form_idx}" data-is-existing="false">
+        <td style="display:none;">
+            <input type="hidden" name="{form_prefix}-{form_idx}-id" id="id_{form_prefix}-{form_idx}-id">
+            <input type="hidden" name="{form_prefix}-{form_idx}-inventory_batch_item_id" id="id_{form_prefix}-{form_idx}-inventory_batch_item_id" class="selected-batch-id">
+            <input type="hidden" name="{form_prefix}-{form_idx}-warehouse_product_id" id="id_{form_prefix}-{form_idx}-warehouse_product_id" class="selected-wp-id">
+            <input type="hidden" name="{form_prefix}-{form_idx}-pick_priority_value" value="1" class="pick-priority-value-input">
+            <input type="checkbox" name="{form_prefix}-{form_idx}-DELETE" id="id_{form_prefix}-{form_idx}-DELETE" class="delete-checkbox">
+        </td>
+        <td class="py-1 px-1 align-middle relative">
+            <input type="text" name="{form_prefix}-{form_idx}-location_label_search" class="input input-sm input-bordered w-full location-search-input" placeholder="Type Location Label" id="id_{form_prefix}-{form_idx}-location_label_search">
+            <div class="location-suggestions hidden bg-white border border-gray-300 shadow-lg rounded mt-1 absolute z-50 w-[600px] max-h-40 overflow-y-auto"></div>
+        </td>
+        <td class="py-1 px-1 align-middle product-name-display text-xs"></td>
+        <td class="py-1 px-1 align-middle batch-number-display text-xs"></td>
+        <td class="py-1 px-1 align-middle expiry-date-display text-xs"></td>
+        <td class="py-1 px-1 align-middle quantity-display text-xs text-right"></td>
+        <td class="py-1 px-1 align-middle text-center action-cell">
+            <button type="button" class="btn btn-xs btn-ghost text-error remove-pick-row" title="Remove this row/secondary pick">&times;</button>
         </td>
     </tr>
 </template>
@@ -213,15 +265,26 @@
 {% endblock %}
 
 {% block extra_js %}
-
 <script>
 function getCsrfToken() {
     const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
     return csrfInput ? csrfInput.value : '';
 }
+function debounce(func, delay) {
+    let timeout;
+    const debounced = function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), delay);
+    };
+    debounced.cancel = () => { clearTimeout(timeout); };
+    return debounced;
+}
 
 document.addEventListener('DOMContentLoaded', function() {
-    // --- Add/Edit Batch Form Submission JS ---
+    const userWarehouseId = "{{ request.user.warehouse.pk|default:'' }}";
+    const defaultPickFormsetPrefixJS = "{{ default_pick_formset_prefix|escapejs }}";
+    const secondaryPickFormsetPrefixJS = "{{ secondary_pick_formset_prefix|escapejs }}";
+
     const addBatchForm = document.getElementById('add-batch-form');
     if (addBatchForm) {
         addBatchForm.addEventListener('submit', function(event) {
@@ -231,14 +294,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.disabled = true;
             saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Adding...';
-
             fetch(addBatchForm.action, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
+                method: 'POST', body: formData,
+                headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
             })
             .then(response => response.json())
             .then(data => {
@@ -246,32 +304,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch added!', position: 'top-end', showConfirmButton: false, timer: 2000});
                     else alert(data.message || 'Batch added successfully!');
                     document.getElementById('add-batch-modal-toggle').checked = false;
-                    addBatchForm.reset();
-                    window.location.reload();
+                    addBatchForm.reset(); window.location.reload();
                 } else {
                     let errorMsg = 'Could not add batch. ' + (data.message || '');
-                    if (data.errors && typeof data.errors === 'object') {
-                        errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
-                    }
+                    if (data.errors && typeof data.errors === 'object') { errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; '); }
                     if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Adding Batch', text: errorMsg });
                     else alert(errorMsg);
                 }
             })
             .catch(error => {
                 console.error('Error submitting add batch form:', error);
-                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.'});
-                else alert('Network error.');
+                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.'}); else alert('Network error.');
             })
             .finally(() => {
                  const submitBtn = addBatchForm.querySelector('button[type="submit"]');
-                 if(submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.innerHTML = originalBtnText || 'Add Batch';
-                 }
+                 if(submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalBtnText || 'Add Batch'; }
             });
         });
     }
-
     document.body.addEventListener('submit', function(event) {
         const editForm = event.target.closest('form.edit-batch-form');
         if (editForm) {
@@ -281,14 +331,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.disabled = true;
             saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...';
-
             fetch(editForm.action, {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
+                method: 'POST', body: formData,
+                headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
             })
             .then(response => response.json())
             .then(data => {
@@ -296,335 +341,197 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch updated!', position: 'top-end', showConfirmButton: false, timer: 2000});
                     else alert(data.message || 'Batch updated successfully!');
                     const modalToggle = document.getElementById(`edit-batch-modal-toggle-${data.batch_item.pk}`);
-                    if (modalToggle) modalToggle.checked = false;
-                    window.location.reload();
+                    if (modalToggle) modalToggle.checked = false; window.location.reload();
                 } else {
                     let errorMsg = data.message || 'Could not update batch. ';
-                     if (data.errors && typeof data.errors === 'object') {
-                         errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
-                    }
-                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Updating Batch', text: errorMsg });
-                    else alert(errorMsg);
+                     if (data.errors && typeof data.errors === 'object') { errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; '); }
+                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Updating Batch', text: errorMsg }); else alert(errorMsg);
                 }
             })
             .catch(error => {
                 console.error('Error submitting edit batch form:', error);
-                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.' });
-                else alert('Network error.');
+                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.' }); else alert('Network error.');
             })
-            .finally(() => {
-                if (saveBtn){ // Check if saveBtn still exists
-                    saveBtn.disabled = false;
-                    saveBtn.innerHTML = originalBtnText;
-                }
-            });
+            .finally(() => { if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; } });
         }
     });
 
-    // --- "Manage Default Picks" Modal Logic ---
-    const manageDefaultPicksModalToggle = document.getElementById('manage-default-picks-modal-toggle');
-    const defaultPicksFormsetBody = document.getElementById('default-picks-formset-body');
-    const addDefaultPickRowBtn = document.getElementById('add-default-pick-row-btn');
-    const defaultPickForm = document.getElementById('default-picks-form');
-    const defaultPickItemTemplateEl = document.getElementById('default-pick-item-form-template'); // Renamed for clarity
-    const userWarehouseId = "{{ request.user.warehouse.pk|default:'' }}";
-    const defaultPicksFormsetPrefix = "{{ default_pick_formset.prefix|default:'default_picks' }}";
+    function setupPickLocationModal(modalType) {
+        const modalToggleId = `manage-${modalType}-picks-modal-toggle`;
+        const formsetId = `${modalType}-picks-formset-body`;
+        const addRowBtnId = `add-${modalType}-pick-row-btn`;
+        const formId = `${modalType}-picks-form`;
+        const itemTemplateId = `${modalType}-pick-item-form-template`;
+        const formsetPrefix = modalType === 'default' ? defaultPickFormsetPrefixJS : secondaryPickFormsetPrefixJS;
+        const getItemsUrl = modalType === 'default' ? "{% url 'inventory:get_default_pick_items' %}" : "{% url 'inventory:get_secondary_pick_items' %}";
+        const targetPriority = modalType === 'default' ? 0 : 1;
 
+        const modalToggle = document.getElementById(modalToggleId);
+        const formsetBody = document.getElementById(formsetId);
+        const addRowBtn = document.getElementById(addRowBtnId);
+        const pickForm = document.getElementById(formId);
+        const itemTemplateEl = document.getElementById(itemTemplateId);
 
-    function debounce(func, delay) {
-        let timeout;
-        const debounced = function(...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), delay);
-        };
-        debounced.cancel = () => { clearTimeout(timeout); };
-        return debounced;
-    }
-
-    function createFormsetRow(item, index, isExistingDefault = false) {
-        if (!defaultPickItemTemplateEl || !defaultPickItemTemplateEl.content) {
-            console.error("CRITICAL: defaultPickItemTemplateEl or its .content not found!");
-            return null;
-        }
-        const clonedContent = defaultPickItemTemplateEl.content.cloneNode(true);
-        const newRow = clonedContent.querySelector('tr.default-pick-formset-row');
-        if (!newRow) {
-            console.error("Failed to find TR element within cloned template content.");
-            return null;
+        if (!modalToggle || !formsetBody || !addRowBtn || !pickForm || !itemTemplateEl) {
+            console.warn(`Elements for "${modalType}" picks modal not fully found.`); return { createRowElement: () => null };
         }
 
-        newRow.dataset.rowIndex = index;
-        newRow.dataset.isExistingDefault = String(isExistingDefault); // Store as string
-
-        // Update names and IDs of inputs
-        newRow.querySelectorAll('input[type="hidden"], input[type="checkbox"], input[type="text"]').forEach(input => {
-            if (input.name) { input.name = input.name.replace(/{form_prefix}/g, defaultPicksFormsetPrefix).replace(/{form_idx}/g, index); }
-            if (input.id) { input.id = input.id.replace(/{form_prefix}/g, defaultPicksFormsetPrefix).replace(/{form_idx}/g, index); }
-        });
-
-        const locationSearchInput = newRow.querySelector('input[name$="-location_label_search"]');
-        const removeButton = newRow.querySelector('.remove-default-pick-row');
-        const actionCell = newRow.querySelector('.action-cell'); // For potentially hiding button
-
-        if (item) { // Populating an existing default item
-            const idField = newRow.querySelector('input[name$="-id"]');
-            const itemIdField = newRow.querySelector('input[name$="-inventory_batch_item_id"]');
-            const wpIdField = newRow.querySelector('input[name$="-warehouse_product_id"]');
-
-            if(idField) idField.value = item.form_id || item.id || ''; // Use form_id if available (from formset initial data), else item.id
-            if(itemIdField) itemIdField.value = item.id; // This should be inventory_batch_item.id
-            if(wpIdField) wpIdField.value = item.warehouse_product_id;
-
-            if(locationSearchInput) {
-                locationSearchInput.value = item.location_label || '';
-                if (isExistingDefault) {
-                    locationSearchInput.disabled = true;
-                    locationSearchInput.classList.add('input-disabled', 'bg-gray-100', 'cursor-not-allowed');
-                    locationSearchInput.placeholder = "Existing Default Location";
-                }
-            }
-            newRow.querySelector('.product-name-display').textContent = item.product_name || 'N/A';
-            newRow.querySelector('.batch-number-display').textContent = item.batch_number || 'N/A';
-            newRow.querySelector('.expiry-date-display').textContent = item.expiry_date ? new Date(item.expiry_date + 'T00:00:00').toLocaleDateString('en-CA') : 'N/A';
-            newRow.querySelector('.quantity-display').textContent = item.quantity !== null ? item.quantity : 'N/A';
-            newRow.classList.remove('new-row'); // It's an existing row
-        } else { // This is a brand new row being added by the user
-            if(locationSearchInput) locationSearchInput.disabled = false;
-            newRow.classList.add('new-row');
-        }
-
-        // Configure the remove button based on whether it's an existing default
-        if (removeButton) {
-            if (isExistingDefault) {
-                removeButton.disabled = true;
-                removeButton.title = "Existing defaults are replaced by selecting a new location for the same product.";
-                removeButton.innerHTML = '🔒'; // Padlock or similar to indicate it's locked
-                removeButton.classList.remove('text-error');
-                removeButton.classList.add('text-gray-400', 'cursor-not-allowed');
-            } else { // New row
-                removeButton.disabled = false;
-                removeButton.title = "Remove this newly added row";
-                removeButton.innerHTML = '&times;';
-                removeButton.classList.add('text-error');
-                removeButton.classList.remove('text-gray-400', 'cursor-not-allowed');
-            }
-        }
-
-        console.log(`createFormsetRow (Index: ${index}, isExisting: ${isExistingDefault}) - Generated row.`);
-        setupLocationSearchForRow(newRow);
-        return newRow;
-    }
-
-    if (defaultPicksFormsetBody) {
-        defaultPicksFormsetBody.addEventListener('click', function(event) {
-            const removeButton = event.target.closest('.remove-default-pick-row');
-            if (removeButton && !removeButton.disabled) { // Check if button is not disabled
-                const rowToRemove = removeButton.closest('.default-pick-formset-row');
-                if (rowToRemove) {
-                    // Only allow direct removal for NEW rows (not existing defaults)
-                    if (rowToRemove.dataset.isExistingDefault === "false") {
-                        console.log(`Removing newly added row, index: ${rowToRemove.dataset.rowIndex}`);
-                        rowToRemove.remove();
-                        // Note: Django formset handles missing forms on submit.
-                        // If you need to re-index or update TOTAL_FORMS immediately, add that logic here.
-                    } else {
-                        // This case should ideally not be reached if button is disabled for existing rows.
-                        console.warn("Attempted to click remove on a disabled button for an existing default row.");
+        function createRowElement(item, index, isExisting = false) {
+            if (!itemTemplateEl || !itemTemplateEl.content) { console.error(`CRITICAL: ${modalType}PickItemTemplateEl or .content not found!`); return null; }
+            const clonedContent = itemTemplateEl.content.cloneNode(true);
+            const newRow = clonedContent.querySelector(`tr.pick-formset-row`);
+            if (!newRow) { console.error(`Failed to find TR in cloned ${modalType} template.`); return null; }
+            newRow.dataset.rowIndex = index; newRow.dataset.isExisting = String(isExisting); newRow.dataset.pickType = modalType;
+            newRow.querySelectorAll('input[type="hidden"], input[type="checkbox"], input[type="text"]').forEach(input => {
+                if (input.name) { input.name = input.name.replace(/{form_prefix}/g, formsetPrefix).replace(/{form_idx}/g, index); }
+                if (input.id) { input.id = input.id.replace(/{form_prefix}/g, formsetPrefix).replace(/{form_idx}/g, index); }
+            });
+            const priorityInput = newRow.querySelector('.pick-priority-value-input');
+            if (priorityInput) priorityInput.value = targetPriority;
+            const locationSearchInput = newRow.querySelector('input.location-search-input');
+            const removeButton = newRow.querySelector('.remove-pick-row');
+            if (item) {
+                const idField = newRow.querySelector('input[name$="-id"]');
+                const itemIdField = newRow.querySelector('input[name$="-inventory_batch_item_id"]');
+                const wpIdField = newRow.querySelector('input[name$="-warehouse_product_id"]');
+                if (idField) idField.value = item.form_id || item.id || '';
+                if (itemIdField) itemIdField.value = item.id;
+                if (wpIdField) wpIdField.value = item.warehouse_product_id;
+                if (locationSearchInput) {
+                    locationSearchInput.value = item.location_label || '';
+                    if (isExisting) {
+                        locationSearchInput.disabled = true; locationSearchInput.classList.add('input-disabled', 'bg-gray-100', 'cursor-not-allowed');
+                        locationSearchInput.placeholder = `Existing ${modalType} Location`;
                     }
                 }
+                newRow.querySelector('.product-name-display').textContent = item.product_name || 'N/A';
+                newRow.querySelector('.batch-number-display').textContent = item.batch_number || 'N/A';
+                newRow.querySelector('.expiry-date-display').textContent = item.expiry_date ? new Date(item.expiry_date + 'T00:00:00').toLocaleDateString('en-CA') : 'N/A';
+                newRow.querySelector('.quantity-display').textContent = item.quantity !== null ? item.quantity : 'N/A';
+                newRow.classList.remove('new-row');
+            } else { if (locationSearchInput) locationSearchInput.disabled = false; newRow.classList.add('new-row'); }
+            if (removeButton) {
+                if (isExisting) {
+                    removeButton.title = `Remove this as a ${modalType} pick location`; removeButton.innerHTML = '&times;';
+                    removeButton.classList.add('text-error'); removeButton.dataset.action = "mark-delete";
+                } else {
+                    removeButton.title = `Remove this newly added row`; removeButton.innerHTML = '&times;';
+                    removeButton.dataset.action = "remove-dom";
+                }
+            }
+            setupLocationSearchLogic(newRow, modalType); return newRow;
+        }
+
+        formsetBody.addEventListener('click', function(event) {
+            const removeButton = event.target.closest('.remove-pick-row');
+            if (removeButton) {
+                const rowToRemove = removeButton.closest('tr.pick-formset-row');
+                if (rowToRemove) {
+                    const isExistingRow = rowToRemove.dataset.isExisting === "true";
+                    if (isExistingRow) {
+                        const deleteCheckbox = rowToRemove.querySelector('input[type="checkbox"][name$="-DELETE"]');
+                        if (deleteCheckbox) {
+                            deleteCheckbox.checked = !deleteCheckbox.checked;
+                            if (deleteCheckbox.checked) {
+                                rowToRemove.style.opacity = '0.5'; rowToRemove.style.textDecoration = 'line-through';
+                                removeButton.innerHTML = 'UNDO'; removeButton.classList.remove('text-error'); removeButton.classList.add('text-warning');
+                                removeButton.title = `Undo removal of this ${modalType} pick`;
+                            } else {
+                                rowToRemove.style.opacity = '1'; rowToRemove.style.textDecoration = 'none';
+                                removeButton.innerHTML = '&times;'; removeButton.classList.remove('text-warning'); removeButton.classList.add('text-error');
+                                removeButton.title = `Remove this as a ${modalType} pick location`;
+                            }
+                        }
+                    } else { rowToRemove.remove(); }
+                }
             }
         });
-    }
 
-    if (defaultPickForm) {
-        defaultPickForm.addEventListener('submit', function(event) {
-            event.preventDefault();
-            console.log('--- Form Submit for Default Picks Triggered ---');
-
-            const formData = new FormData(defaultPickForm);
-
-            // Ensure DELETE flags are correctly set for rows marked by checkAndHandleDuplicateProductDefault
-            defaultPicksFormsetBody.querySelectorAll('tr.default-pick-formset-row[data-is-existing-default="true"]').forEach(row => {
+        pickForm.addEventListener('submit', function(event) {
+            event.preventDefault(); const formData = new FormData(pickForm);
+            formsetBody.querySelectorAll('tr.pick-formset-row').forEach(row => {
                 const deleteCheckbox = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
-                if (deleteCheckbox && deleteCheckbox.checked) {
-                    formData.set(deleteCheckbox.name, 'on');
-                     console.log(`FormData (Submit): Explicitly SET ${deleteCheckbox.name} to 'on' because checkbox.checked is true.`);
-                } else if (deleteCheckbox && !deleteCheckbox.checked && formData.has(deleteCheckbox.name)) {
-                    // If it was somehow added as 'on' but is now unchecked, remove it.
-                    // Or, ensure only checked ones are added.
-                    formData.delete(deleteCheckbox.name);
-                    console.log(`FormData (Submit): Explicitly DELETED ${deleteCheckbox.name} because checkbox.checked is false.`);
-                }
+                if (deleteCheckbox && deleteCheckbox.checked) { formData.set(deleteCheckbox.name, 'on'); }
+                else if (deleteCheckbox && !deleteCheckbox.checked && formData.has(deleteCheckbox.name)) { formData.delete(deleteCheckbox.name); }
             });
-
-            // Add DELETE flags for newly added rows that were *not* removed from DOM
-            // (This shouldn't be necessary if they are physically removed from DOM,
-            // as Django formset handles missing forms. But as a safeguard if removal fails)
-            defaultPicksFormsetBody.querySelectorAll('tr.default-pick-formset-row[data-is-existing-default="false"]').forEach(row => {
-                const deleteCheckbox = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
-                if (deleteCheckbox && deleteCheckbox.checked) { // Should only be checked if it was meant to be deleted but wasn't removed
-                    formData.set(deleteCheckbox.name, 'on');
-                }
-            });
-
-
-            console.log('--- FormData for submission ---');
-            for (let [key, value] of formData.entries()) {
-                console.log(`${key}: ${value}`);
-            }
-
-            const saveBtn = defaultPickForm.querySelector('button[type="submit"]');
-            if(saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('loading'); saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...'; }
-
-            fetch(defaultPickForm.action, {
-                method: 'POST',
-                body: formData,
+            const saveBtn = pickForm.querySelector('button[type="submit"]');
+            if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('loading'); saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...'; }
+            fetch(pickForm.action, {
+                method: 'POST', body: formData,
                 headers: { 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'}
             })
-            .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => {
-                        throw new Error(`Server responded with ${response.status}: ${text.substring(0,200)}`);
-                    });
-                }
-                return response.json();
-            })
+            .then(response => { if (!response.ok) { return response.text().then(text => { throw new Error(`Server: ${response.status}: ${text.substring(0,200)}`); }); } return response.json(); })
             .then(data => {
                 if (data.success) {
-                    if (typeof Swal !== 'undefined') Swal.fire({toast:true,icon:'success',title:data.message||'Default picks updated!',position:'top-end',showConfirmButton:false,timer:2000});
-                    else alert(data.message||'Default picks updated!');
-                    if (manageDefaultPicksModalToggle) manageDefaultPicksModalToggle.checked=false;
-                    window.location.reload();
+                    if (typeof Swal !== 'undefined') Swal.fire({toast:true,icon:'success',title:data.message||`${modalType.charAt(0).toUpperCase() + modalType.slice(1)} picks updated!`,position:'top-end',showConfirmButton:false,timer:2000});
+                    else alert(data.message||`${modalType.charAt(0).toUpperCase() + modalType.slice(1)} picks updated!`);
+                    if(modalToggle) modalToggle.checked=false; window.location.reload();
                 } else {
-                    let errorMsg=data.message||'Could not update default picks.';
-                    if(data.errors||data.formset_errors){
-                        errorMsg+=" Please check form details.";
-                        console.error("Formset errors from server:",data.formset_errors);
-                        console.error("Form errors from server:",data.errors);
-                    }
-                    if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Update Failed',text:errorMsg});
-                    else alert(errorMsg);
+                    let errorMsg = data.message || `Could not update ${modalType} picks.`;
+                    if(data.errors || data.formset_errors){ errorMsg += " Check form. Details in console."; console.error(`${modalType} FS errors:`,data.formset_errors); console.error(`${modalType} Form errors:`,data.errors); }
+                    if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Update Failed',text:errorMsg}); else alert(errorMsg);
                 }
             })
             .catch(error => {
-                console.error('Error submitting default picks form:',error);
-                let displayError='Could not submit form. Network error or server issue.';
-                if(error.message && error.message.includes("Server responded with")){displayError=error.message;}
-                if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Submission Error',text:displayError});
-                else alert(displayError);
+                console.error(`Error submitting ${modalType} picks form:`,error);
+                let displayError = 'Could not submit form. Network/server issue.';
+                if(error.message && error.message.includes("Server:")){displayError=error.message;}
+                if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Submission Error',text:displayError}); else alert(displayError);
             })
-            .finally(() => {
-                if(saveBtn){
-                    saveBtn.disabled=false;
-                    saveBtn.classList.remove('loading');
-                    saveBtn.innerHTML = 'Save Default Picks';
-                }
-            });
+            .finally(() => { if(saveBtn){ saveBtn.disabled=false; saveBtn.classList.remove('loading'); saveBtn.innerHTML = `Save ${modalType.charAt(0).toUpperCase() + modalType.slice(1)} Picks`; } });
         });
-    }
 
-
-    async function loadCurrentDefaultPicks() {
-        if (!defaultPicksFormsetBody) return;
-        defaultPicksFormsetBody.innerHTML = '<tr><td colspan="6" class="text-center py-4"><span class="loading loading-dots loading-md"></span> Loading...</td></tr>';
-
-        try {
-            const response = await fetch("{% url 'inventory:get_default_pick_items' %}", {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-            const data = await response.json();
-
-            defaultPicksFormsetBody.innerHTML = ''; // Clear loading message
-            const totalFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-TOTAL_FORMS"]`);
-            const initialFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-INITIAL_FORMS"]`);
-            const maxNumFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-MAX_NUM_FORMS"]`);
-
-            let currentNumberOfRows = 0;
-            if (data.success && data.default_picks) {
-                data.default_picks.forEach((item, index) => {
-                    const row = createFormsetRow(item, index, true); // True for existing defaults
-                    if (row) defaultPicksFormsetBody.appendChild(row);
-                    currentNumberOfRows++;
-                });
-            } else {
-                 defaultPicksFormsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Error: ${data.message || 'Could not load default picks.'}</td></tr>`;
-            }
-
-            if (currentNumberOfRows === 0) { // If no existing defaults were loaded
-                 addEmptyFormsetRow(); // Add one empty row for user to start
-            }
-            if (totalFormsInput) totalFormsInput.value = defaultPicksFormsetBody.querySelectorAll('tr.default-pick-formset-row').length;
-            if (initialFormsInput) initialFormsInput.value = data.default_picks ? data.default_picks.length : 0; // Number of initially loaded rows
-            if (maxNumFormsInput) maxNumFormsInput.value = Math.max(currentNumberOfRows, 1000);
-
-
-        } catch (error) {
-            console.error("Error loading default picks:", error);
-            defaultPicksFormsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Failed to load default picks. ${error.message}</td></tr>`;
-        }
-    }
-
-    if (manageDefaultPicksModalToggle) {
-        manageDefaultPicksModalToggle.addEventListener('change', function() {
-            if (this.checked) {
-                loadCurrentDefaultPicks();
-            } else {
-                if(defaultPicksFormsetBody) defaultPicksFormsetBody.innerHTML = ''; // Clear rows on modal close
-                const totalFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-TOTAL_FORMS"]`);
-                if (totalFormsInput) totalFormsInput.value = 0;
-            }
-        });
-    }
-
-    function checkAndHandleDuplicateProductDefault(selectedWarehouseProductId, currentRowElement) {
-        const rows = defaultPicksFormsetBody.querySelectorAll('tr.default-pick-formset-row');
-        for (let row of rows) {
-            if (row === currentRowElement) continue; // Don't compare a row to itself
-
-            const isExistingRow = row.dataset.isExistingDefault === "true";
-            const wpIdInput = row.querySelector('input[name$="-warehouse_product_id"]');
-            const deleteCheckbox = row.querySelector('input[name$="-DELETE"]');
-
-            if (isExistingRow && wpIdInput && wpIdInput.value === selectedWarehouseProductId && deleteCheckbox && !deleteCheckbox.checked) {
-                const productName = row.querySelector('.product-name-display').textContent || 'this product';
-                if (confirm(`Product "${productName}" already has a default pick location set at "${row.querySelector('input[name$="-location_label_search"]').value}". Replace it with this new location? The other will be marked for removal.`)) {
-                    deleteCheckbox.checked = true;
-                    console.log(`Marked existing default row (index ${row.dataset.rowIndex}, WP ID ${wpIdInput.value}) for DELETE because it's being replaced.`);
-
-                    // Visual cue for the row being replaced
-                    row.style.opacity = '0.5';
-                    row.style.textDecoration = 'line-through';
-                    const oldRemoveBtn = row.querySelector('.remove-default-pick-row');
-                    if (oldRemoveBtn) { // Should be disabled, but we update its appearance
-                        oldRemoveBtn.innerHTML = '🔄'; // Replaced icon
-                        oldRemoveBtn.title = 'This default pick is being replaced by your new selection and will be removed on save.';
-                        oldRemoveBtn.classList.remove('text-gray-400', 'text-error');
-                        oldRemoveBtn.classList.add('text-orange-500'); // Indicate pending change
-                    }
-                    return true; // Proceed with selection in current row
-                } else {
-                    // User cancelled replacement, clear selection in the current row
-                    const searchInputCurrent = currentRowElement.querySelector('.default-pick-location-search');
-                    const batchIdInputCurrent = currentRowElement.querySelector('input[name$="-inventory_batch_item_id"]');
-                    const wpIdInputCurrent = currentRowElement.querySelector('input[name$="-warehouse_product_id"]');
-                    if(searchInputCurrent) searchInputCurrent.value = '';
-                    if(batchIdInputCurrent) batchIdInputCurrent.value = '';
-                    if(wpIdInputCurrent) wpIdInputCurrent.value = '';
-                    currentRowElement.querySelector('.product-name-display').textContent = '';
-                    currentRowElement.querySelector('.batch-number-display').textContent = '';
-                    currentRowElement.querySelector('.expiry-date-display').textContent = '';
-                    currentRowElement.querySelector('.quantity-display').textContent = '';
-                    return false; // Stop selection in current row
-                }
+        async function loadCurrentPicks() {
+            if (!formsetBody) return;
+            formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4"><span class="loading loading-dots loading-md"></span> Loading ${modalType} picks...</td></tr>`;
+            try {
+                const response = await fetch(getItemsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
+                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const data = await response.json(); formsetBody.innerHTML = '';
+                const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`);
+                const initialFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-INITIAL_FORMS"]`);
+                let currentNumberOfRows = 0;
+                const itemsToLoad = modalType === 'default' ? data.default_picks : data.secondary_picks;
+                if (data.success && itemsToLoad) {
+                    itemsToLoad.forEach((item, index) => {
+                        const row = createRowElement(item, index, true); if (row) formsetBody.appendChild(row); currentNumberOfRows++;
+                    });
+                } else { formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Error: ${data.message || `Could not load ${modalType} picks.`}</td></tr>`; }
+                if (currentNumberOfRows === 0) { addEmptyRowForPickType(modalType); }
+                if (totalFormsInput) totalFormsInput.value = formsetBody.querySelectorAll('tr.pick-formset-row').length;
+                if (initialFormsInput) initialFormsInput.value = itemsToLoad ? itemsToLoad.length : 0;
+            } catch (error) {
+                console.error(`Error loading ${modalType} picks:`, error);
+                formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Failed to load. ${error.message}</td></tr>`;
             }
         }
-        return true; // No conflict found or conflict resolved by user
+        modalToggle.addEventListener('change', function() {
+            if (this.checked) { loadCurrentPicks(); }
+            else { if(formsetBody) formsetBody.innerHTML = ''; const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`); if (totalFormsInput) totalFormsInput.value = 0; }
+        });
+        addRowBtn.addEventListener('click', () => addEmptyRowForPickType(modalType));
+        return { createRowElement };
     }
 
+    function addEmptyRowForPickType(modalType) {
+        const formsetId = `${modalType}-picks-formset-body`;
+        const formId = `${modalType}-picks-form`;
+        const formsetPrefix = modalType === 'default' ? defaultPickFormsetPrefixJS : secondaryPickFormsetPrefixJS;
+        const formsetBody = document.getElementById(formsetId);
+        const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`);
+        if (!totalFormsInput || !formsetBody) { console.error(`Elements for ${modalType} not found!`); return; }
+        const currentTotalForms = parseInt(totalFormsInput.value);
+        const modalSetup = modalType === 'default' ? defaultModalSetup : secondaryModalSetup;
+        const newRow = modalSetup.createRowElement(null, currentTotalForms, false);
+        if (newRow) {
+            formsetBody.appendChild(newRow); totalFormsInput.value = currentTotalForms + 1;
+            const newSearchInput = newRow.querySelector('.location-search-input');
+            if (newSearchInput) newSearchInput.focus();
+        } else { console.error(`Failed to create new ${modalType} pick row.`); }
+    }
 
-    function setupLocationSearchForRow(rowElement) {
-        const searchInput = rowElement.querySelector(`.default-pick-location-search`);
+    function setupLocationSearchLogic(rowElement, pickType) {
+        const searchInput = rowElement.querySelector(`.location-search-input`);
         const suggestionsDiv = rowElement.querySelector('.location-suggestions');
         const batchItemIdInput = rowElement.querySelector(`input[name$="-inventory_batch_item_id"]`);
         const wpIdInput = rowElement.querySelector(`input[name$="-warehouse_product_id"]`);
@@ -634,253 +541,106 @@ document.addEventListener('DOMContentLoaded', function() {
         const quantityDisplay = rowElement.querySelector('.quantity-display');
 
         if (!searchInput || !suggestionsDiv || !batchItemIdInput || !wpIdInput || !productNameDisplay || !batchNumberDisplay || !expiryDateDisplay || !quantityDisplay) {
-            console.warn("setupLocationSearchForRow: Missing one or more elements for row:", rowElement.dataset.rowIndex);
-            return;
+            console.warn(`setupLocationSearchLogic (${pickType}): Missing elements for row:`, rowElement.dataset.rowIndex); return;
         }
-        // If it's an existing default and its location search is disabled, don't attach listeners.
-        if (rowElement.dataset.isExistingDefault === "true" && searchInput.disabled) {
-            console.log(`Location search for existing default row ${rowElement.dataset.rowIndex} is disabled. Skipping listener attachment.`);
-            return;
-        }
+        if (rowElement.dataset.isExisting === "true" && searchInput.disabled) { return; }
 
         const fetchLocationSuggestions = debounce(async function(term) {
             if (term.length < 1) { suggestionsDiv.innerHTML = ''; suggestionsDiv.classList.add('hidden'); return; }
             try {
                 let searchUrl = `{% url 'inventory:search_batch_by_location' %}?location_label=${encodeURIComponent(term)}`;
                 if (userWarehouseId) { searchUrl += `&warehouse_id=${userWarehouseId}`; }
-
                 const response = await fetch(searchUrl);
-                if (!response.ok) throw new Error('Network response was not ok for location search.');
-                const batches = await response.json();
-                suggestionsDiv.innerHTML = '';
+                if (!response.ok) throw new Error('Network error.');
+                const batches = await response.json(); suggestionsDiv.innerHTML = '';
                 if (batches.length > 0) {
                     batches.forEach(batch => {
                         const div = document.createElement('div');
-                        div.innerHTML = `<strong>${batch.location_label||'N/A'}</strong> - ${batch.product_name} (SKU:${batch.product_sku}) <small class="text-gray-600">B:${batch.batch_number||'N/A'}|E:${batch.expiry_date ? new Date(batch.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : 'N/A'}|Q:${batch.quantity}</small>`;
-                        div.className = 'p-2 hover:bg-gray-100 cursor-pointer text-xs border-b';
-                        // Store all batch data in dataset for easy access on click
+                        div.innerHTML = `<strong>${batch.location_label||'N/A'}</strong> - ${batch.product_name} (<strong>SKU</strong>:${batch.product_sku}) <small class="text-gray-600 text-base"><strong>B</strong>:${batch.batch_number||'N/A'} | <strong>E</strong>:${batch.expiry_date ? new Date(batch.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : 'N/A'} | <strong>Q</strong>:${batch.quantity} | <strong>P</strong>:${batch.current_pick_priority === 0 ? 'Def' : (batch.current_pick_priority === 1 ? 'Sec' : '-')}</small>`;
+                        div.className = 'p-2 hover:bg-gray-100 cursor-pointer text-md border-b';
                         Object.keys(batch).forEach(key => { div.dataset[key] = batch[key]; });
-
                         div.addEventListener('click', function() {
-                            // Check for duplicates BEFORE setting the values
-                            if (!checkAndHandleDuplicateProductDefault(this.dataset.warehouse_product_id, rowElement)) {
-                                suggestionsDiv.classList.add('hidden'); // Hide suggestions if user cancelled
-                                return; // Stop processing this click
-                            }
+                            const selectedBatchCurrentPriorityStr = this.dataset.current_pick_priority;
+                            let selectedBatchCurrentPriority = null;
+                            if (selectedBatchCurrentPriorityStr === "0") selectedBatchCurrentPriority = 0;
+                            else if (selectedBatchCurrentPriorityStr === "1") selectedBatchCurrentPriority = 1;
 
+                            if (!checkAndHandleDuplicatePick(this.dataset.warehouse_product_id, this.dataset.id, selectedBatchCurrentPriority, rowElement, pickType)) {
+                                suggestionsDiv.classList.add('hidden'); return;
+                            }
                             searchInput.value = this.dataset.location_label || '';
-                            batchItemIdInput.value = this.dataset.id; // batch.id is inventory_batch_item.id
-                            wpIdInput.value = this.dataset.warehouse_product_id;
-                            productNameDisplay.textContent = this.dataset.product_name;
-                            batchNumberDisplay.textContent = this.dataset.batch_number || '';
+                            batchItemIdInput.value = this.dataset.id; wpIdInput.value = this.dataset.warehouse_product_id;
+                            productNameDisplay.textContent = this.dataset.product_name; batchNumberDisplay.textContent = this.dataset.batch_number || '';
                             expiryDateDisplay.textContent = this.dataset.expiry_date ? new Date(this.dataset.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : '';
                             quantityDisplay.textContent = this.dataset.quantity;
-
-                            suggestionsDiv.innerHTML = '';
-                            suggestionsDiv.classList.add('hidden');
+                            suggestionsDiv.innerHTML = ''; suggestionsDiv.classList.add('hidden');
                         });
                         suggestionsDiv.appendChild(div);
                     });
                     suggestionsDiv.classList.remove('hidden');
-                } else {
-                    suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-gray-500">No matches found for this location.</div>';
-                    suggestionsDiv.classList.remove('hidden');
-                }
-            } catch (error) {
-                console.error('Location suggestions fetch error:', error);
-                suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-red-500">Error loading suggestions.</div>';
-                suggestionsDiv.classList.remove('hidden');
-            }
+                } else { suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-gray-500">No matches.</div>'; suggestionsDiv.classList.remove('hidden'); }
+            } catch (error) { console.error('Location suggestions error:', error); suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-red-500">Error.</div>'; suggestionsDiv.classList.remove('hidden');}
         }, 300);
-
-        searchInput.addEventListener('input', function() {
-            fetchLocationSuggestions(this.value);
-            // Clear related fields if input is cleared, to prevent submitting stale data
-            if (this.value.trim()==='') {
-                batchItemIdInput.value='';
-                wpIdInput.value='';
-                productNameDisplay.textContent='';
-                batchNumberDisplay.textContent='';
-                expiryDateDisplay.textContent='';
-                quantityDisplay.textContent='';
-            }
-        });
-        // Hide suggestions when clicking outside
-        document.addEventListener('click', (event) => {
-            if (suggestionsDiv && !searchInput.contains(event.target) && !suggestionsDiv.contains(event.target)) {
-                suggestionsDiv.classList.add('hidden');
-            }
-        });
+        searchInput.addEventListener('input', function() { fetchLocationSuggestions(this.value); if (this.value.trim()==='') { batchItemIdInput.value=''; wpIdInput.value=''; productNameDisplay.textContent=''; batchNumberDisplay.textContent=''; expiryDateDisplay.textContent=''; quantityDisplay.textContent='';}});
+        document.addEventListener('click', (event) => { if (suggestionsDiv && !searchInput.contains(event.target) && !suggestionsDiv.contains(event.target)) { suggestionsDiv.classList.add('hidden'); } });
     }
 
-    function updateTotalForms(increment) {
-        const totalFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-TOTAL_FORMS"]`);
-        if (totalFormsInput) {
-            const currentTotal = parseInt(totalFormsInput.value);
-            totalFormsInput.value = currentTotal + increment;
+    function checkAndHandleDuplicatePick(selectedWarehouseProductId, currentBatchItemIdStr, currentBatchItemPriority, currentRowElement, pickType) {
+        const formsetBody = document.getElementById(`${pickType}-picks-formset-body`);
+        if (!formsetBody) return true;
+        const currentBatchItemId = parseInt(currentBatchItemIdStr); // Ensure it's a number for comparison
+
+        const conflictingPriority = pickType === 'default' ? 1 : 0;
+        const conflictingPriorityName = pickType === 'default' ? 'Secondary' : 'Default';
+
+        if (currentBatchItemPriority === conflictingPriority) {
+            const selectedProductName = currentRowElement.querySelector('.product-name-display').textContent || `Product for WP ID ${selectedWarehouseProductId}`;
+            const selectedLocationLabel = currentRowElement.querySelector('.location-search-input').value || 'the selected location';
+            alert(`🚫 Conflict: Batch at "${selectedLocationLabel}" for product "${selectedProductName}" is already a ${conflictingPriorityName} Pick. An item cannot be both Default and Secondary at the same time.`);
+            const searchInputCurrent = currentRowElement.querySelector('.location-search-input');
+            const batchIdInputCurrent = currentRowElement.querySelector('input[name$="-inventory_batch_item_id"]');
+            const wpIdInputCurrent = currentRowElement.querySelector('input[name$="-warehouse_product_id"]');
+            if (searchInputCurrent) searchInputCurrent.value = ''; if (batchIdInputCurrent) batchIdInputCurrent.value = ''; if (wpIdInputCurrent) wpIdInputCurrent.value = '';
+            currentRowElement.querySelector('.product-name-display').textContent = ''; currentRowElement.querySelector('.batch-number-display').textContent = '';
+            currentRowElement.querySelector('.expiry-date-display').textContent = ''; currentRowElement.querySelector('.quantity-display').textContent = '';
+            return false;
         }
-    }
 
-    function addEmptyFormsetRow() {
-        const totalFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-TOTAL_FORMS"]`);
-        if (!totalFormsInput) { console.error("TOTAL_FORMS input not found!"); return; }
+        const rows = formsetBody.querySelectorAll('tr.pick-formset-row');
+        for (let row of rows) {
+            if (row === currentRowElement) continue;
+            const isExistingDesignatedRow = row.dataset.isExisting === "true";
+            const wpIdInput = row.querySelector('input[name$="-warehouse_product_id"]');
+            const deleteCheckbox = row.querySelector('input[name$="-DELETE"]');
+            const otherBatchItemId = parseInt(row.querySelector('input[name$="-inventory_batch_item_id"]').value);
 
-        const currentTotalForms = parseInt(totalFormsInput.value);
-        const newRow = createFormsetRow(null, currentTotalForms, false); // false for new row
-
-        if (defaultPicksFormsetBody && newRow) {
-            defaultPicksFormsetBody.appendChild(newRow);
-            totalFormsInput.value = currentTotalForms + 1; // Increment total forms
-            const newSearchInput = newRow.querySelector('.default-pick-location-search');
-            if (newSearchInput) newSearchInput.focus();
-        } else {
-            console.error("defaultPicksFormsetBody not found or newRow creation failed.");
+            if (wpIdInput && wpIdInput.value === selectedWarehouseProductId &&
+                isExistingDesignatedRow && deleteCheckbox && !deleteCheckbox.checked &&
+                otherBatchItemId !== currentBatchItemId ) {
+                const productName = row.querySelector('.product-name-display').textContent || 'this product';
+                const existingLocation = row.querySelector('input[name$="-location_label_search"]').value || 'its current location';
+                if (confirm(`Product "${productName}" already has a ${pickType} pick set at "${existingLocation}". Replace it? The other will be marked for removal.`)) {
+                    deleteCheckbox.checked = true; row.style.opacity = '0.5'; row.style.textDecoration = 'line-through';
+                    const oldRemoveBtn = row.querySelector('.remove-pick-row');
+                    if (oldRemoveBtn) { oldRemoveBtn.innerHTML = '🔄'; oldRemoveBtn.title = `This ${pickType} pick is being replaced.`; oldRemoveBtn.classList.remove('text-gray-400', 'text-error'); oldRemoveBtn.classList.add('text-orange-500');}
+                    return true;
+                } else {
+                    const searchInputCurrent = currentRowElement.querySelector('.location-search-input'); if (searchInputCurrent) searchInputCurrent.value = '';
+                    const batchIdInputCurrent = currentRowElement.querySelector('input[name$="-inventory_batch_item_id"]'); if (batchIdInputCurrent) batchIdInputCurrent.value = '';
+                    const wpIdInputCurrent = currentRowElement.querySelector('input[name$="-warehouse_product_id"]'); if (wpIdInputCurrent) wpIdInputCurrent.value = '';
+                    currentRowElement.querySelector('.product-name-display').textContent = ''; currentRowElement.querySelector('.batch-number-display').textContent = '';
+                    currentRowElement.querySelector('.expiry-date-display').textContent = ''; currentRowElement.querySelector('.quantity-display').textContent = '';
+                    return false;
+                }
+            }
         }
+        return true;
     }
 
-    if (addDefaultPickRowBtn) {
-        addDefaultPickRowBtn.addEventListener('click', addEmptyFormsetRow);
-    }
-
-    // if (defaultPicksFormsetBody) {
-    //     defaultPicksFormsetBody.addEventListener('click', function(event) {
-    //         const removeButton = event.target.closest('.remove-default-pick-row');
-    //         if (removeButton) {
-    //             const rowToRemove = removeButton.closest('.default-pick-formset-row');
-    //             if (rowToRemove) {
-    //                 // Construct the specific name attribute to look for
-    //                 const rowIndex = rowToRemove.dataset.rowIndex; // Get the index from the row
-    //                 const expectedDeleteCheckboxName = `${defaultPicksFormsetPrefix}-${rowIndex}-DELETE`;
-    //                 const deleteCheckbox = rowToRemove.querySelector(`input[name="${expectedDeleteCheckboxName}"]`);
-
-    //                 console.log(`Remove button clicked for row index ${rowIndex}. Attempting to find DELETE checkbox with name: ${expectedDeleteCheckboxName}`);
-
-    //                 if (deleteCheckbox) {
-    //                     console.log('Found DELETE checkbox:', deleteCheckbox.id, 'Current .checked state:', deleteCheckbox.checked);
-    //                     if (rowToRemove.dataset.isExistingDefault === "true") {
-    //                         deleteCheckbox.checked = !deleteCheckbox.checked;
-    //                         if (deleteCheckbox.checked) { deleteCheckbox.setAttribute('checked', 'checked');} else { deleteCheckbox.removeAttribute('checked');}
-    //                         console.log('Toggled DELETE Checkbox for existing default:', deleteCheckbox.id, 'New .checked state:', deleteCheckbox.checked);
-    //                         rowToRemove.style.opacity = deleteCheckbox.checked ? '0.5' : '1';
-    //                         rowToRemove.style.textDecoration = deleteCheckbox.checked ? 'line-through' : 'none';
-    //                         removeButton.innerHTML = deleteCheckbox.checked ? 'UNDO' : '&times;';
-    //                         removeButton.classList.toggle('btn-warning', deleteCheckbox.checked);
-    //                         removeButton.classList.toggle('text-error', !deleteCheckbox.checked);
-    //                     } else {
-    //                         rowToRemove.remove();
-    //                     }
-    //                 } else {
-    //                     console.warn("Could not find DELETE checkbox for row:", rowToRemove, `using specific name selector: input[name="${expectedDeleteCheckboxName}"]`);
-    //                     // As a fallback, try the general selector again, though specific is better
-    //                     const fallbackDeleteCheckbox = rowToRemove.querySelector('input[name$="-DELETE"]');
-    //                     if (fallbackDeleteCheckbox) {
-    //                          console.warn("Found DELETE checkbox with fallback selector:", fallbackDeleteCheckbox.id);
-    //                          // ... attempt to use fallbackDeleteCheckbox ...
-    //                     } else {
-    //                          console.error("DELETE checkbox definitively not found in row even with fallback selector.");
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     });
-    // }
-
-    // if (defaultPickForm) {
-    //     defaultPickForm.addEventListener('submit', function(event) {
-    //         event.preventDefault();
-    //         console.log('--- Form Submit for Default Picks Triggered ---');
-    //         // Log current DOM state of DELETE checkboxes
-    //         this.querySelectorAll('input[type="checkbox"][name$="-DELETE"]').forEach((cb) => {
-    //             console.log(`BEFORE FormData: Checkbox ${cb.name} (ID: ${cb.id}) - DOM .checked: ${cb.checked}, getAttribute('checked'): ${cb.getAttribute('checked')}`);
-    //         });
-
-    //         const formData = new FormData(defaultPickForm);
-
-    //         // Explicitly set/append DELETE values based on current DOM .checked state
-    //         this.querySelectorAll('input[type="checkbox"][name$="-DELETE"]').forEach((cb) => {
-    //             if (cb.checked) {
-    //                 formData.set(cb.name, 'on');
-    //                 console.log(`FormData: Explicitly SET ${cb.name} to 'on' because cb.checked is true`);
-    //             } else {
-    //                 if (formData.has(cb.name)) {
-    //                      formData.delete(cb.name);
-    //                      console.log(`FormData: Explicitly DELETED ${cb.name} because cb.checked is false and it might have been present.`);
-    //                 }
-    //             }
-    //         });
-
-    //         console.log('--- FormData entries for DELETE flags (after explicit manipulation) ---');
-    //         const totalFormsInput = document.querySelector(`#default-picks-form input[name="${defaultPicksFormsetPrefix}-TOTAL_FORMS"]`);
-    //         const numFormsToIterate = totalFormsInput ? parseInt(totalFormsInput.value) : (defaultPicksFormsetBody.querySelectorAll('tr.default-pick-formset-row').length);
-
-    //         for (let i = 0; i < numFormsToIterate; i++) {
-    //             const deleteKey = `${defaultPicksFormsetPrefix}-${i}-DELETE`;
-    //             if (formData.has(deleteKey)) {
-    //                 console.log(`FormData final for submission - ${deleteKey}: ${formData.get(deleteKey)}`);
-    //             } else {
-    //                 console.log(`FormData final for submission - ${deleteKey}: not present`);
-    //             }
-    //         }
-
-    //         const saveBtn = defaultPickForm.querySelector('button[type="submit"]');
-    //         if(saveBtn) { // Ensure button exists
-    //             saveBtn.disabled = true;
-    //             saveBtn.classList.add('loading');
-    //         }
-
-    //         fetch(defaultPickForm.action, {
-    //             method: 'POST',
-    //             body: formData,
-    //             headers: {
-    //                 'X-CSRFToken': getCsrfToken(),
-    //                 'X-Requested-With': 'XMLHttpRequest'
-    //             }
-    //         })
-    //         .then(response => {
-    //             if (!response.ok) {
-    //                 return response.text().then(text => {
-    //                     throw new Error(`Server responded with ${response.status}: ${text.substring(0, 200)}`);
-    //                 });
-    //             }
-    //             return response.json();
-    //         })
-    //         .then(data => {
-    //             if (data.success) {
-    //                 if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Default picks updated!', position: 'top-end', showConfirmButton: false, timer: 2000});
-    //                 else alert(data.message || 'Default picks updated!');
-    //                 if (manageDefaultPicksModalToggle) manageDefaultPicksModalToggle.checked = false;
-    //                 window.location.reload();
-    //             } else {
-    //                 let errorMsg = data.message || 'Could not update default picks.';
-    //                 if (data.errors || data.formset_errors) {
-    //                      errorMsg += " Please check form details.";
-    //                      console.error("Formset errors from server:", data.formset_errors);
-    //                      console.error("Form errors from server:", data.errors);
-    //                 }
-    //                 if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Update Failed', text: errorMsg });
-    //                 else alert(errorMsg);
-    //             }
-    //         })
-    //         .catch(error => {
-    //             console.error('Error submitting default picks form:', error);
-    //             let displayError = 'Could not submit form. Network error or server issue.';
-    //             if (error.message && error.message.includes("Server responded with")) {
-    //                 displayError = error.message;
-    //             }
-    //             if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Submission Error', text: displayError });
-    //             else alert(displayError);
-    //         })
-    //         .finally(() => {
-    //             if (saveBtn) {
-    //                 saveBtn.disabled = false;
-    //                 saveBtn.classList.remove('loading');
-    //             }
-    //         });
-    //     });
-    // }
+    const defaultModalSetup = setupPickLocationModal('default');
+    const secondaryModalSetup = setupPickLocationModal('secondary');
 
     // --- Main Page Search and Filter Logic ---
-    // ... (this part of your JS remains the same) ...
     const toggleExpiryFilterButton = document.getElementById('toggle-expiry-filter');
     const toggleUnbatchedFilterButton = document.getElementById('toggle-unbatched-filter');
     const toggleNewlyReceivedFilterButton = document.getElementById('toggle-newly-received-filter');
@@ -921,11 +681,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function applyDisplayFilters() {
         if (!mainTableBody) return;
         const searchTerm = currentSearchTerm.toLowerCase().trim();
-
-        const rowsFragment = document.createDocumentFragment();
-        originalWPRowsOrder.forEach(row => rowsFragment.appendChild(row));
         mainTableBody.innerHTML = '';
-
         let rowsToDisplayAndPotentiallySort = [];
 
         originalWPRowsOrder.forEach(wpRow => {
@@ -962,7 +718,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 let visibleBatchesCount = 0;
                 batchRows.forEach(batchRow => {
                     let showThisBatch = true;
-
                     if (isExpiryFilterActive) {
                         const expiryDateStr = batchRow.dataset.expiryDate;
                         if (expiryDateStr) {
@@ -971,11 +726,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             if (isNaN(expiryDateObj.valueOf()) || !(expiryDateObj <= sixMonthsFromNowUTC && expiryDateObj >= todayUTC)) {
                                 showThisBatch = false;
                             }
-                        } else {
-                            showThisBatch = false;
-                        }
+                        } else { showThisBatch = false; }
                     }
-
                     if (showThisBatch && isNewlyReceivedFilterActive) {
                         const receivedDateStr = batchRow.dataset.receivedDate;
                         if (receivedDateStr) {
@@ -988,15 +740,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                     maxEligibleReceivedDateThisWp = batchReceivedDateObj;
                                 }
                             }
-                        } else {
-                            showThisBatch = false;
-                        }
+                        } else { showThisBatch = false; }
                     }
-
                     batchRow.style.display = showThisBatch ? '' : 'none';
                     if (showThisBatch) visibleBatchesCount++;
                 });
-
                 if ((isExpiryFilterActive || isNewlyReceivedFilterActive) && visibleBatchesCount === 0) {
                     passesBatchDependentFilters = false;
                 }
@@ -1004,20 +752,16 @@ document.addEventListener('DOMContentLoaded', function() {
                      passesBatchDependentFilters = false;
                 }
             }
-
             const showWPRow = passesSearch && passesUnbatched && passesBatchDependentFilters;
-
             if (showWPRow) {
                 wpRow.dataset.sortKey = (isNewlyReceivedFilterActive && maxEligibleReceivedDateThisWp)
                                         ? maxEligibleReceivedDateThisWp.toISOString()
                                         : (wpRow.querySelector('.product-name') ? wpRow.querySelector('.product-name').textContent.toLowerCase() : '');
                 rowsToDisplayAndPotentiallySort.push(wpRow);
             }
-
             const noBatchesMessageEl = wpRow.querySelector('.batch-details-cell > .no-batches-message');
-            if (noBatchesMessageEl) {
-                if (!showWPRow) {
-                    noBatchesMessageEl.style.display = 'none';
+            if(noBatchesMessageEl){
+                if (!showWPRow){ noBatchesMessageEl.style.display = 'none';
                 } else {
                     const visibleBatchRowsAfterFilters = Array.from(batchRows).filter(br => br.style.display !== 'none').length;
                     let msg = "";
@@ -1033,24 +777,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
             const unbatchedInfoEl = wpRow.querySelector('.batch-details-cell > .unbatched-info');
-            if(unbatchedInfoEl){
-                unbatchedInfoEl.style.display = showWPRow ? '' : 'none';
-            }
+            if(unbatchedInfoEl){ unbatchedInfoEl.style.display = showWPRow ? '' : 'none'; }
         });
 
         if (isNewlyReceivedFilterActive && rowsToDisplayAndPotentiallySort.length > 0) {
             rowsToDisplayAndPotentiallySort.sort((a, b) => {
-                const dateA = a.dataset.sortKey === '0' ? 0 : new Date(a.dataset.sortKey).getTime();
-                const dateB = b.dataset.sortKey === '0' ? 0 : new Date(b.dataset.sortKey).getTime();
+                const dateA = a.dataset.sortKey ? new Date(a.dataset.sortKey).getTime() : 0;
+                const dateB = b.dataset.sortKey ? new Date(b.dataset.sortKey).getTime() : 0;
                 if (dateB !== dateA) return dateB - dateA;
-                return a.dataset.sortKey.localeCompare(b.dataset.sortKey);
+                const nameA = a.querySelector('.product-name') ? a.querySelector('.product-name').textContent.toLowerCase() : '';
+                const nameB = b.querySelector('.product-name') ? b.querySelector('.product-name').textContent.toLowerCase() : '';
+                return nameA.localeCompare(nameB);
             });
         }
-        rowsToDisplayAndPotentiallySort.forEach(row => {
-            mainTableBody.appendChild(row);
-            row.style.display = '';
-        });
-
+        rowsToDisplayAndPotentiallySort.forEach(row => { mainTableBody.appendChild(row); row.style.display = ''; });
         updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive);
         updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive);
         updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive);
@@ -1058,33 +798,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const debouncedApplyFilters = debounce(applyDisplayFilters, 300);
 
-    if (searchInput) {
-        searchInput.addEventListener('input', function() {
-            currentSearchTerm = this.value;
-            debouncedApplyFilters();
-        });
-    }
-    if (toggleExpiryFilterButton) {
-        toggleExpiryFilterButton.addEventListener('click', function() {
-            isExpiryFilterActive = !isExpiryFilterActive;
-            applyDisplayFilters();
-        });
-        updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive);
-    }
-    if (toggleUnbatchedFilterButton) {
-        toggleUnbatchedFilterButton.addEventListener('click', function() {
-            isUnbatchedFilterActive = !isUnbatchedFilterActive;
-            applyDisplayFilters();
-        });
-        updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive);
-    }
-    if (toggleNewlyReceivedFilterButton) {
-        toggleNewlyReceivedFilterButton.addEventListener('click', function() {
-            isNewlyReceivedFilterActive = !isNewlyReceivedFilterActive;
-            applyDisplayFilters();
-        });
-        updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive);
-    }
+    if (searchInput) { searchInput.addEventListener('input', function() { currentSearchTerm = this.value; debouncedApplyFilters(); }); }
+    if (toggleExpiryFilterButton) { toggleExpiryFilterButton.addEventListener('click', function() { isExpiryFilterActive = !isExpiryFilterActive; applyDisplayFilters(); }); updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive); }
+    if (toggleUnbatchedFilterButton) { toggleUnbatchedFilterButton.addEventListener('click', function() { isUnbatchedFilterActive = !isUnbatchedFilterActive; applyDisplayFilters(); }); updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive); }
+    if (toggleNewlyReceivedFilterButton) { toggleNewlyReceivedFilterButton.addEventListener('click', function() { isNewlyReceivedFilterActive = !isNewlyReceivedFilterActive; applyDisplayFilters(); }); updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive); }
 
     document.querySelectorAll('.manage-unbatched-btn').forEach(button => {
          button.addEventListener('click', function() {
@@ -1101,27 +818,20 @@ document.addEventListener('DOMContentLoaded', function() {
             const quantityField = currentAddBatchForm.elements['quantity'];
             currentAddBatchForm.reset();
             if (wpSelectContainer) wpSelectContainer.style.display = 'none';
-            if (warehouseProductSelectOriginal) {
-                warehouseProductSelectOriginal.style.display = 'none';
-                warehouseProductSelectOriginal.removeAttribute('required');
-            }
-            if (wpDisplayContainer && warehouseProductDisplayText) {
-                warehouseProductDisplayText.textContent = wpName;
-                wpDisplayContainer.style.display = 'block';
-            }
-            if (hiddenWpIdField) { hiddenWpIdField.value = wpId;
-            } else { console.warn("Hidden WP ID field 'hidden_warehouse_product_id' not found.");}
+            if (warehouseProductSelectOriginal) { warehouseProductSelectOriginal.style.display = 'none'; warehouseProductSelectOriginal.removeAttribute('required'); }
+            if (wpDisplayContainer && warehouseProductDisplayText) { warehouseProductDisplayText.textContent = wpName; wpDisplayContainer.style.display = 'block'; }
+            if (hiddenWpIdField) { hiddenWpIdField.value = wpId; }
+            else { console.warn("Hidden WP ID field 'hidden_warehouse_product_id' not found.");}
             const unbatchedInfoDiv = this.closest('.unbatched-info');
             if (unbatchedInfoDiv) {
                 const unbatchedQtyValueSpan = unbatchedInfoDiv.querySelector('span.unbatched-qty-value');
-                if (unbatchedQtyValueSpan && quantityField) {
-                    quantityField.value = parseInt(unbatchedQtyValueSpan.textContent, 10);
-                }
+                if (unbatchedQtyValueSpan && quantityField) { quantityField.value = parseInt(unbatchedQtyValueSpan.textContent, 10); }
             }
             setTimeout(() => { if (addBatchModalToggle) addBatchModalToggle.checked = true; }, 0);
         });
     });
     applyDisplayFilters();
 });
+// V001
 </script>
 {% endblock %}

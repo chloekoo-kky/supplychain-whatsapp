@@ -1,0 +1,86 @@
+{% load i18n %}
+{% load humanize %}
+
+{% if orders %}
+    {% for order in orders %}
+        <tr class="order-row border-b border-gray-200 hover:bg-gray-50" data-order-id="{{ order.pk }}">
+            <td class="py-2 px-4 text-left align-top">
+                <div class="font-medium">{{ order.erp_order_id }}</div>
+                <div class="mt-1">
+                    <span class="badge badge-sm
+                        {% if order.status == 'PENDING_IMPORT' or order.status == 'IMPORT_FAILED' %}badge-error text-white
+                        {% elif order.status == 'PENDING_ALLOCATION' or order.status == 'PARTIALLY_ALLOCATED' %}badge-warning text-black
+                        {% elif order.status == 'FULLY_ALLOCATED' or order.status == 'READY_FOR_PACKING' %}badge-info text-white
+                        {% elif order.status == 'PENDING_SHIPMENT' or order.status == 'PARTIALLY_SHIPPED' or order.status == 'SHIPPED' %}badge-primary text-white
+                        {% elif order.status == 'COMPLETED' %}badge-success text-white
+                        {% elif order.status == 'CANCELLED' %}badge-neutral text-white
+                        {% else %}badge-ghost
+                        {% endif %}">{{ order.get_status_display }}
+                    </span>
+                </div>
+            </td>
+            <td class="py-2 px-4 text-left align-top">{{ order.order_date|date:"d/m/Y" }}</td>
+            <td class="py-2 px-4 text-left align-top">
+                <div class="font-medium">{{ order.customer_name|default:"N/A" }}</div>
+                {% if order.company_name %}<div class="text-xs text-gray-600">{{ order.company_name }}</div>{% endif %}
+                <div class="text-xs text-gray-500 mt-1">
+                    {% if order.recipient_address_city %}{{ order.recipient_address_city }}{% endif %}{% if order.recipient_address_state %}{% if order.recipient_address_city %}, {% endif %}{{ order.recipient_address_state }}{% endif %}
+                </div>
+            </td>
+            <td class="py-2 px-4 text-left align-top">
+                {% if order.items.all %}
+                <table class="table table-xs w-full"><tbody>
+                    {% for item in order.items.all %}
+                    <tr>
+                        <td class="px-1 py-0.5 w-1/12">{{ item.quantity_ordered }}x</td>
+                        <td class="px-1 py-0.5 w-auto">
+                            {% if item.suggested_batch_item.location_label %}<span class="text-black-600 font-medium ml-1">[{{ item.suggested_batch_item.location_label }}]</span>{% endif %}
+                            {{ item.product.name|default:item.erp_product_name|truncatechars:30 }}
+                            {% if item.suggested_batch_item %}<span class="text-black-600 font-medium ml-1">[{{ item.suggested_batch_item.batch_number|default:"N/A" }}]</span>
+                            {% elif item.suggested_batch_number_display %}<span class="text-orange-600 font-medium">[{{ item.suggested_batch_number_display }}]</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody></table>
+                {% else %}<span class="text-xs text-gray-400 italic">No items.</span>{% endif %}
+            </td>
+            <td class="py-2 px-4 text-left align-top">
+                {% for parcel in order.parcels.all %}
+                    <div class="text-xs mb-1 {% if not forloop.last %}border-b pb-1{% endif %}">
+                       Code: <strong class="text-info">{{ parcel.parcel_code_system|default:"N/A" }}</strong><br>
+                       Courier: {{ parcel.courier_name|default:"-" }}<br>
+                       Tracking: {{ parcel.tracking_number|default:"-" }}
+                    </div>
+                {% empty %}
+                    <span class="text-xs text-gray-400 italic">No parcels yet.</span>
+                {% endfor %}
+            </td>
+            <td class="py-2 px-4 text-left align-top">
+                <span class="font-semibold text-neutral-focus">{{ order.order_display_code|default:"N/A" }}</span>
+            </td>
+            <td class="py-2 px-4 text-left align-top text-xs">
+                {{ order.imported_at|date:"d/m/Y" }}<br>
+                <span class="text-gray-500">{{ order.imported_at|date:"H:i" }}</span>
+                {% if order.imported_by %}<br><small class="text-gray-500">by {{order.imported_by.name|default:order.imported_by.email|truncatechars:15}}</small>{% endif %}
+            </td>
+            <td class="py-2 px-4 text-left align-top">
+                <a href="#" class="btn btn-xs btn-outline btn-info mb-1 w-full">View</a>
+                {% if order.status == 'FULLY_ALLOCATED' or order.status == 'READY_FOR_PACKING' or order.status == 'PARTIALLY_SHIPPED' %}
+                    <button type="button" class="btn btn-xs btn-outline btn-success w-full pack-order-btn"
+                            data-order-pk="{{ order.pk }}">
+                        Pack
+                    </button>
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+{% else %}
+    <tr>
+        <td colspan="8" class="text-center py-10">
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md" role="alert">
+                <p class="font-bold">No Customer Orders Found</p>
+                <p>There are currently no orders matching your criteria. You can import new orders or adjust filters.</p>
+            </div>
+        </td>
+    </tr>
+{% endif %}

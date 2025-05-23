@@ -1,3 +1,4 @@
+# app/operation/admin.py
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
@@ -17,16 +18,17 @@ class OrderItemInline(admin.TabularInline):
         'erp_product_name',
         'quantity_ordered',
         'quantity_allocated',
+        'quantity_packed', # Added
         'quantity_shipped',
         'status',
         'is_cold_item',
         'suggested_batch_item',
         'notes'
     )
-    readonly_fields = ('quantity_allocated', 'quantity_shipped') # Typically system-updated
+    readonly_fields = ('quantity_allocated', 'quantity_packed', 'quantity_shipped', 'status') # Status is often system-managed
     autocomplete_fields = ['product', 'warehouse_product', 'suggested_batch_item']
-    extra = 1  # Number of empty forms to display
-    # classes = ['collapse'] # Optional: to make inlines collapsible
+    extra = 1
+    # classes = ['collapse']
 
 class ParcelItemInline(admin.TabularInline):
     """
@@ -46,42 +48,45 @@ class OrderAdmin(admin.ModelAdmin):
     """
     list_display = (
         'erp_order_id',
-        'parcel_code',
+        'order_display_code', # Changed from parcel_code
         'customer_name_display',
         'warehouse_name_display',
         'order_date',
         'status',
         'is_cold_chain',
         'imported_at_formatted',
-        'item_count'
+        'item_count',
+        'parcel_count_display' # New display field
     )
     list_filter = ('status', 'warehouse', 'is_cold_chain', 'order_date', 'imported_at')
     search_fields = (
         'erp_order_id',
-        'parcel_code',
+        'order_display_code', # Changed
         'customer_name',
         'company_name',
         'warehouse__name',
-        'items__product__sku', # Search by SKU of items in the order
-        'items__product__name' # Search by name of items in the order
+        'items__product__sku',
+        'items__product__name',
+        'parcels__parcel_code_system', # Search by actual parcel codes
+        'parcels__tracking_number'
     )
     readonly_fields = (
-        'parcel_code', # Auto-generated
+        'order_display_code', # Changed
         'imported_at',
         'last_updated_at',
         'imported_by',
-        'processing_log_display' # Display for potentially long text
+        'processing_log_display'
     )
     autocomplete_fields = ['warehouse', 'imported_by']
-    inlines = [OrderItemInline]
-    date_hierarchy = 'order_date' # Adds quick date navigation
+    inlines = [OrderItemInline] # Parcels are managed separately or via a custom action now
+    date_hierarchy = 'order_date'
 
     fieldsets = (
         (None, {
-            'fields': ('erp_order_id', 'parcel_code', 'status', 'warehouse')
+            'fields': ('erp_order_id', 'order_display_code', 'status', 'warehouse') # order_display_code instead of parcel_code
         }),
         ('Customer & Recipient Details', {
-            'classes': ('collapse',), # Collapsible section
+            'classes': ('collapse',),
             'fields': (
                 'customer_name', 'company_name',
                 'recipient_address_line1', 'recipient_address_city',
@@ -93,9 +98,9 @@ class OrderAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
             'fields': ('order_date', 'imported_at', 'imported_by', 'last_updated_at')
         }),
-        ('Shipping & Handling', {
+        ('Shipping & Handling (Order Level)', { # Clarified this is order-level
             'classes': ('collapse',),
-            'fields': ('is_cold_chain', 'courier_name', 'tracking_number', 'title_notes', 'shipping_notes')
+            'fields': ('is_cold_chain', 'title_notes', 'shipping_notes')
         }),
         ('Processing Log', {
             'classes': ('collapse',),
@@ -124,8 +129,12 @@ class OrderAdmin(admin.ModelAdmin):
         return obj.items.count()
     item_count.short_description = 'Items'
 
+    def parcel_count_display(self, obj):
+        return obj.parcels.count()
+    parcel_count_display.short_description = 'Parcels'
+
+
     def processing_log_display(self, obj):
-        # To prevent overly long text from breaking the admin page layout
         if obj.processing_log:
             return format_html("<pre style='white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;'>{}</pre>", obj.processing_log)
         return "-"
@@ -134,15 +143,13 @@ class OrderAdmin(admin.ModelAdmin):
 
 @admin.register(OrderItem)
 class OrderItemAdmin(admin.ModelAdmin):
-    """
-    Admin interface configuration for the OrderItem model.
-    """
     list_display = (
         'order_link',
         'product_display',
         'warehouse_product_display',
         'quantity_ordered',
         'quantity_allocated',
+        'quantity_packed', # Added
         'quantity_shipped',
         'status',
         'is_cold_item'
@@ -150,7 +157,7 @@ class OrderItemAdmin(admin.ModelAdmin):
     list_filter = ('status', 'is_cold_item', 'order__warehouse', 'product__name')
     search_fields = (
         'order__erp_order_id',
-        'order__parcel_code',
+        'order__order_display_code', # Changed
         'product__sku',
         'product__name',
         'erp_product_name',
@@ -159,8 +166,8 @@ class OrderItemAdmin(admin.ModelAdmin):
     readonly_fields = (
         'suggested_batch_number_display',
         'suggested_batch_expiry_date_display',
-        # Quantities allocated/shipped are often system-managed
         'quantity_allocated',
+        'quantity_packed', # Added
         'quantity_shipped',
     )
     autocomplete_fields = ['order', 'product', 'warehouse_product', 'suggested_batch_item']
@@ -171,7 +178,7 @@ class OrderItemAdmin(admin.ModelAdmin):
             'fields': ('order', 'product', 'warehouse_product', 'erp_product_name')
         }),
         ('Quantities', {
-            'fields': ('quantity_ordered', 'quantity_allocated', 'quantity_shipped')
+            'fields': ('quantity_ordered', 'quantity_allocated', 'quantity_packed', 'quantity_shipped') # Added quantity_packed
         }),
         ('Batch & Handling', {
             'fields': ('suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display', 'is_cold_item')
@@ -204,28 +211,26 @@ class OrderItemAdmin(admin.ModelAdmin):
 
 @admin.register(Parcel)
 class ParcelAdmin(admin.ModelAdmin):
-    """
-    Admin interface configuration for the Parcel model.
-    """
     list_display = (
         'order_link',
-        'parcel_code_system_display',
+        'parcel_code_system', # Changed display name consistency
         'courier_name',
         'tracking_number',
         'shipped_at_formatted',
         'created_at_formatted',
-        'item_in_parcel_count'
+        'item_in_parcel_count',
+        'created_by_display' # Added
     )
-    list_filter = ('courier_name', 'shipped_at', 'order__warehouse', 'created_at')
+    list_filter = ('courier_name', 'shipped_at', 'order__warehouse', 'created_at', 'created_by')
     search_fields = (
         'order__erp_order_id',
-        'order__parcel_code',
+        'order__order_display_code', # Changed
         'parcel_code_system',
         'tracking_number',
         'courier_name'
     )
-    readonly_fields = ('created_at',)
-    autocomplete_fields = ['order']
+    readonly_fields = ('created_at','parcel_code_system', 'created_by') # parcel_code_system is auto-gen
+    autocomplete_fields = ['order'] # created_by is set automatically in view
     inlines = [ParcelItemInline]
     date_hierarchy = 'created_at'
 
@@ -237,21 +242,19 @@ class ParcelAdmin(admin.ModelAdmin):
             'fields': ('courier_name', 'tracking_number', 'shipped_at')
         }),
         ('Notes & Timestamps', {
-            'fields': ('notes', 'created_at')
+            'fields': ('notes', 'created_at', 'created_by') # Added created_by
         }),
     )
 
     def order_link(self, obj):
         if obj.order:
             link = reverse("admin:operation_order_change", args=[obj.order.id])
-            return format_html('<a href="{}">{} (Parcel: {})</a>', link, obj.order.erp_order_id, obj.order.parcel_code)
+            return format_html('<a href="{}">{}</a>', link, obj.order.erp_order_id) # Display ERP ID in link
         return "-"
     order_link.short_description = 'Order (ERP ID)'
     order_link.admin_order_field = 'order__erp_order_id'
 
-    def parcel_code_system_display(self, obj):
-        return obj.parcel_code_system or "N/A"
-    parcel_code_system_display.short_description = 'System Parcel Code'
+    # Removed parcel_code_system_display as parcel_code_system is fine by itself.
 
     def shipped_at_formatted(self, obj):
         return obj.shipped_at.strftime("%Y-%m-%d %H:%M") if obj.shipped_at else "-"
@@ -267,12 +270,14 @@ class ParcelAdmin(admin.ModelAdmin):
         return obj.items_in_parcel.count()
     item_in_parcel_count.short_description = 'Items in Parcel'
 
+    def created_by_display(self, obj):
+        return obj.created_by.name if obj.created_by and obj.created_by.name else (obj.created_by.email if obj.created_by else "N/A")
+    created_by_display.short_description = "Created By"
+    created_by_display.admin_order_field = 'created_by__name'
+
 
 @admin.register(ParcelItem)
 class ParcelItemAdmin(admin.ModelAdmin):
-    """
-    Admin interface configuration for the ParcelItem model.
-    """
     list_display = (
         'parcel_link',
         'order_item_display',
@@ -282,6 +287,7 @@ class ParcelItemAdmin(admin.ModelAdmin):
     list_filter = ('parcel__courier_name', 'order_item__product__name', 'parcel__order__warehouse')
     search_fields = (
         'parcel__tracking_number',
+        'parcel__parcel_code_system',
         'parcel__order__erp_order_id',
         'order_item__product__sku',
         'shipped_from_batch__batch_number'
@@ -299,10 +305,10 @@ class ParcelItemAdmin(admin.ModelAdmin):
     def parcel_link(self, obj):
         if obj.parcel:
             link = reverse("admin:operation_parcel_change", args=[obj.parcel.id])
-            return format_html('<a href="{}">Parcel for Order {}</a>', link, obj.parcel.order.erp_order_id)
+            return format_html('<a href="{}">Parcel {}</a>', link, obj.parcel.parcel_code_system) # Display parcel code
         return "-"
     parcel_link.short_description = 'Parcel'
-    parcel_link.admin_order_field = 'parcel__order__erp_order_id'
+    parcel_link.admin_order_field = 'parcel__parcel_code_system' # Order by parcel code
 
     def order_item_display(self, obj):
         if obj.order_item and obj.order_item.product:
@@ -311,7 +317,7 @@ class ParcelItemAdmin(admin.ModelAdmin):
             return f"Item for Order: {obj.order_item.order.erp_order_id}"
         return "-"
     order_item_display.short_description = 'Order Item'
-    order_item_display.admin_order_field = 'order_item__product__sku' # or order_item__order__erp_order_id
+    order_item_display.admin_order_field = 'order_item__product__sku'
 
     def shipped_from_batch_display(self, obj):
         if obj.shipped_from_batch:
@@ -319,4 +325,3 @@ class ParcelItemAdmin(admin.ModelAdmin):
         return "-"
     shipped_from_batch_display.short_description = 'Shipped from Batch'
     shipped_from_batch_display.admin_order_field = 'shipped_from_batch__batch_number'
-

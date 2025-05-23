@@ -120,27 +120,27 @@
                                         <tr>
                                             <td class="px-1 py-0.5 w-1/12">{{ item.quantity_ordered }}x</td>
                                             <td class="px-1 py-0.5 w-auto">
-                                                {% if item.suggested_batch_item %}
-                                                    <span class="text-blue-600 font-medium">
-                                                        [B:{{ item.suggested_batch_item.batch_number|default:"N/A" }}
-                                                        {% if item.suggested_batch_item.location_label %}
-                                                            /L:{{ item.suggested_batch_item.location_label }}
-                                                        {% endif %}]
+                                                {% if item.suggested_batch_item.location_label %}
+                                                    <span class="text-black-600 font-medium ml-1">
+                                                        [{{ item.suggested_batch_item.location_label }}]
                                                     </span>
+                                                {% endif %}
+
+                                                {{ item.product.name|default:item.erp_product_name|truncatechars:30 }}
+
+                                                {% if item.suggested_batch_item %}
+                                                    <span class="text-black-600 font-medium ml-1">
+                                                        [{{ item.suggested_batch_item.batch_number|default:"N/A" }}]
+                                                    </span>
+
                                                 {% elif item.suggested_batch_number_display %}
                                                      {# Fallback if suggested_batch_item is not preloaded but display fields are set #}
                                                      <span class="text-orange-600 font-medium">
-                                                        [B:{{ item.suggested_batch_number_display }}]
+                                                        [{{ item.suggested_batch_number_display }}]
                                                      </span>
                                                 {% endif %}
-                                                {{ item.product.name|default:item.erp_product_name|truncatechars:30 }}
                                             </td>
-                                            <p style="color:red; font-size:10px;">
-                                                Debug Item {{ item.id }}: SuggestedBatchItem PK: {{ item.suggested_batch_item.pk|default:"None" }};
-                                                Direct Batch: {{ item.suggested_batch_item.batch_number|default:"None" }};
-                                                Direct Loc: {{ item.suggested_batch_item.location_label|default:"None" }};
-                                                Display Batch: {{ item.suggested_batch_number_display|default:"None" }}
-                                            </p>
+
                                         </tr>
                                     {% endfor %}
                                     </tbody>
