@@ -2,27 +2,25 @@
 {% comment %} This partial renders the items for the "Pack Order" modal. {% endcomment %}
 
 {{ formset.management_form }}
-<table class="table table-sm w-full">
+<table class="table table-xs w-full pack-items-table"> {# Added class for easier JS targeting #}
     <thead>
         <tr>
-            <th class="w-2/5">Product</th>
-            <th class="w-1/5">SKU</th>
-            <th class="w-1/5 text-center">Qty to Pack</th>
-            <th class="w-2/5">Batch (If Applicable)</th>
+            <th class="w-2/6 py-1 px-1 text-left">Product</th>
+            <th class="w-1/6 py-1 px-1 text-left">SKU</th>
+            <th class="w-1/6 py-1 px-1 text-center">Qty to Pack</th>
+            <th class="w-2/6 py-1 px-1 text-left">Select Batch (Location | Batch | Expiry | Qty [Pick Priority])</th>
         </tr>
     </thead>
     <tbody>
         {% for form in formset %}
             <tr class="pack-item-row" data-order-item-id="{{ form.initial.order_item_id }}">
-                {{ form.order_item_id }} {# Hidden input #}
-                {{ form.selected_batch_item_id }} {# Hidden input #}
-                <td class="py-1 align-middle">
-                    {{ form.product_name }}
-                </td>
-                <td class="py-1 align-middle">
-                    {{ form.sku }}
-                </td>
-                <td class="py-1 align-middle text-center">
+                {# These hidden fields are crucial #}
+                {{ form.order_item_id }}
+                {{ form.selected_batch_item_id }} {# This now holds the *suggested* batch ID from backend #}
+
+                <td class="py-1 px-1 align-middle">{{ form.product_name }}</td>
+                <td class="py-1 px-1 align-middle">{{ form.sku }}</td>
+                <td class="py-1 px-1 align-middle text-center">
                     {{ form.quantity_to_pack }}
                     {% if form.quantity_to_pack.errors %}
                         {% for error in form.quantity_to_pack.errors %}
@@ -30,9 +28,10 @@
                         {% endfor %}
                     {% endif %}
                 </td>
-                <td class="py-1 align-middle">
+                <td class="py-1 px-1 align-middle relative">
                     {{ form.available_batches }}
-                     {% if form.available_batches.errors %}
+                    <div class="text-xs text-error available-batches-error-placeholder mt-0.5"></div> {# Placeholder for JS errors #}
+                    {% if form.available_batches.errors %}
                         {% for error in form.available_batches.errors %}
                             <p class="text-error text-xs">{{ error }}</p>
                         {% endfor %}
@@ -43,42 +42,21 @@
             <tr>
                 <td colspan="4">
                     {% for error in form.non_field_errors %}
-                        <p class="text-error text-xs">{{ error }}</p>
+                        <p class="text-error text-xs py-1 px-1">{{ error }}</p>
                     {% endfor %}
                 </td>
             </tr>
             {% endif %}
         {% empty %}
             <tr>
-                <td colspan="4" class="text-center text-gray-500 py-3">No items requiring packing for this order, or all items already packed.</td>
+                <td colspan="4" class="text-center text-gray-500 py-3">No items currently require packing for this order.</td>
             </tr>
         {% endfor %}
     </tbody>
 </table>
 {% if formset.non_form_errors %}
-    <div class="text-error text-sm my-2">
+    <div class="text-error text-sm my-2 p-1">
         {{ formset.non_form_errors|join:", " }}
     </div>
 {% endif %}
 
-<script>
-// Re-initialize batch select listeners if this partial is loaded via AJAX
-document.querySelectorAll('#pack-order-items-formset-container .available-batches-select').forEach(selectElement => {
-    if (!selectElement.dataset.listenerAttached) { // Prevent double attachment
-        selectElement.addEventListener('change', function() {
-            const selectedBatchId = this.value;
-            // Assuming the hidden input ID follows a pattern derived from the select's ID
-            // e.g., select id="id_packitems-0-available_batches", hidden id="id_packitems-0-selected_batch_item_id"
-            const hiddenBatchInputId = this.id.replace('available_batches', 'selected_batch_item_id');
-            const hiddenBatchInput = document.getElementById(hiddenBatchInputId);
-            if (hiddenBatchInput) {
-                hiddenBatchInput.value = selectedBatchId;
-                console.log(`Updated hidden batch ID for ${hiddenBatchInputId} to ${selectedBatchId}`);
-            } else {
-                console.warn(`Could not find hidden input: ${hiddenBatchInputId}`);
-            }
-        });
-        selectElement.dataset.listenerAttached = 'true';
-    }
-});
-</script>

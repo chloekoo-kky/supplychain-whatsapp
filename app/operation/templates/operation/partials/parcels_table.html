@@ -15,7 +15,7 @@
     </div>
     <div class="sm:col-span-1 md:col-span-1">
         <label for="p_search_input" class="block text-sm font-medium text-gray-700 mb-1">Search Parcels</label>
-        <input type="text" name="parcel_q" id="p_search_input" value="{{ parcel_query|default:'' }}" placeholder="Parcel Code, Tracking, Order ID..." class="input input-sm input-bordered w-full">
+        <input type="text" name="parcel_q" id="p_search_input" value="{{ parcel_query|default:'' }}" placeholder="Parcel Code, Tracking, Order ID, SKU..." class="input input-sm input-bordered w-full">
     </div>
     <div class="text-right sm:col-span-full md:col-span-1 pt-3 md:pt-0">
          <button type="submit" class="btn btn-sm btn-neutral w-full md:w-auto">Filter / Search</button>
@@ -29,12 +29,12 @@
             <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
                 <tr>
                     <th class="py-2 px-4 text-left">Parcel Code</th>
-                    <th class="py-2 px-4 text-left">Order (ERP ID)</th>
+                    <th class="py-2 px-4 text-left">Order (LWA ID)</th>
                     <th class="py-2 px-4 text-left">Customer</th>
                     <th class="py-2 px-4 text-left">Courier</th>
                     <th class="py-2 px-4 text-left">Tracking #</th>
-                    <th class="py-2 px-4 text-left">Items in Parcel</th>
-                    <th class="py-2 px-4 text-left">Shipped At</th>
+                    <th class="py-2 px-4 text-left">Items in Parcel (Location | Product | Batch)</th> {# Changed Header #}
+                    <th class="py-2 px-4 text-left">Picked Up At</th>
                     <th class="py-2 px-4 text-left">Created At</th>
                     <th class="py-2 px-4 text-left">Actions</th>
                 </tr>
@@ -57,19 +57,32 @@
                         <td class="py-2 px-4 text-left align-top">{{ parcel.tracking_number|default:"-" }}</td>
                         <td class="py-2 px-4 text-left align-top">
                             {% if parcel.items_in_parcel.all %}
-                                <ul class="list-disc list-inside text-xs">
+                                <table class="table table-xs w-full"><tbody>
                                 {% for p_item in parcel.items_in_parcel.all %}
-                                    <li>{{ p_item.quantity_shipped_in_this_parcel }}x {{ p_item.order_item.product.name|default:p_item.order_item.erp_product_name|truncatechars:25 }}
-                                        {% if p_item.shipped_from_batch %}(B:{{ p_item.shipped_from_batch.batch_number|default:'-' }}){% endif %}
-                                    </li>
+                                    <tr>
+                                        <td class="px-1 py-0.5 w-1/12 whitespace-nowrap">{{ p_item.quantity_shipped_in_this_parcel }}x</td>
+                                        <td class="px-1 py-0.5 w-auto">
+                                            {% if p_item.shipped_from_batch and p_item.shipped_from_batch.location_label %}
+                                                <span class="text-blue-600 font-medium">[{{ p_item.shipped_from_batch.location_label }}]</span>
+                                            {% else %}
+                                                <span class="text-gray-400 font-medium">[NoLoc]</span>
+                                            {% endif %}
+                                            {{ p_item.order_item.product.name|default:p_item.order_item.erp_product_name|truncatechars:30 }}
+                                            {% if p_item.shipped_from_batch and p_item.shipped_from_batch.batch_number %}
+                                                <span class="text-green-700 font-medium ml-1">[{{ p_item.shipped_from_batch.batch_number }}]</span>
+                                            {% elif p_item.shipped_from_batch %}
+                                                <span class="text-gray-400 font-medium ml-1">[NoBatch]</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
                                 {% endfor %}
-                                </ul>
+                                </tbody></table>
                             {% else %}
                                 <span class="text-xs text-gray-400 italic">No items recorded.</span>
                             {% endif %}
                         </td>
                         <td class="py-2 px-4 text-left align-top text-xs">
-                            {{ parcel.shipped_at|date:"d/m/Y H:i"|default:"Not Shipped" }}
+                            {{ parcel.shipped_at|date:"d/m/Y H:i"|default:"Not Picked Up" }}
                         </td>
                         <td class="py-2 px-4 text-left align-top text-xs">
                             {{ parcel.created_at|date:"d/m/Y H:i" }}

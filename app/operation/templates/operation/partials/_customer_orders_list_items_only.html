@@ -1,3 +1,4 @@
+{% comment %} app/operation/templates/operation/partials/_customer_orders_list_items_only.html {% endcomment %}
 {% load i18n %}
 {% load humanize %}
 
@@ -7,14 +8,16 @@
             <td class="py-2 px-4 text-left align-top">
                 <div class="font-medium">{{ order.erp_order_id }}</div>
                 <div class="mt-1">
-                    <span class="badge badge-sm
-                        {% if order.status == 'PENDING_IMPORT' or order.status == 'IMPORT_FAILED' %}badge-error text-white
-                        {% elif order.status == 'PENDING_ALLOCATION' or order.status == 'PARTIALLY_ALLOCATED' %}badge-warning text-black
-                        {% elif order.status == 'FULLY_ALLOCATED' or order.status == 'READY_FOR_PACKING' %}badge-info text-white
-                        {% elif order.status == 'PENDING_SHIPMENT' or order.status == 'PARTIALLY_SHIPPED' or order.status == 'SHIPPED' %}badge-primary text-white
-                        {% elif order.status == 'COMPLETED' %}badge-success text-white
-                        {% elif order.status == 'CANCELLED' %}badge-neutral text-white
-                        {% else %}badge-ghost
+                    <span class="badge badge-md
+                        {% if order.status == 'NEW_ORDER' %}bg-orange-500 text-white{% comment %} Orange for New {% endcomment %}
+                        {% elif order.status == 'PARTIALLY_SHIPPED' %}badge-info text-white{% comment %} Light Blue for Partial {% endcomment %}
+                        {% elif order.status == 'FULLY_SHIPPED' %}badge-success text-white{% comment %} Darker Blue for Shipped {% endcomment %}
+                        {% elif order.status == 'DELIVERED' %}bg-pink-500 text-white{% comment %} Green for Delivered {% endcomment %}
+                        {% elif order.status == 'DELIVERY_FAILED' %}badge-error text-white{% comment %} Red for Failed {% endcomment %}
+                        {% elif order.status == 'RETURNED_COURIER' %}bg-purple-500 text-white border-purple-500{% comment %} Purple for Returned {% endcomment %}
+                        {% elif order.status == 'ADJUSTED_TO_CLOSE' %}badge-neutral text-white{% comment %} Gray for Adjusted/Closed {% endcomment %}
+                        {% elif order.status == 'INVOICE_ISSUED' %}bg-emerald-500 text-white border-emerald-500{% comment %} Dark Green for Billed {% endcomment %}
+                        {% else %}badge-ghost{% comment %} Fallback {% endcomment %}
                         {% endif %}">{{ order.get_status_display }}
                     </span>
                 </div>
@@ -32,12 +35,11 @@
                 <table class="table table-xs w-full"><tbody>
                     {% for item in order.items.all %}
                     <tr>
-                        <td class="px-1 py-0.5 w-1/12">{{ item.quantity_ordered }}x</td>
+                        <td class="px-1 py-0.5 w-1/12 whitespace-nowrap">{{ item.quantity_ordered }}x</td>
                         <td class="px-1 py-0.5 w-auto">
-                            {% if item.suggested_batch_item.location_label %}<span class="text-black-600 font-medium ml-1">[{{ item.suggested_batch_item.location_label }}]</span>{% endif %}
-                            {{ item.product.name|default:item.erp_product_name|truncatechars:30 }}
-                            {% if item.suggested_batch_item %}<span class="text-black-600 font-medium ml-1">[{{ item.suggested_batch_item.batch_number|default:"N/A" }}]</span>
-                            {% elif item.suggested_batch_number_display %}<span class="text-orange-600 font-medium">[{{ item.suggested_batch_number_display }}]</span>{% endif %}
+                            {{ item.product.name|default:item.erp_product_name|truncatechars:40 }}
+                            <span class="text-xs text-gray-500">({{ item.product.sku|default:"No SKU" }})</span>
+                            <span class="text-xs text-blue-600 font-medium ml-1">({{ item.quantity_packed|default:0 }}/{{ item.quantity_ordered }})</span> {# <-- ADDED THIS LINE #}
                         </td>
                     </tr>
                     {% endfor %}
@@ -56,27 +58,20 @@
                 {% endfor %}
             </td>
             <td class="py-2 px-4 text-left align-top">
-                <span class="font-semibold text-neutral-focus">{{ order.order_display_code|default:"N/A" }}</span>
-            </td>
-            <td class="py-2 px-4 text-left align-top text-xs">
-                {{ order.imported_at|date:"d/m/Y" }}<br>
-                <span class="text-gray-500">{{ order.imported_at|date:"H:i" }}</span>
-                {% if order.imported_by %}<br><small class="text-gray-500">by {{order.imported_by.name|default:order.imported_by.email|truncatechars:15}}</small>{% endif %}
-            </td>
-            <td class="py-2 px-4 text-left align-top">
-                <a href="#" class="btn btn-xs btn-outline btn-info mb-1 w-full">View</a>
-                {% if order.status == 'FULLY_ALLOCATED' or order.status == 'READY_FOR_PACKING' or order.status == 'PARTIALLY_SHIPPED' %}
-                    <button type="button" class="btn btn-xs btn-outline btn-success w-full pack-order-btn"
-                            data-order-pk="{{ order.pk }}">
-                        Pack
-                    </button>
-                {% endif %}
-            </td>
+                <a href="#" class="btn btn-xs btn-outline btn-warning mb-1 w-full">Edit</a> {# Placeholder URL for Edit action #}
+               {% comment %} Rule 2: Pack button available for NEW_ORDER or PARTIALLY_SHIPPED {% endcomment %}
+               {% if order.status == 'NEW_ORDER' or order.status == 'PARTIALLY_SHIPPED' %}
+                   <label for="pack-order-modal-toggle" class="btn btn-xs btn-outline btn-success w-full pack-order-btn"
+                           data-order-pk="{{ order.pk }}">
+                       Pack
+                   </label>
+               {% endif %}
+           </td>
         </tr>
     {% endfor %}
 {% else %}
     <tr>
-        <td colspan="8" class="text-center py-10">
+        <td colspan="6" class="text-center py-10">
             <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 rounded-md" role="alert">
                 <p class="font-bold">No Customer Orders Found</p>
                 <p>There are currently no orders matching your criteria. You can import new orders or adjust filters.</p>

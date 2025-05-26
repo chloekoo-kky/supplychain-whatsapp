@@ -17,7 +17,6 @@ class OrderItemInline(admin.TabularInline):
         'warehouse_product',
         'erp_product_name',
         'quantity_ordered',
-        'quantity_allocated',
         'quantity_packed', # Added
         'quantity_shipped',
         'status',
@@ -25,7 +24,7 @@ class OrderItemInline(admin.TabularInline):
         'suggested_batch_item',
         'notes'
     )
-    readonly_fields = ('quantity_allocated', 'quantity_packed', 'quantity_shipped', 'status') # Status is often system-managed
+    readonly_fields = ('quantity_packed', 'quantity_shipped', 'status') # Status is often system-managed
     autocomplete_fields = ['product', 'warehouse_product', 'suggested_batch_item']
     extra = 1
     # classes = ['collapse']
@@ -148,7 +147,6 @@ class OrderItemAdmin(admin.ModelAdmin):
         'product_display',
         'warehouse_product_display',
         'quantity_ordered',
-        'quantity_allocated',
         'quantity_packed', # Added
         'quantity_shipped',
         'status',
@@ -166,7 +164,6 @@ class OrderItemAdmin(admin.ModelAdmin):
     readonly_fields = (
         'suggested_batch_number_display',
         'suggested_batch_expiry_date_display',
-        'quantity_allocated',
         'quantity_packed', # Added
         'quantity_shipped',
     )
@@ -178,7 +175,7 @@ class OrderItemAdmin(admin.ModelAdmin):
             'fields': ('order', 'product', 'warehouse_product', 'erp_product_name')
         }),
         ('Quantities', {
-            'fields': ('quantity_ordered', 'quantity_allocated', 'quantity_packed', 'quantity_shipped') # Added quantity_packed
+            'fields': ('quantity_ordered', 'quantity_packed', 'quantity_shipped') # Added quantity_packed
         }),
         ('Batch & Handling', {
             'fields': ('suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display', 'is_cold_item')

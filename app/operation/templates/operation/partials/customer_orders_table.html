@@ -1,3 +1,4 @@
+{% comment %} app/operation/templates/operation/partials/customer_orders_table.html {% endcomment %}
 {% load i18n %}
 {% load humanize %}
 
@@ -85,13 +86,11 @@
     <table class="min-w-full table-auto main-order-table table-sm">
         <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
             <tr>
-                <th class="py-2 px-4 text-left">LWA Order ID / Status</th>
+                <th class="py-2 px-4 text-left">LWA Order ID / <br>Status</th>
                 <th class="py-2 px-4 text-left">Order Date</th>
                 <th class="py-2 px-4 text-left">Customer / Location</th>
                 <th class="py-2 px-4 text-left">Items</th>
                 <th class="py-2 px-4 text-left">Parcel Details</th>
-                <th class="py-2 px-4 text-left">Order Code</th>
-                <th class="py-2 px-4 text-left">Imported At</th>
                 <th class="py-2 px-4 text-left w-auto">Actions</th>
             </tr>
         </thead>

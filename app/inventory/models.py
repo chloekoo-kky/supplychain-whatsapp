@@ -5,8 +5,6 @@ from django.conf import settings
 from django.db.models import UniqueConstraint, Q, F
 
 from warehouse.models import Warehouse, WarehouseProduct
-# इं Ensure this line is REMOVED from the top-level imports:
-# from .services import get_suggested_batch_for_order_item # <<< REMOVE THIS LINE IF PRESENT AT THE TOP
 
 class Supplier(models.Model):
     name = models.CharField(max_length=100, null=True)

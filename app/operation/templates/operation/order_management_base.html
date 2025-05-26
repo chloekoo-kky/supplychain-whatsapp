@@ -82,20 +82,25 @@
         <form id="pack-order-form" method="POST">
             {% csrf_token %}
             <input type="hidden" name="order_pk_for_packing" id="order_pk_for_packing_modal_hidden_id">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 border p-3 rounded-md bg-gray-50">
-                <div>
-                    <label class="label" for="id_parcel-courier_name"><span class="label-text">Courier Name</span></label>
-                    <input type="text" name="parcel-courier_name" id="id_parcel-courier_name" class="input input-bordered input-sm w-full">
+
+            {# Courier Name as Buttons - Tracking Number removed from this stage #}
+            <div class="mb-4 border p-3 rounded-md bg-gray-50">
+                <label class="label"><span class="label-text font-semibold">Select Courier (Optional)</span></label>
+                <div class="flex flex-wrap gap-2" id="courier-selection-buttons">
+                    <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="DHL(c)">DHL (C)</button>
+                    <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="DHL(a)">DHL (A)</button>
+                    <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="Fedex">Fedex</button>
+                    <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="UPS">UPS</button>
+                    <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="">Other/Clear</button>
                 </div>
-                <div>
-                    <label class="label" for="id_parcel-tracking_number"><span class="label-text">Tracking Number</span></label>
-                    <input type="text" name="parcel-tracking_number" id="id_parcel-tracking_number" class="input input-bordered input-sm w-full">
-                </div>
-                <div class="md:col-span-2">
-                    <label class="label" for="id_parcel-notes"><span class="label-text">Parcel Notes</span></label>
+                <input type="hidden" name="parcel-courier_name" id="id_parcel-courier_name">
+
+                <div class="mt-3">
+                    <label class="label" for="id_parcel-notes"><span class="label-text font-semibold">Parcel Notes</span></label>
                     <textarea name="parcel-notes" id="id_parcel-notes" class="textarea textarea-bordered textarea-sm w-full" rows="2"></textarea>
                 </div>
             </div>
+
             <h4 class="text-md font-semibold mb-2">Items to Pack:</h4>
             <div id="pack-order-items-formset-container" class="mb-4 max-h-60 overflow-y-auto">
                 <p class="text-center py-4 text-gray-400">Loading items...</p>
@@ -129,6 +134,87 @@ document.addEventListener('DOMContentLoaded', function() {
         };
         debounced.cancel = () => { clearTimeout(timeout); };
         return debounced;
+    }
+
+    function setupDynamicBatchDropdowns() {
+        // The entire body of your setupDynamicBatchDropdowns function from pack_order_formset.html
+        // should be placed here.
+        document.querySelectorAll('.pack-items-table .pack-item-row').forEach(row => {
+            const orderItemId = row.dataset.orderItemId;
+            const batchSelect = row.querySelector('.available-batches-select');
+            const hiddenSelectedBatchIdInput = row.querySelector('input[name$="-selected_batch_item_id"]');
+            const initialSuggestedBatchId = hiddenSelectedBatchIdInput ? hiddenSelectedBatchIdInput.value : null;
+            const errorPlaceholder = row.querySelector('.available-batches-error-placeholder');
+
+            if (!orderItemId || !batchSelect || !hiddenSelectedBatchIdInput) {
+                console.warn('Skipping row due to missing elements for dynamic batch dropdown:', row);
+                if (batchSelect) batchSelect.innerHTML = '<option value="">Error: Missing config</option>';
+                if (errorPlaceholder) errorPlaceholder.textContent = 'Internal setup error.';
+                return;
+            }
+
+            batchSelect.innerHTML = '<option value="">Loading batches...</option>';
+            if (errorPlaceholder) errorPlaceholder.textContent = '';
+
+            fetch(`/operation/order-item/${orderItemId}/get-available-batches/`)
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().catch(() => response.text()).then(errDataOrText => {
+                            let errMsg = `Error ${response.status}: `;
+                            if (typeof errDataOrText === 'object' && errDataOrText.message) {
+                                errMsg += errDataOrText.message;
+                            } else if (typeof errDataOrText === 'string') {
+                                if (errDataOrText.trim().toLowerCase().startsWith('<!doctype html') || errDataOrText.trim().startsWith('<html')) {
+                                    errMsg += `Server returned an HTML error page (check console).`;
+                                    console.error("Server HTML error response:", errDataOrText);
+                                } else {
+                                    errMsg += errDataOrText.substring(0, 150);
+                                }
+                            } else {
+                                errMsg += response.statusText;
+                            }
+                            throw new Error(errMsg);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    batchSelect.innerHTML = '<option value="">--- Select Batch ---</option>';
+                    if (data.success && data.batches && data.batches.length > 0) {
+                        data.batches.forEach(batch => {
+                            const option = document.createElement('option');
+                            option.value = batch.id;
+                            option.textContent = batch.display_name;
+                            batchSelect.appendChild(option);
+                        });
+                        if (initialSuggestedBatchId && batchSelect.querySelector(`option[value="${initialSuggestedBatchId}"]`)) {
+                            batchSelect.value = initialSuggestedBatchId;
+                            if (hiddenSelectedBatchIdInput) hiddenSelectedBatchIdInput.value = initialSuggestedBatchId;
+                        } else if (initialSuggestedBatchId) {
+                            if (hiddenSelectedBatchIdInput) hiddenSelectedBatchIdInput.value = '';
+                            if (errorPlaceholder) errorPlaceholder.textContent = 'Note: Suggested batch not in current available list (e.g. stock changed).';
+                        }
+                    } else {
+                        const message = data.message || 'No batches available or found for this item.';
+                        batchSelect.innerHTML = `<option value="">${message}</option>`;
+                        if (errorPlaceholder) errorPlaceholder.textContent = message;
+                    }
+                })
+                .catch(error => {
+                    console.error(`Error fetching or processing batches for order item ${orderItemId}:`, error);
+                    batchSelect.innerHTML = '<option value="">Error loading batches</option>';
+                    if (errorPlaceholder) errorPlaceholder.textContent = `Client-side error: ${error.message}`;
+                });
+
+            if (!batchSelect.dataset.listenerAttachedBatchChange) {
+                batchSelect.addEventListener('change', function() {
+                    if (hiddenSelectedBatchIdInput) {
+                        hiddenSelectedBatchIdInput.value = this.value;
+                    }
+                });
+                batchSelect.dataset.listenerAttachedBatchChange = 'true';
+            }
+        });
     }
 
     function highlightActiveTab(activeTabName) {
@@ -401,50 +487,151 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function initializePackOrderButtons() {
         const currentPackButtonsContainer = document.querySelector('#operation-tab-content');
-        if (!currentPackButtonsContainer) return;
+        if (!currentPackButtonsContainer) {
+            console.warn("Pack buttons container '#operation-tab-content' not found during init.");
+            return;
+        }
 
         currentPackButtonsContainer.querySelectorAll('.pack-order-btn').forEach(button => {
             if (button.dataset.listenerAttached === 'true') return;
-            button.addEventListener('click', function() {
-                const orderPk = this.dataset.orderPk;
-                if (!orderPk) { console.error('Order PK not found on pack button'); return; }
 
-                if(packFormsetContainer) packFormsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items to pack...</p>';
-                if(packModalToggle) packModalToggle.checked = true;
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                const orderPk = this.dataset.orderPk;
+                if (!orderPk) {
+                    console.error('Order PK (data-order-pk) not found on pack button/label.');
+                    if (typeof Swal !== 'undefined') Swal.fire('Error', 'Cannot identify the order for packing. Please refresh.', 'error');
+                    else alert('Cannot identify the order for packing. Please refresh.');
+                    return;
+                }
+
+                if (!packModalToggle || !packFormsetContainer || !packModalTitle || !packModalCustomer || !packForm || !orderPkHiddenInput) {
+                    console.error('One or more critical modal elements are missing from the DOM for packing.');
+                    if (typeof Swal !== 'undefined') Swal.fire('Error', 'Modal elements are missing. Cannot proceed.', 'error');
+                    else alert('Modal elements are missing. Cannot proceed.');
+                    return;
+                }
+
+                packFormsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items to pack...</p>';
 
                 fetch(`/operation/order/${orderPk}/get-packing-items/`)
-                    .then(response => response.json())
+                    .then(response => {
+                        const contentType = response.headers.get("content-type");
+                        if (!response.ok) {
+                            if (contentType && contentType.indexOf("application/json") !== -1) {
+                                return response.json().then(errData => {
+                                    throw new Error(errData.message || `Server error: ${response.status}`);
+                                });
+                            } else {
+                                return response.text().then(text => {
+                                    if (text.trim().startsWith('<')) {
+                                        console.error("Server returned HTML instead of JSON:", text.substring(0, 500));
+                                        throw new Error(`Received an unexpected HTML response from server (status: ${response.status}).`);
+                                    }
+                                    throw new Error(text || `Server error: ${response.status}`);
+                                });
+                            }
+                        }
+                        if (contentType && contentType.indexOf("application/json") !== -1) {
+                            return response.json();
+                        } else {
+                            console.error("Server returned non-JSON response even on success:", response);
+                            throw new Error("Received unexpected non-JSON response from server.");
+                        }
+                    })
                     .then(data => {
                         if (data.success) {
-                            if(packModalTitle) packModalTitle.textContent = `Pack Order: ${data.erp_order_id || orderPk}`;
-                            if(packModalCustomer) packModalCustomer.textContent = `Customer: ${data.customer_name || 'N/A'}`;
-                            if(packFormsetContainer) packFormsetContainer.innerHTML = data.formset_html;
-                            if(packForm) packForm.action = `/operation/order/${orderPk}/process-packing/`;
-                            if(orderPkHiddenInput) orderPkHiddenInput.value = orderPk;
+                            if (packModalTitle) packModalTitle.textContent = `Pack Order: ${data.erp_order_id || orderPk}`;
+                            if (packModalCustomer) packModalCustomer.textContent = `Customer: ${data.customer_name || 'N/A'}`;
+                            if (packFormsetContainer) packFormsetContainer.innerHTML = data.formset_html;
+                            if (packForm) packForm.action = `/operation/order/${orderPk}/process-packing/`;
+                            if (orderPkHiddenInput) orderPkHiddenInput.value = orderPk;
 
-                            packFormsetContainer.querySelectorAll('.available-batches-select').forEach(selectElement => {
-                                if (selectElement.dataset.listenerAttachedBatch === 'true') return;
-                                selectElement.addEventListener('change', function() {
-                                    const selectedBatchId = this.value;
-                                    const hiddenBatchInputId = this.id.replace('available_batches', 'selected_batch_item_id');
-                                    const hiddenBatchInput = document.getElementById(hiddenBatchInputId);
-                                    if (hiddenBatchInput) { hiddenBatchInput.value = selectedBatchId; }
-                                });
-                                selectElement.dataset.listenerAttachedBatch = 'true';
+                            const parcelNotesTextarea = document.getElementById('id_parcel-notes');
+                            if (parcelNotesTextarea) {
+                                parcelNotesTextarea.value = data.shipping_notes_for_parcel || '';
+                            }
+                            // Reset courier selection
+                            const hiddenCourierInput = document.getElementById('id_parcel-courier_name');
+                            if(hiddenCourierInput) hiddenCourierInput.value = '';
+                            document.querySelectorAll('#courier-selection-buttons .courier-btn').forEach(btn => {
+                                btn.classList.remove('btn-active');
+                                btn.classList.add('btn-outline');
                             });
+
+
+                            if (typeof setupDynamicBatchDropdowns === "function") {
+                                setupDynamicBatchDropdowns();
+                            } else {
+                                console.error("setupDynamicBatchDropdowns function is not defined. Batch dropdowns will not be populated.");
+                                if(packFormsetContainer.querySelector('.available-batches-select')) {
+                                   packFormsetContainer.querySelectorAll('.available-batches-select').forEach(sel => sel.innerHTML = '<option value="">JS Init Error</option>');
+                                }
+                            }
+                            if (packModalToggle) packModalToggle.checked = true;
                         } else {
-                            if(packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center">${data.message || 'Failed to load items.'}</p>`;
+                            if (packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center">${data.message || 'Failed to load items for packing.'}</p>`;
+                            if (typeof Swal !== 'undefined') Swal.fire('Info', data.message || 'Could not load items for packing.', 'info');
+                            else alert(data.message || 'Could not load items for packing.');
+                            // Open modal even on failure if there's a message to show from server
+                            if (packModalToggle && data.message) packModalToggle.checked = true;
                         }
                     })
                     .catch(error => {
-                        console.error('Error fetching items for packing:', error);
-                        if(packFormsetContainer) packFormsetContainer.innerHTML = '<p class="text-red-500 text-center">Error loading items.</p>';
+                        console.error('Error in pack order button fetch/processing chain:', error);
+                        if (packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center">Error: ${error.message}</p>`;
+                        if (packModalToggle) packModalToggle.checked = true; // Show modal to display error
                     });
             });
             button.dataset.listenerAttached = 'true';
         });
     }
 
+    // Courier selection button logic
+    const courierButtonsContainer = document.getElementById('courier-selection-buttons');
+    if (courierButtonsContainer) {
+        const hiddenCourierInput = document.getElementById('id_parcel-courier_name');
+        courierButtonsContainer.addEventListener('click', function(e) {
+            if (e.target.classList.contains('courier-btn')) {
+                e.preventDefault(); // Prevent any default button action if it's somehow a submit type
+                const selectedCourier = e.target.dataset.courier;
+
+                if (hiddenCourierInput) {
+                    hiddenCourierInput.value = selectedCourier;
+                }
+
+                courierButtonsContainer.querySelectorAll('.courier-btn').forEach(btn => {
+                    if (btn === e.target && selectedCourier !== "") {
+                        btn.classList.add('btn-active', 'btn-neutral'); // Using btn-neutral for active
+                        btn.classList.remove('btn-outline');
+                    } else {
+                        btn.classList.remove('btn-active', 'btn-neutral');
+                        btn.classList.add('btn-outline');
+                    }
+                });
+                if (selectedCourier === "") { // If "Other/Clear" was clicked
+                     if (hiddenCourierInput) hiddenCourierInput.value = "";
+                }
+                console.log("Courier selected:", selectedCourier || "Cleared/Other");
+            }
+        });
+    }
+
+    // Call initialization functions that depend on DOM being ready
+    // (Assuming other functions like initTabs, currentCustomerOrderFilters, etc., are defined elsewhere in your script block)
+    // For example:
+    // initTabs();
+    // initializePackOrderButtons(); // This needs to be callable if tab content is dynamic
+
+    // If customer orders tab is loaded initially, call its init
+
+    if (initialTabNameOnLoad === "{{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}") {
+        initializePackOrderButtons();
+        // loadInitialCustomerOrderFilters(initialUrlParamsOnLoad); // If you have this function
+    }
+    // Add similar logic for other tabs if they have specific JS initializers
+
+    // The packForm submit listener (already provided in previous steps)
     if (packForm) {
         packForm.addEventListener('submit', function(event) {
             event.preventDefault();
@@ -453,33 +640,51 @@ document.addEventListener('DOMContentLoaded', function() {
             const originalBtnText = saveBtn.innerHTML;
             saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Processing...';
 
+            console.log("Submitting Pack Order Form. Action:", packForm.action, "Method to be used by fetch: POST");
+            console.log("CSRF Token from FormData:", formData.get('csrfmiddlewaretoken'));
+
             fetch(packForm.action, {
-                method: 'POST', body: formData,
+                method: 'POST',
+                body: formData,
                 headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
             })
-            .then(response => response.json())
+            .then(response => {
+                console.log("Pack Order Submit - Fetch response status:", response.status);
+                return response.json();
+            })
             .then(data => {
                 if (data.success) {
-                    Swal.fire({toast: true, icon: 'success', title: data.message || 'Parcel created!', position: 'top-end', showConfirmButton: false, timer: 2500});
-                    if(packModalToggle) packModalToggle.checked = false; packForm.reset();
+                    if(typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Parcel created!', position: 'top-end', showConfirmButton: false, timer: 2500});
+                    else alert(data.message || 'Parcel created!');
 
-                    const targetTabUrl = data.redirect_url || `${currentBaseUrl}?tab=${DEFAULT_CUSTOMER_ORDERS_TAB}`;
-                    loadTabContent(targetTabUrl, true);
+                    if(packModalToggle) packModalToggle.checked = false;
+                    packForm.reset(); // Reset form fields
+
+                    // Reload the current tab (or a specific one)
+                    const targetTabUrl = data.redirect_url || `${window.location.pathname}?tab={{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}`; // Use your default tab
+                    // This assumes loadTabContent is globally available or defined in this scope
+                    if(typeof loadTabContent === "function") loadTabContent(targetTabUrl, true);
+                    else window.location.href = targetTabUrl; // Fallback to full page reload
+
                 } else {
                     let errorMsg = data.message || 'Could not create parcel.';
                     if (data.errors && typeof data.errors === 'object') {
                         errorMsg += " Details: " + Object.entries(data.errors).map(([field, err]) => `${field.replace(/^parcel-/, '').replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
                     }
-                    Swal.fire({ icon: 'error', title: 'Packing Failed', text: errorMsg, confirmButtonText: 'OK' });
+                    if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Packing Failed', text: errorMsg, confirmButtonText: 'OK' });
+                    else alert(errorMsg);
                 }
             })
             .catch(error => {
                 console.error('Error submitting pack form:', error);
-                Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form. Please try again.'});
+                if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form. Please try again.'});
+                else alert('Network Error: Could not submit form. Please try again.');
             })
             .finally(() => { if(saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; } });
         });
     }
+
 });
+
 </script>
 {% endblock %}

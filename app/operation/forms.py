@@ -22,10 +22,11 @@ class ParcelForm(forms.ModelForm):
         model = Parcel
         fields = ['courier_name', 'tracking_number', 'notes']
         widgets = {
-            'courier_name': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
-            'tracking_number': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
-            'notes': forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 3}),
+            'courier_name': forms.TextInput(attrs={'class': 'input input-bordered input-sm w-full'}), # made sm
+            'tracking_number': forms.TextInput(attrs={'class': 'input input-bordered input-sm w-full'}), # made sm
+            'notes': forms.Textarea(attrs={'class': 'textarea textarea-bordered textarea-sm w-full', 'rows': 2}), # made sm
         }
+
 
 class BaseParcelItemFormSet(forms.BaseInlineFormSet):
     def add_fields(self, form, index):
@@ -75,53 +76,68 @@ ParcelItemFormSet = forms.inlineformset_factory(
 )
 
 class InitialParcelItemForm(forms.Form):
-    """
-    A non-model form to represent an item to be packed.
-    Used to dynamically build rows in the "Pack Order" modal.
-    """
     order_item_id = forms.IntegerField(widget=forms.HiddenInput())
-    product_name = forms.CharField(widget=forms.TextInput(attrs={'readonly': True, 'class': 'input input-sm bg-gray-100 border-none w-full'}))
-    sku = forms.CharField(widget=forms.TextInput(attrs={'readonly': True, 'class': 'input input-sm bg-gray-100 border-none w-full'}))
+    # Display-only fields, pre-filled by the view based on OrderItem
+    product_name = forms.CharField(
+        widget=forms.TextInput(attrs={'readonly': True, 'class': 'input input-xs bg-gray-100 border-none w-full p-1 text-gray-700 leading-tight'})
+    )
+    sku = forms.CharField(
+        widget=forms.TextInput(attrs={'readonly': True, 'class': 'input input-xs bg-gray-100 border-none w-full p-1 text-gray-700 leading-tight'})
+    )
     quantity_to_pack = forms.IntegerField(
         min_value=0,
-        widget=forms.NumberInput(attrs={'class': 'input input-sm input-bordered w-20 pack-quantity-input'})
+        widget=forms.NumberInput(attrs={'class': 'input input-sm input-bordered w-20 pack-quantity-input text-center'})
     )
-    # This field will be populated by JS/AJAX or a secondary select after batch is chosen
+    # This hidden field will store the PK of the InventoryBatchItem chosen by the user from the dropdown.
+    # Its value is set by JavaScript when the 'available_batches' dropdown changes.
     selected_batch_item_id = forms.IntegerField(widget=forms.HiddenInput(), required=False)
-    # Add a select for available batches (will be populated/filtered by JS)
-    available_batches = forms.ModelChoiceField(
-        queryset=InventoryBatchItem.objects.none(), # Start with none, populate with JS
-        required=False, # Batch might not be selected initially
-        widget=forms.Select(attrs={'class': 'select select-sm select-bordered w-full available-batches-select'})
+
+    # This ChoiceField will be dynamically populated by JavaScript.
+    # The 'initial' value for this field (the pre-selected batch) will be set by JS
+    # using the 'selected_batch_item_id' that was passed in this form's initial data.
+    available_batches = forms.ChoiceField(
+        choices=[('', '--- Select Batch ---')], # Start with a placeholder
+        required=False, # It becomes required if quantity_to_pack > 0 (validated in JS and view)
+        widget=forms.Select(attrs={'class': 'select select-sm select-bordered w-full available-batches-select text-xs p-1 h-8 leading-tight'})
     )
 
     def __init__(self, *args, **kwargs):
-        order_item_instance = kwargs.pop('order_item_instance', None)
+        initial_data = kwargs.get('initial', {})
         super().__init__(*args, **kwargs)
-        if order_item_instance:
-            self.fields['order_item_id'].initial = order_item_instance.pk
-            self.fields['product_name'].initial = order_item_instance.product.name if order_item_instance.product else order_item_instance.erp_product_name
-            self.fields['sku'].initial = order_item_instance.product.sku if order_item_instance.product else "N/A"
-            # Set max for quantity_to_pack based on order_item.quantity_remaining_to_pack
-            remaining_to_pack = order_item_instance.quantity_allocated - order_item_instance.quantity_packed
-            self.fields['quantity_to_pack'].widget.attrs['max'] = remaining_to_pack
-            self.fields['quantity_to_pack'].initial = remaining_to_pack # Default to packing the remaining amount
 
-            # Populate available_batches queryset if warehouse_product exists
-            if order_item_instance.suggested_batch_item:
-                 self.fields['selected_batch_item_id'].initial = order_item_instance.suggested_batch_item_id
-                 self.fields['available_batches'].queryset = InventoryBatchItem.objects.filter(
-                    warehouse_product=order_item_instance.warehouse_product, quantity__gt=0
-                 ).select_related('warehouse_product__product')
-                 self.fields['available_batches'].initial = order_item_instance.suggested_batch_item_id
+        # Populate display fields and hidden order_item_id from initial data
+        self.fields['order_item_id'].initial = initial_data.get('order_item_id')
+        self.fields['product_name'].initial = initial_data.get('product_name', 'N/A')
+        self.fields['sku'].initial = initial_data.get('sku', 'N/A')
 
-            elif order_item_instance.warehouse_product:
-                self.fields['available_batches'].queryset = InventoryBatchItem.objects.filter(
-                    warehouse_product=order_item_instance.warehouse_product, quantity__gt=0
-                ).select_related('warehouse_product__product')
-                self.fields['available_batches'].label_from_instance = lambda obj: f"B: {obj.batch_number or 'N/A'} L: {obj.location_label or 'N/A'} E: {obj.expiry_date or 'N/A'} (Qty: {obj.quantity})"
-            else: # No specific warehouse product, might be problematic for batch selection
-                self.fields['available_batches'].queryset = InventoryBatchItem.objects.none()
+        qty_pack_initial = initial_data.get('quantity_to_pack', 0)
+        self.fields['quantity_to_pack'].initial = qty_pack_initial
+        self.fields['quantity_to_pack'].widget.attrs['max'] = qty_pack_initial # Max initially is what's remaining
 
+        # Store the initially suggested batch ID (from `get_suggested_batch_for_order_item`)
+        # This will be used by JavaScript to pre-select an option in the `available_batches` dropdown
+        # once the dropdown's choices are loaded via AJAX.
+        suggested_batch_pk = initial_data.get('selected_batch_item_id')
+        if suggested_batch_pk:
+            self.fields['selected_batch_item_id'].initial = suggested_batch_pk
+            # Note: We don't set self.fields['available_batches'].initial here directly with the ID,
+            # as choices aren't populated yet. JS will handle making this ID the selected value in the dropdown.
+
+    def clean(self):
+        cleaned_data = super().clean()
+        qty_to_pack = cleaned_data.get('quantity_to_pack')
+        # 'selected_batch_item_id' is what gets submitted from the hidden input,
+        # which JS should update from the 'available_batches' dropdown.
+        selected_batch_id_on_submit = cleaned_data.get('selected_batch_item_id')
+
+        if qty_to_pack is not None and qty_to_pack > 0:
+            if not selected_batch_id_on_submit:
+                self.add_error('available_batches', 'A batch must be selected if quantity to pack is greater than 0.')
+            # Further validation (e.g., qty_to_pack vs selected_batch_item_id.quantity) happens in the view.
+        elif qty_to_pack is None or qty_to_pack < 0: # quantity_to_pack should not be None if field is present
+            self.add_error('quantity_to_pack', 'Quantity to pack must be zero or a positive number.')
+
+        return cleaned_data
 
 InitialParcelItemFormSet = forms.formset_factory(InitialParcelItemForm, extra=0)
+
