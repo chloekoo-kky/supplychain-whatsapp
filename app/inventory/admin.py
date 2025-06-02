@@ -142,11 +142,11 @@ class SupplierAdmin(admin.ModelAdmin):
 class StockTransactionAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'product_display', 'warehouse_display', 'transaction_type',
-        'quantity', 'reference_note', 'related_po_display', 'related_order_display', 'created_at_formatted'
+        'quantity', 'reference_note', 'related_po_display', 'related_order_display', 'transaction_date_formatted'
     )
     list_filter = (
         'transaction_type', 'warehouse',
-        ('created_at', admin.DateFieldListFilter),
+        ('transaction_date', admin.DateFieldListFilter),
         'product',
     )
     search_fields = (
@@ -154,13 +154,13 @@ class StockTransactionAdmin(admin.ModelAdmin):
         'warehouse__name', 'reference_note',
         'related_po__id', 'related_order__id'
     )
-    ordering = ('-created_at',)
-    readonly_fields = ('created_at_formatted',)
+    ordering = ('-transaction_date',)
+    readonly_fields = ('transaction_date',)
 
     fields = (
         'warehouse', 'warehouse_product', 'product',
         'transaction_type', 'quantity', 'reference_note',
-        'related_po', 'related_order', 'created_at_formatted'
+        'related_po', 'related_order', 'transaction_date'
     )
 
     def product_display(self, obj):
@@ -181,10 +181,10 @@ class StockTransactionAdmin(admin.ModelAdmin):
         return f"Order#{obj.related_order.id}" if obj.related_order else "-"
     related_order_display.short_description = 'Related Order'
 
-    def created_at_formatted(self, obj):
-        return obj.created_at.strftime("%Y-%m-%d %H:%M:%S") if obj.created_at else "-"
-    created_at_formatted.short_description = 'Created At'
-    created_at_formatted.admin_order_field = 'created_at'
+    def transaction_date_formatted(self, obj):
+        return obj.transaction_date.strftime("%Y-%m-%d %H:%M:%S") if obj.transaction_date else "-"
+    transaction_date_formatted.short_description = 'Transacted At'
+    transaction_date_formatted.admin_order_field = 'transaction_date'
 
 
 @admin.register(InventoryBatchItem)

@@ -61,11 +61,14 @@
               </button>
               {% endfor %}
               <div class="flex-grow md:flex-grow-0 md:w-1/3 mt-3 md:mt-0">
-                <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="flex items-center">
+                <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="flex items-center gap-x-2">  {# MODIFIED: Added gap-x-2 #}
                     <input type="text" name="q" placeholder="Search SKU or Product Name" class="input input-sm input-bordered w-full"
                            value="{{ query|default:'' }}" />
+                    <button type="button" class="btn btn-sm btn-outline" onclick="resetWarehouseProductFilters()">
+                        🗑 Reset
+                    </button>
                 </form>
-              </div>
+            </div>
           </div>
 
       </div>

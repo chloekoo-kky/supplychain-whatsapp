@@ -1,0 +1,29 @@
+{% comment %} app/operation/templates/operation/partials/_customer_orders_table_with_pagination.html {% endcomment %}
+{% load i18n %}
+{% load humanize %}
+
+<div class="overflow-x-auto bg-white shadow-md rounded-lg">
+    <table class="min-w-full table-auto main-order-table table-sm">
+        <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
+            <tr>
+                <th class="py-2 px-4 text-left">LWA Order ID / <br>Status</th>
+                <th class="py-2 px-4 text-left">Order Date</th>
+                <th class="py-2 px-4 text-left">Customer / Location</th>
+                <th class="py-2 px-4 text-left">Items</th>
+                <th class="py-2 px-4 text-left">Parcel Details</th>
+                <th class="py-2 px-4 text-left w-auto">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="customer-orders-list-tbody">
+            {# 'orders_page_obj' is the page_obj from the view for the initial load #}
+            {% include 'operation/partials/_customer_orders_list_items_only.html' with orders=orders_page_obj.object_list %}
+        </tbody>
+    </table>
+
+    {# "Explore More" button for Customer Orders #}
+    <div id="load-more-customer-orders-container" class="text-center mt-6 mb-4" {% if not orders_page_obj.has_next %}style="display: none;"{% endif %}>
+        <button id="explore-more-customer-orders-btn" class="btn btn-outline btn-primary">
+            Explore More Orders
+        </button>
+    </div>
+</div>

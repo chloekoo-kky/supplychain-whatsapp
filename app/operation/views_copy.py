@@ -9,7 +9,7 @@ from django.db import transaction, IntegrityError
 from django.db.models import Q, Count, Prefetch, F, Value
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
-from datetime import datetime, timedelta  # Import timedelta
+from datetime import datetime
 from django.http import JsonResponse, Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -31,6 +31,7 @@ DEFAULT_CUSTOMER_ORDERS_TAB = "customer_orders"
 DEFAULT_PARCELS_TAB = "parcels_details"
 
 
+@login_required
 @login_required
 def order_list_view(request):
     logger.debug(f"[OrderListView] Request GET params: {request.GET}")
@@ -722,159 +723,134 @@ def get_order_items_for_packing(request, order_pk):
         }, status=500)
 
 
+
 @login_required
 @transaction.atomic
 def process_packing_for_order(request, order_pk):
-    try:
-        if request.method != 'POST':
-            logger.warning(f"process_packing_for_order received a {request.method} request for order_pk {order_pk}, expected POST. Full path: {request.get_full_path()}")
-            return JsonResponse({'success': False, 'message': 'Invalid request method.'}, status=405)
+    if request.method != 'POST':
+        logger.warning(f"process_packing_for_order received a {request.method} request for order_pk {order_pk}, expected POST. Full path: {request.get_full_path()}")
+        return JsonResponse({'success': False, 'message': 'Invalid request method.'}, status=405)
 
-        order = get_object_or_404(Order.objects.select_related('warehouse'), pk=order_pk)
-        if not request.user.is_superuser and (not request.user.warehouse or order.warehouse != request.user.warehouse):
-            return JsonResponse({'success': False, 'message': 'Permission denied for this order.'}, status=403)
+    order = get_object_or_404(Order.objects.select_related('warehouse'), pk=order_pk)
+    if not request.user.is_superuser and (not request.user.warehouse or order.warehouse != request.user.warehouse):
+        return JsonResponse({'success': False, 'message': 'Permission denied for this order.'}, status=403)
 
-        parcel_notes_from_form = request.POST.get('parcel-notes', order.shipping_notes or '')
-        courier_name_from_form = request.POST.get('parcel-courier_name', '').strip()
-        packaging_type_from_form = request.POST.get('parcel-packaging_type', '').strip()
+    parcel_notes_from_form = request.POST.get('parcel-notes', order.shipping_notes or '')
+    courier_name_from_form = request.POST.get('parcel-courier_name', None)
+    packaging_type_from_form = request.POST.get('parcel-packaging_type', None)
 
-        # --- VALIDATION FOR REQUIRED FIELDS ---
-        if not courier_name_from_form:
-            logger.warning(f"Process Packing (Order {order_pk}): Courier name is required but was not provided.")
-            return JsonResponse({'success': False, 'message': 'Courier selection is required.'}, status=400)
+    num_item_forms = int(request.POST.get('packitems-TOTAL_FORMS', 0))
+    items_to_pack_data = []
+    any_item_actually_packed_this_session = False
 
-        if not packaging_type_from_form:
-            logger.warning(f"Process Packing (Order {order_pk}): Packaging type is required but was not provided.")
-            return JsonResponse({'success': False, 'message': 'Packaging type selection is required.'}, status=400)
-        # --- END VALIDATION ---
+    for i in range(num_item_forms):
+        order_item_id_str = request.POST.get(f'packitems-{i}-order_item_id')
+        qty_to_pack_str = request.POST.get(f'packitems-{i}-quantity_to_pack')
+        batch_id_str = request.POST.get(f'packitems-{i}-selected_batch_item_id')
 
+        if not order_item_id_str or not qty_to_pack_str : continue
+        try:
+            order_item_id = int(order_item_id_str)
+            order_item = OrderItem.objects.select_related('product', 'warehouse_product').get(pk=order_item_id, order=order)
+            qty_to_pack = int(qty_to_pack_str)
 
-        num_item_forms = int(request.POST.get('packitems-TOTAL_FORMS', 0))
-        items_to_pack_data = []
-        any_item_actually_packed_this_session = False
+            if qty_to_pack <= 0: continue
 
-        for i in range(num_item_forms):
-            order_item_id_str = request.POST.get(f'packitems-{i}-order_item_id')
-            qty_to_pack_str = request.POST.get(f'packitems-{i}-quantity_to_pack')
-            batch_id_str = request.POST.get(f'packitems-{i}-selected_batch_item_id')
+            any_item_actually_packed_this_session = True
+            batch_item = None
+            if batch_id_str and batch_id_str.isdigit():
+                batch_item = InventoryBatchItem.objects.get(pk=int(batch_id_str))
+                if batch_item.warehouse_product != order_item.warehouse_product:
+                    return JsonResponse({'success': False, 'message': f"Batch {batch_item.batch_number} mismatch."}, status=400)
+                if qty_to_pack > batch_item.quantity:
+                    return JsonResponse({'success': False, 'message': f"Batch {batch_item.batch_number} stock low."}, status=400)
+            elif qty_to_pack > 0 :
+                 return JsonResponse({'success': False, 'message': f"Batch selection missing for {order_item.product.sku}."}, status=400)
 
-            if not order_item_id_str or not qty_to_pack_str : continue
-            try:
-                order_item_id = int(order_item_id_str)
-                order_item = OrderItem.objects.select_related('product', 'warehouse_product').get(pk=order_item_id, order=order)
-                qty_to_pack = int(qty_to_pack_str)
+            total_removed_for_item = order.get_total_removed_quantity_for_item(order_item.id)
+            effective_ordered_qty = order_item.quantity_ordered - total_removed_for_item
+            quantity_remaining_on_order_item = effective_ordered_qty - order_item.quantity_packed
 
-                if qty_to_pack <= 0: continue
-
-                any_item_actually_packed_this_session = True
-                batch_item = None
-                if batch_id_str and batch_id_str.isdigit():
-                    batch_item = InventoryBatchItem.objects.get(pk=int(batch_id_str))
-                    if batch_item.warehouse_product != order_item.warehouse_product:
-                        logger.error(f"Batch {batch_item.batch_number} (ID: {batch_item.pk}) warehouse_product (ID: {batch_item.warehouse_product_id}) mismatch with OrderItem {order_item.pk} warehouse_product (ID: {order_item.warehouse_product_id}) for Order {order_pk}.")
-                        return JsonResponse({'success': False, 'message': f"Product mismatch for batch {batch_item.batch_number}. Expected product for this batch is different from the order item."}, status=400)
-                    if qty_to_pack > batch_item.quantity:
-                        return JsonResponse({'success': False, 'message': f"Not enough stock in batch {batch_item.batch_number} for {order_item.product.sku}. Available: {batch_item.quantity}, Required: {qty_to_pack}."}, status=400)
-                elif qty_to_pack > 0 : # Batch is required if quantity to pack is specified
-                     logger.warning(f"Process Packing (Order {order_pk}): Batch selection missing for item {order_item.product.sku} (OrderItem ID: {order_item.id}) with qty_to_pack: {qty_to_pack}.")
-                     return JsonResponse({'success': False, 'message': f"Batch selection is missing for item {order_item.product.sku}."}, status=400)
-
-                total_removed_for_item = order.get_total_removed_quantity_for_item(order_item.id)
-                effective_ordered_qty = order_item.quantity_ordered - total_removed_for_item
-                quantity_remaining_on_order_item = effective_ordered_qty - order_item.quantity_packed
-
-                if qty_to_pack > quantity_remaining_on_order_item:
-                    logger.warning(f"Process Packing (Order {order_pk}): Cannot pack {qty_to_pack} of {order_item.product.sku}. Only {quantity_remaining_on_order_item} effectively left after considering packed ({order_item.quantity_packed}) and removed ({total_removed_for_item}) quantities from ordered ({order_item.quantity_ordered}).")
-                    return JsonResponse({'success': False, 'message': f"Cannot pack {qty_to_pack} of {order_item.product.sku}. Only {quantity_remaining_on_order_item} effectively left."}, status=400)
+            if qty_to_pack > quantity_remaining_on_order_item:
+                return JsonResponse({'success': False, 'message': f"Cannot pack {qty_to_pack} of {order_item.product.sku}. Only {quantity_remaining_on_order_item} effectively left after considering packed and removed quantities."}, status=400)
 
 
-                items_to_pack_data.append({
-                    'order_item': order_item,
-                    'quantity': qty_to_pack,
-                    'batch': batch_item
-                })
-            except (OrderItem.DoesNotExist, InventoryBatchItem.DoesNotExist, ValueError) as e:
-                 logger.error(f"Error processing item data for packing order {order_pk}: {e}", exc_info=True)
-                 return JsonResponse({'success': False, 'message': f'Invalid item data: {e}'}, status=400)
-            except Exception as e:
-                 logger.error(f"Unexpected error processing item for order {order_pk}: {e}", exc_info=True)
-                 return JsonResponse({'success': False, 'message': f'Error processing item: {e}'}, status=500)
+            items_to_pack_data.append({
+                'order_item': order_item,
+                'quantity': qty_to_pack,
+                'batch': batch_item
+            })
+        except (OrderItem.DoesNotExist, InventoryBatchItem.DoesNotExist, ValueError) as e:
+             logger.error(f"Error processing item data for packing order {order_pk}: {e}", exc_info=True)
+             return JsonResponse({'success': False, 'message': f'Invalid item data: {e}'}, status=400)
+        except Exception as e:
+             logger.error(f"Unexpected error processing item for order {order_pk}: {e}", exc_info=True)
+             return JsonResponse({'success': False, 'message': f'Error processing item: {e}'}, status=500)
 
 
-        if not any_item_actually_packed_this_session:
-            logger.warning(f"Process Packing (Order {order_pk}): No items specified with quantity > 0 to pack.")
-            return JsonResponse({'success': False, 'message': 'No items specified with quantity > 0 to pack.'}, status=400)
+    if not any_item_actually_packed_this_session:
+        return JsonResponse({'success': False, 'message': 'No items specified with quantity > 0 to pack.'}, status=400)
 
-        parcel = Parcel.objects.create(
-            order=order,
-            created_by=request.user,
-            notes=parcel_notes_from_form,
-            courier_name=courier_name_from_form, # Already validated not to be None/empty
-            packaging_type=packaging_type_from_form, # Already validated not to be None/empty
+    parcel = Parcel.objects.create(
+        order=order,
+        created_by=request.user,
+        notes=parcel_notes_from_form,
+        courier_name=courier_name_from_form if courier_name_from_form else None,
+        packaging_type=packaging_type_from_form if packaging_type_from_form else None,
+    )
+
+    if not order.order_display_code:
+        order.order_display_code = parcel.parcel_code_system
+        order.save(update_fields=['order_display_code'])
+
+
+    for item_data in items_to_pack_data:
+        oi_instance = item_data['order_item']
+        batch_instance_for_oi = item_data['batch']
+        qty_packed_for_oi_in_this_parcel = item_data['quantity']
+
+        ParcelItem.objects.create(
+            parcel=parcel,
+            order_item=oi_instance,
+            quantity_shipped_in_this_parcel=qty_packed_for_oi_in_this_parcel,
+            shipped_from_batch=batch_instance_for_oi
         )
 
-        if not order.order_display_code:
-            order.order_display_code = parcel.parcel_code_system
-            order.save(update_fields=['order_display_code'])
+        oi_instance.suggested_batch_item = batch_instance_for_oi
+        if batch_instance_for_oi:
+            oi_instance.suggested_batch_number_display = batch_instance_for_oi.batch_number
+            oi_instance.suggested_batch_expiry_date_display = batch_instance_for_oi.expiry_date
 
+        oi_instance.save(update_fields=['suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display'], skip_order_update=True)
 
-        for item_data in items_to_pack_data:
-            oi_instance = item_data['order_item']
-            batch_instance_for_oi = item_data['batch']
-            qty_packed_for_oi_in_this_parcel = item_data['quantity']
+        if batch_instance_for_oi:
+            original_batch_qty = batch_instance_for_oi.quantity
+            batch_instance_for_oi.quantity = F('quantity') - qty_packed_for_oi_in_this_parcel
+            batch_instance_for_oi.save(update_fields=['quantity'])
+            batch_instance_for_oi.refresh_from_db()
+            logger.info(f"Stock Deducted: Batch {batch_instance_for_oi.id} Qty: {original_batch_qty} -> {batch_instance_for_oi.quantity} (-{qty_packed_for_oi_in_this_parcel})")
 
-            ParcelItem.objects.create(
-                parcel=parcel,
-                order_item=oi_instance,
-                quantity_shipped_in_this_parcel=qty_packed_for_oi_in_this_parcel,
-                shipped_from_batch=batch_instance_for_oi
+            StockTransaction.objects.create(
+                warehouse=batch_instance_for_oi.warehouse_product.warehouse,
+                warehouse_product=batch_instance_for_oi.warehouse_product,
+                product=batch_instance_for_oi.warehouse_product.product,
+                transaction_type='OUT',
+                quantity=-qty_packed_for_oi_in_this_parcel,
+                reference_note=f"Packed for Order {order.erp_order_id}, Parcel {parcel.parcel_code_system}, Batch {batch_instance_for_oi.batch_number}",
+                related_order=order
             )
 
-            oi_instance.suggested_batch_item = batch_instance_for_oi
-            if batch_instance_for_oi:
-                oi_instance.suggested_batch_number_display = batch_instance_for_oi.batch_number
-                oi_instance.suggested_batch_expiry_date_display = batch_instance_for_oi.expiry_date
+    order.refresh_from_db()
+    logger.info(f"Order {order.erp_order_id} final status after packing: {order.get_status_display()}")
 
-            oi_instance.save(update_fields=['suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display'], skip_order_update=True)
-
-            if batch_instance_for_oi:
-                original_batch_qty = batch_instance_for_oi.quantity
-                batch_instance_for_oi.quantity = F('quantity') - qty_packed_for_oi_in_this_parcel
-                batch_instance_for_oi.save(update_fields=['quantity'])
-                batch_instance_for_oi.refresh_from_db() # Ensure the quantity is updated in the current instance
-                logger.info(f"Stock Deducted: Batch {batch_instance_for_oi.id} (Number: {batch_instance_for_oi.batch_number}) Qty: {original_batch_qty} -> {batch_instance_for_oi.quantity} (-{qty_packed_for_oi_in_this_parcel}) for Order {order.erp_order_id}, Parcel {parcel.parcel_code_system}")
+    messages.success(request, f"Parcel {parcel.parcel_code_system} created (Packaging: {parcel.get_packaging_type_display() or 'N/A'}) for order {order.erp_order_id}.")
+    return JsonResponse({
+        'success': True,
+        'message': f'Parcel created with packaging: {parcel.get_packaging_type_display() or "N/A"}!',
+        'redirect_url': request.build_absolute_uri(reverse('operation:order_list')) + f"?tab={DEFAULT_CUSTOMER_ORDERS_TAB}"
+    })
 
 
-                StockTransaction.objects.create(
-                    warehouse=batch_instance_for_oi.warehouse_product.warehouse,
-                    warehouse_product=batch_instance_for_oi.warehouse_product,
-                    product=batch_instance_for_oi.warehouse_product.product,
-                    transaction_type='OUT',
-                    quantity=-qty_packed_for_oi_in_this_parcel, # Negative for outgoing stock
-                    reference_note=f"Packed for Order {order.erp_order_id}, Parcel {parcel.parcel_code_system}, Batch {batch_instance_for_oi.batch_number}",
-                    related_order=order,
-                    batch_item_involved=batch_instance_for_oi # Link to the specific batch item
-                )
-
-        order.refresh_from_db() # Refresh to get the latest status after item updates.
-        logger.info(f"Order {order.erp_order_id} final status after packing: {order.get_status_display()}")
-
-        messages.success(request, f"Parcel {parcel.parcel_code_system} created (Packaging: {parcel.get_packaging_type_display() or 'N/A'}, Courier: {parcel.courier_name or 'N/A'}) for order {order.erp_order_id}.")
-        return JsonResponse({
-            'success': True,
-            'message': f'Parcel {parcel.parcel_code_system} created with packaging: {parcel.get_packaging_type_display() or "N/A"} and Courier: {parcel.courier_name or "N/A"}!',
-            'redirect_url': request.build_absolute_uri(reverse('operation:order_list')) + f"?tab={DEFAULT_CUSTOMER_ORDERS_TAB}"
-        })
-
-    except Http404:
-        logger.warning(f"Order PK {order_pk} not found in process_packing_for_order.")
-        return JsonResponse({'success': False, 'message': 'Order not found.'}, status=404)
-    except Exception as e_general:
-        logger.error(f"Unexpected error in process_packing_for_order for order_pk {order_pk}: {e_general}\n{traceback.format_exc()}")
-        return JsonResponse({
-            'success': False,
-            'message': f'An unexpected server error occurred: {e_general}'
-        }, status=500)
 
 
 @login_required
@@ -1142,3 +1118,4 @@ def process_order_item_removal(request, order_pk):
     else:
         logger.error(f"Order item removal formset was not valid for order {order_pk}.")
         return JsonResponse({'success': False, 'message': 'Invalid form data submitted.'}, status=400)
+

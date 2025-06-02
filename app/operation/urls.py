@@ -20,4 +20,9 @@ urlpatterns = [
     path('order/<int:order_pk>/process-packing/', views.process_packing_for_order, name='process_packing_for_order'),
     # AJAX endpoint to get available batches for a specific order item
     path('order-item/<int:order_item_pk>/get-available-batches/', views.get_available_batches_for_order_item, name='get_available_batches_for_order_item'),
+    path('order/<int:order_pk>/get-items-for-editing/', views.get_order_items_for_editing, name='get_order_items_for_editing'),
+    path('order/<int:order_pk>/process-item-removal/', views.process_order_item_removal, name='process_order_item_removal'),
+    # New URL for loading more customer orders
+    path('customer-orders/load-more/', views.load_more_customer_orders, name='load_more_customer_orders'),
+
 ]

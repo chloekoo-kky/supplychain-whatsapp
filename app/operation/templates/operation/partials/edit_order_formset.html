@@ -1,0 +1,65 @@
+{% if formset.forms %}
+    {{ formset.management_form }}
+    <table class="table table-xs w-full edit-items-table">
+        <thead>
+            <tr>
+                {# Adjust headers based on what you want to show #}
+                <th class="w-2/5 py-1 px-1 text-left">Product</th>
+                <th class="w-1/5 py-1 px-1 text-left">SKU</th>
+                <th class="w-1/5 py-1 px-1 text-center">Balance Qty</th>
+                <th class="w-1/5 py-1 px-1 text-center">Remove Qty</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for form in formset %}
+                <tr class="edit-item-row" data-order-item-id="{{ form.initial.order_item_id }}">
+                    {# Hidden field for order_item_id is crucial for the form #}
+                    {{ form.order_item_id }}
+
+                    <td class="py-1 px-1 align-middle">
+                        {{ form.product_name }}
+                        {% comment %} This renders the widget for product_name,
+                                      which is a read-only TextInput in your form.
+                                      Its value comes from form.initial.product_name {% endcomment %}
+                    </td>
+                    <td class="py-1 px-1 align-middle">
+                        {{ form.sku }}
+                    </td>
+                    <td class="py-1 px-1 align-middle text-center">
+                        {# This should display the balance_quantity_to_pack_display field from the form #}
+                        {{ form.balance_quantity_to_pack_display }}
+                    </td>
+                    <td class="py-1 px-1 align-middle text-center">
+                        {{ form.quantity_to_remove }}
+                        {% if form.quantity_to_remove.errors %}
+                            <div class="text-error text-xs mt-1">
+                                {% for error in form.quantity_to_remove.errors %}
+                                    {{ error }}
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% if form.non_field_errors %}
+                <tr>
+                    <td colspan="4">
+                        {% for error in form.non_field_errors %}
+                            <p class="text-error text-xs py-1 px-1">{{ error }}</p>
+                        {% endfor %}
+                    </td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if formset.non_form_errors %}
+        <div class="text-error text-sm my-2 p-1">
+            {{ formset.non_form_errors|join:", " }}
+        </div>
+    {% endif %}
+{% else %}
+    {# This part is rendered if formset.forms is empty #}
+    <p class="text-center text-gray-500 py-3">
+        No items currently eligible for removal or quantity adjustment for this order.
+    </p>
+{% endif %}

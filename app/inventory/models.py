@@ -3,6 +3,7 @@ from django.db import models, transaction as db_transaction
 from django.utils import timezone
 from django.conf import settings
 from django.db.models import UniqueConstraint, Q, F
+from django.core.exceptions import ValidationError
 
 from warehouse.models import Warehouse, WarehouseProduct
 
@@ -30,33 +31,6 @@ class Product(models.Model):
         ordering = ['name']
         verbose_name = "Product"
         verbose_name_plural = "Products"
-
-
-class StockTransaction(models.Model):
-    TRANSACTION_TYPES = [
-        ('IN', 'Stock In (PO Received)'),
-        ('OUT', 'Stock Out (Sales Order)'),
-        ('RETURN', 'Return In'),
-        ('CANCEL', 'Cancel / Restore'),
-        ('ADJUST', 'Manual Adjustment'),
-        ('PO_ITEM_DEL_ADJ', 'PO Item Deletion Adjustment'),
-    ]
-
-    warehouse = models.ForeignKey('warehouse.Warehouse', on_delete=models.CASCADE)
-    warehouse_product = models.ForeignKey('warehouse.WarehouseProduct', on_delete=models.CASCADE)
-    product = models.ForeignKey(Product, on_delete=models.CASCADE)
-    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
-    quantity = models.IntegerField()
-    reference_note = models.CharField(max_length=255, blank=True)
-    related_po = models.ForeignKey('warehouse.PurchaseOrder', null=True, blank=True, on_delete=models.SET_NULL)
-    related_order = models.ForeignKey('operation.Order', null=True, blank=True, on_delete=models.SET_NULL)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-created_at']
-
-    def __str__(self):
-        return f"[{self.get_transaction_type_display()}] {self.product.name} x {self.quantity} @ {self.warehouse.name}"
 
 
 class InventoryBatchItem(models.Model):
@@ -153,6 +127,69 @@ class InventoryBatchItem(models.Model):
         elif 0 <= delta.days <= 180: # 6 months * 30 days approx
             return "≤6m"
         return None
+
+class StockTransaction(models.Model):
+    TRANSACTION_TYPES = [
+        ('IN', 'Stock In'),         # Receiving stock, positive adjustment, PO fulfillment
+        ('OUT', 'Stock Out'),       # Shipping stock, negative adjustment, order fulfillment
+        ('ADJ_P', 'Positive Adjustment'), # Manual positive adjustment (e.g., found stock)
+        ('ADJ_N', 'Negative Adjustment'), # Manual negative adjustment (e.g., damaged, lost)
+        ('TRANSFER_OUT', 'Transfer Out'), # Stock moved to another warehouse (source)
+        ('TRANSFER_IN', 'Transfer In'),   # Stock received from another warehouse (destination)
+        ('RETURN_IN', 'Return In'),       # Customer return received
+        ('ST_INITIAL', 'Stock Take Initial'), # Represents the initial state at a stock take before any changes
+        ('ST_UPDATE', 'Stock Take Update'),   # Represents an update/reconciliation during/after a stock take
+    ]
+    warehouse = models.ForeignKey('warehouse.Warehouse', on_delete=models.PROTECT, related_name='stock_transactions')
+    warehouse_product = models.ForeignKey('warehouse.WarehouseProduct', on_delete=models.PROTECT, related_name='stock_transactions',
+                                        help_text="The specific warehouse product this transaction affects.")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='stock_transactions_direct',
+                                help_text="Direct link to the Product (denormalized for easier querying if needed).")
+
+    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    quantity = models.IntegerField(help_text="Change in quantity. Positive for stock in/positive adjustments, negative for stock out/negative adjustments.")
+
+    # NEW FIELD: Link to the specific InventoryBatchItem involved, if applicable
+    batch_item_involved = models.ForeignKey(
+        InventoryBatchItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='stock_transactions',
+        help_text="The specific batch item involved in this transaction, if applicable."
+    )
+
+    # Contextual References
+    reference_note = models.CharField(max_length=255, blank=True, null=True, help_text="E.g., PO number, Order ID, Adjustment reason, Stock Take Session ID.")
+    related_order = models.ForeignKey('operation.Order', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_transactions')
+    related_po = models.ForeignKey('warehouse.PurchaseOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_transactions')
+    # related_stock_take_session = models.ForeignKey('StockTakeSession', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_transactions')
+
+    # User and Timestamp
+    transaction_date = models.DateTimeField(default=timezone.now)
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        ordering = ['-transaction_date']
+        verbose_name = "Stock Transaction"
+        verbose_name_plural = "Stock Transactions"
+
+    def __str__(self):
+        return f"{self.get_transaction_type_display()} of {self.quantity} for {self.product.name} ({self.warehouse.name}) on {self.transaction_date.strftime('%Y-%m-%d %H:%M')}"
+
+    def clean(self):
+        super().clean()
+        if self.transaction_type in ['IN', 'ADJ_P', 'TRANSFER_IN', 'RETURN_IN', 'ST_INITIAL', 'ST_UPDATE'] and self.quantity < 0:
+            raise ValidationError(f"{self.get_transaction_type_display()} transactions must have a non-negative quantity.")
+        if self.transaction_type in ['OUT', 'ADJ_N', 'TRANSFER_OUT'] and self.quantity > 0:
+            raise ValidationError(f"{self.get_transaction_type_display()} transactions must have a non-positive quantity (or zero).")
+
+        # Ensure product consistency
+        if self.warehouse_product and self.product != self.warehouse_product.product:
+            raise ValidationError("Product in WarehouseProduct and direct Product link must match.")
+        if self.batch_item_involved and self.warehouse_product != self.batch_item_involved.warehouse_product:
+            raise ValidationError("WarehouseProduct of StockTransaction and BatchItemInvolved must match.")
+
 
 class StockTakeSession(models.Model):
     STATUS_CHOICES = [

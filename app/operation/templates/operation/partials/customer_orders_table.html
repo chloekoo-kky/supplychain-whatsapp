@@ -2,21 +2,17 @@
 {% load i18n %}
 {% load humanize %}
 
-{# Sticky Filter Panel for Customer Orders #}
+{# Sticky Filter Panel for Customer Orders (This should NOT be inside the div that gets replaced by AJAX) #}
 <div class="operations-filter-panel md:w-full shrink-0 sticky top-24 h-fit bg-base-200 shadow px-4 py-2 rounded-lg z-20 mb-4">
-
     <div class="flex flex-col md:flex-row justify-between items-center mb-2">
-        {# Main Title and Order Count #}
         <div class="flex-grow mb-2 md:mb-0">
             <h1 class="text-xl font-semibold text-gray-700">
-                <span class="text-xl font-semibold text-gray-700 customer-order-count">{{ total_orders_count|default:0 }} orders</span>
+                <span class="text-xl font-semibold text-gray-700 customer-order-count">
+                    {% if orders.paginator %}={{ orders.paginator.count }} orders{% else %}={{ total_orders_count|default:0 }} orders{% endif %}
+                </span>
             </h1>
         </div>
-
-        {# Container for All Filter Controls - This will be a single row on medium+ screens #}
         <div class="flex flex-col md:flex-row md:items-center gap-x-3 gap-y-2 w-full md:w-auto">
-
-            {# Warehouse Filters - Left Side #}
             <div class="flex-shrink-0">
                 {% if request.user.is_superuser %}
                 <div class="flex flex-wrap gap-2 items-center">
@@ -45,11 +41,8 @@
                 </div>
                 {% endif %}
             </div>
-
-            {# Vertical Divider (visible on md+ screens) #}
             <div class="hidden md:block h-8 border-l border-gray-300 mx-2"></div>
-
-            {# Status Filters - Right Side Group #}
+            
             <div class="flex flex-wrap gap-2 items-center flex-shrink-0">
                 <button type="button"
                     class="btn btn-sm status-filter-btn {% if not selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}"
@@ -62,17 +55,14 @@
                 {% endif %}
                 {% endfor %}
             </div>
-
-            {# Search, Reset, Import - Right Side Group #}
-            <div class="flex flex-wrap gap-2 items-center flex-shrink-0 md:ml-auto"> {# md:ml-auto to push this group to the right #}
+            <div class="flex flex-wrap gap-2 items-center flex-shrink-0 md:ml-auto">
                 <div class="flex-shrink-0 w-full sm:w-auto md:max-w-xs">
                     <input type="text" name="q" value="{{ query|default:'' }}" placeholder="Search Orders..."
                         class="input input-sm input-bordered w-full dynamic-search-input">
                 </div>
                 <div class="flex-shrink-0">
-                    <button type="button" class="btn btn-sm btn-outline reset-filters-btn">Reset</button>
+                    <button type="button" class="btn btn-sm btn-outline bg-gray-300 reset-filters-btn">X</button>
                 </div>
-                 {# Removed flex-grow here to keep import button next to reset on larger screens #}
                 <div class="flex-shrink-0">
                     <label for="import-orders-modal-toggle" class="btn btn-sm md:btn-md btn-primary">Import</label>
                 </div>
@@ -81,23 +71,7 @@
     </div>
 </div>
 
-{# Container for the dynamic order list table #}
-<div id="customer-orders-list-dynamic-container" class="overflow-x-auto bg-white shadow-md rounded-lg">
-    <table class="min-w-full table-auto main-order-table table-sm">
-        <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
-            <tr>
-                <th class="py-2 px-4 text-left">LWA Order ID / <br>Status</th>
-                <th class="py-2 px-4 text-left">Order Date</th>
-                <th class="py-2 px-4 text-left">Customer / Location</th>
-                <th class="py-2 px-4 text-left">Items</th>
-                <th class="py-2 px-4 text-left">Parcel Details</th>
-                <th class="py-2 px-4 text-left w-auto">Actions</th>
-            </tr>
-        </thead>
-        <tbody id="customer-orders-list-tbody">
-            {# The content of _customer_orders_list_items_only.html will be loaded here initially and by JS #}
-            {% include 'operation/partials/_customer_orders_list_items_only.html' with orders=orders.object_list %}
-        </tbody>
-    </table>
-    {# Pagination controls will go here if you add them #}
+{# This container's content will be replaced by AJAX #}
+<div id="customer-orders-dynamic-content">
+    {% include 'operation/partials/_customer_orders_table_with_pagination.html' with orders=orders %}
 </div>

@@ -2,6 +2,10 @@
 from django import forms
 from .models import Parcel, ParcelItem, OrderItem, Order
 from inventory.models import InventoryBatchItem
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ExcelImportForm(forms.Form):
     excel_file = forms.FileField(
@@ -141,3 +145,111 @@ class InitialParcelItemForm(forms.Form):
 
 InitialParcelItemFormSet = forms.formset_factory(InitialParcelItemForm, extra=0)
 
+class RemoveOrderItemForm(forms.Form):
+    order_item_id = forms.IntegerField(widget=forms.HiddenInput()) # This should always have a value from initial
+    product_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'readonly': True, 'class': 'input input-xs bg-gray-100 border-none w-full p-1 text-gray-700 leading-tight'})
+    )
+    sku = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'readonly': True, 'class': 'input input-xs bg-gray-100 border-none w-full p-1 text-gray-700 leading-tight'})
+    )
+    balance_quantity_to_pack_display = forms.IntegerField(
+        label="Balance to Pack",
+        required=False,
+        widget=forms.NumberInput(attrs={'readonly': True, 'class': 'input input-sm input-bordered w-20 text-center bg-gray-100'})
+    )
+    quantity_to_remove = forms.IntegerField(
+        min_value=0,
+        label="Remove Qty",
+        # This field IS required in the sense that a value (even 0) must be submitted.
+        # However, making it required=False and handling None in clean method
+        # can sometimes be more flexible if empty submission is possible.
+        # For an IntegerField, an empty string in POST will cause "This field is required." if required=True.
+        # Let's keep it required=True and ensure the HTML sends a value (like 0).
+        required=True,
+        widget=forms.NumberInput(attrs={'class': 'input input-sm input-bordered w-20 remove-quantity-input text-center'})
+    )
+
+    def __init__(self, *args, **kwargs):
+        logger.debug(f"Form {kwargs.get('prefix', 'N/A')} __init__ called. Args: {args}, Kwargs: {kwargs}")
+
+        direct_balance_kwarg = kwargs.pop('balance_quantity_to_pack', None)
+
+        # Log initial before super
+        initial_before_super = kwargs.get('initial', None)
+        logger.debug(f"Form {kwargs.get('prefix', 'N/A')} - Initial data BEFORE super(): {initial_before_super}")
+
+        super().__init__(*args, **kwargs)
+
+        # Log self.initial AFTER super
+        logger.debug(f"Form {self.prefix if self.prefix else 'N/A'} - self.initial AFTER super(): {self.initial}")
+
+        if direct_balance_kwarg is not None:
+            self.balance_quantity_to_pack = direct_balance_kwarg
+            logger.debug(f"Form {self.prefix if self.prefix else 'N/A'}: Balance set from direct kwarg: {self.balance_quantity_to_pack}")
+        elif self.initial and 'balance_quantity_to_pack' in self.initial:
+            self.balance_quantity_to_pack = self.initial.get('balance_quantity_to_pack')
+            logger.debug(f"Form {self.prefix if self.prefix else 'N/A'}: Balance set from self.initial: {self.balance_quantity_to_pack}")
+        else:
+            self.balance_quantity_to_pack = 0
+            logger.debug(f"Form {self.prefix if self.prefix else 'N/A'}: Balance defaulted to 0. direct_balance_kwarg: {direct_balance_kwarg}, self.initial: {self.initial}")
+
+
+        # Set initial values for display fields and widget attributes
+        self.fields['balance_quantity_to_pack_display'].initial = self.balance_quantity_to_pack
+        self.fields['quantity_to_remove'].widget.attrs['max'] = self.balance_quantity_to_pack
+
+        # Ensure quantity_to_remove has an initial value of 0.
+        # If the form is bound, self.initial is not used for field values, self.data is.
+        # This line primarily affects unbound forms (GET request).
+        if not self.is_bound:
+            self.fields['quantity_to_remove'].initial = 0
+
+        if self.initial:
+            self.fields['product_name'].initial = self.initial.get('product_name', '')
+            self.fields['sku'].initial = self.initial.get('sku', '')
+            self.fields['order_item_id'].initial = self.initial.get('order_item_id')
+            # logger.debug(f"Form {self.prefix}: Initial values set. order_item_id: {self.fields['order_item_id'].initial}, balance: {self.fields['balance_quantity_to_pack_display'].initial}")
+
+
+    def clean_quantity_to_remove(self):
+        qty_to_remove = self.cleaned_data.get('quantity_to_remove')
+
+        # quantity_to_remove is now required=True, so it should not be None if the form is valid so far.
+        # If it were None, form.is_valid() would be false, and this clean method might not even be called
+        # or it might be called but the field would already have an error.
+        if qty_to_remove is None:
+            # This state implies the field was missing or empty and it's required.
+            # Django's default IntegerField validation should catch this.
+            # If we reach here and it's None, something is unexpected or field is not required.
+            # Since we set required=True, this block might be redundant if Django handles it.
+            # For safety, let's ensure it's 0 if it somehow becomes None post-field-validation.
+            logger.warning(f"clean_quantity_to_remove: qty_to_remove is None, defaulting to 0. This is unexpected if field is required.")
+            qty_to_remove = 0
+            # raise forms.ValidationError("Quantity to remove is required.", code='required') # This would be if required=False
+
+        if qty_to_remove < 0: # min_value=0 on field should catch this too.
+            raise forms.ValidationError("Quantity to remove cannot be negative.")
+
+        if qty_to_remove > self.balance_quantity_to_pack:
+            raise forms.ValidationError(f"Cannot remove more than the balance ({self.balance_quantity_to_pack}).")
+
+        return qty_to_remove
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # Ensure order_item_id is present (it's a hidden field but crucial)
+        # Since it's IntegerField and required=True by default, Django should enforce its presence.
+        # If it's missing, form.is_valid() will be false.
+        if self.is_bound and 'order_item_id' not in cleaned_data: # Check after field validation
+            # This scenario means the field was not in the POST data or was empty.
+             logger.warning(f"Form {self.prefix}: 'order_item_id' missing from cleaned_data during clean(). Data: {self.data}")
+             # self.add_error('order_item_id', 'This field is required.') # Redundant if field handles it
+        return cleaned_data
+
+
+
+# Formset for removing items
+RemoveOrderItemFormSet = forms.formset_factory(RemoveOrderItemForm, extra=0)

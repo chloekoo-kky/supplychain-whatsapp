@@ -199,6 +199,7 @@ LOGGING = {
             'style': '{',
         },
     },
+
     'handlers': {
         'console': {
             'level': 'DEBUG', # Capture DEBUG and higher level messages
@@ -206,22 +207,28 @@ LOGGING = {
             'formatter': 'simple', # Use the 'simple' formatter
         },
     },
+
     'loggers': {
-        'django': { # Configure Django's built-in loggers
+        'django': {
             'handlers': ['console'],
-            'level': 'INFO', # Or 'WARNING' to reduce Django's own noise
-            'propagate': True,
+            'level': 'INFO', # Django's own logs
+            'propagate': False,
         },
-        'inventory': { # Logger for your 'inventory' app
+        'operation': { # Your app's logger
             'handlers': ['console'],
-            'level': 'DEBUG', # Capture DEBUG and INFO messages from your app
-            'propagate': False, # Don't pass to parent loggers if handled here
+            'level': 'DEBUG', # Set to DEBUG to see all your logger.debug messages
+            'propagate': False,
         },
-        # You can add other app-specific loggers here
-        # To see logs from all apps (including yours if not specified above):
-        # '': { # Root logger
-        # 'handlers': ['console'],
-        # 'level': 'DEBUG',
-        # },
+         'inventory': { # Your app's logger
+            'handlers': ['console'],
+            'level': 'DEBUG', # Set to DEBUG to see all your logger.debug messages
+            'propagate': False,
+        },
+        # Add other app-specific loggers if needed
+    },
+
+    'root': { # Catch-all for other loggers, including those from third-party libraries
+        'handlers': ['console'],
+        'level': 'WARNING', # Or INFO / DEBUG as needed
     },
 }

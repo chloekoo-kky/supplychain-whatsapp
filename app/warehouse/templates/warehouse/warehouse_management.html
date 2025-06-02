@@ -107,14 +107,23 @@ function bindWarehouseFiltersButtons() {
 }
 
 function bindWarehouseSearchInput() {
-  const input = document.querySelector('#warehouse-search-form input[name="q"]');
-  if (!input || input.dataset.warehouseSearchBound === 'true') return;
+  const form = document.getElementById('warehouse-search-form'); // Get the form
+  if (!form) return;
+  const input = form.querySelector('input[name="q"]');
+  // Check form for bound flag, also check input existence
+  if (!input || form.dataset.warehouseSearchBound === 'true') return;
 
+  // Existing input listener for live search
   input.addEventListener("input", debounce(() => {
-    const query = input.value.trim();
     updateWarehouseTabFilters({ q: input.value.trim() });
   }, 300));
-  input.dataset.warehouseSearchBound = 'true';
+
+  // New submit listener for Enter key
+  form.addEventListener('submit', function(event) {
+    event.preventDefault(); // Prevent full page reload
+    updateWarehouseTabFilters({ q: input.value.trim() }); // Trigger AJAX update
+  });
+  form.dataset.warehouseSearchBound = 'true'; // Set flag on the form
 }
 
 function resetWarehouseProductFilters() {
@@ -510,7 +519,7 @@ function initPurchaseOrderTab() {
 // ======= PURCHASEORDER Tab =======INIT
 const PO_FILTER_DEBOUNCE_DELAY = 400;
 
-function refreshPOList() {
+function refreshPOList(poIdToScrollTo = null) {
     console.log("🚀 refreshPOList with pendingPOFilters (URL keys):", JSON.parse(JSON.stringify(pendingPOFilters)));
     const paramsForFetchAndHistory = new URLSearchParams();
     const allowedParams = TAB_SPECIFIC_PARAMS['purchaseorders'] || [];
@@ -560,10 +569,29 @@ function refreshPOList() {
             }
             initializePOModalStatusButtons(poListContainer);
             initLoadMorePOs();
-            setupPOModalDelegatedInteractivity('#purchase-orders-list'); // Ensure this is robust
-            setupStatusButtonDelegation('#purchase-orders-list'); // Ensure this is robust
+            setupPOModalDelegatedInteractivity('#purchase-orders-list');
+            setupStatusButtonDelegation('#purchase-orders-list');
             initReceiveItemsModal();
             console.log("✅ PO List refreshed via AJAX. UI updated and all dependent components initialized.");
+
+            // --- START: Scroll into view logic ---
+            if (poIdToScrollTo) {
+                const cardElement = document.getElementById(`po-card-${poIdToScrollTo}`);
+                if (cardElement) {
+                    requestAnimationFrame(() => { // Ensure DOM is painted
+                        cardElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        // Optional: Add a temporary highlight effect
+                        cardElement.classList.add('highlight-animation');
+                        setTimeout(() => {
+                            cardElement.classList.remove('highlight-animation');
+                        }, 2500); // Highlight duration
+                    });
+                } else {
+                    console.warn(`[refreshPOList] Scroll target: PO Card #${poIdToScrollTo} not found after refresh.`);
+                }
+            }
+            // --- END: Scroll into view logic ---
+
         } else {
             console.error("[refreshPOList] poListContainer not found for applying updates!");
         }
@@ -634,6 +662,23 @@ function bindPOFilterControls(container) {
     }, PO_FILTER_DEBOUNCE_DELAY + 100));
   }
   filterPanel.dataset.poFilterControlsBound = 'true';
+
+  const poSearchForm = filterPanel.querySelector('#po-search-form');
+  if (poSearchForm && !poSearchForm.dataset.poSearchSubmitBound) { // Check if already bound
+    poSearchForm.addEventListener('submit', function(event) {
+      event.preventDefault(); // Prevent full page reload
+      const searchInputForSubmit = this.querySelector('input[name="q"]');
+      const query = searchInputForSubmit.value.trim();
+
+      if (query === "") delete pendingPOFilters.q;
+      else pendingPOFilters.q = query;
+      pendingPOFilters.page = '1'; // Reset to page 1 on new search
+      refreshPOList(); // Refresh PO list directly using AJAX
+      // console.log(`📝 PO Search form submitted: q=${query}. Pending:`, JSON.parse(JSON.stringify(pendingPOFilters))); // Optional: for debugging
+    });
+    poSearchForm.dataset.poSearchSubmitBound = 'true'; // Mark as bound
+  }
+
 }
 
 function bindPOListPagination(poListContainer) {
@@ -1419,17 +1464,32 @@ function initStatusButtons(poId) {
 }
 
 function refreshPOAfterSave(poId, modalId = null, successMessage = "PO Updated!") {
-  refreshPOList(); // Simplest way to ensure everything is up-to-date
-  if (modalId) closeModal(modalId);
-  Swal.fire({
-    toast: true,
-    icon: "success",
-    position: "top-end",
-    title: successMessage,
-    showConfirmButton: false,
-    timer: 1500
-  });
+    if (modalId) closeModal(modalId); // Ensure modal is closed
+    Swal.fire({
+        toast: true,
+        icon: "success",
+        position: "top-end",
+        title: successMessage,
+        showConfirmButton: false,
+        timer: 2000 // Consistent with other success toasts
+    });
+
+    // Reset page to 1 before refreshing the list.
+    // This is crucial because the updated item's position in the sorted list
+    // (by last_updated_date) will likely change.
+    if (pendingPOFilters && typeof pendingPOFilters.page !== 'undefined') {
+        console.log(`[JS refreshPOAfterSave] Resetting pendingPOFilters.page from ${pendingPOFilters.page} to '1' before refresh.`);
+        pendingPOFilters.page = '1';
+    } else if (pendingPOFilters) {
+        // If pendingPOFilters exists but page property wasn't set, ensure it's set to '1' for the refresh.
+        console.log(`[JS refreshPOAfterSave] Setting pendingPOFilters.page to '1' before refresh (page was undefined).`);
+        pendingPOFilters.page = '1';
+    }
+    // If pendingPOFilters is null/undefined, refreshPOList should ideally use its own defaults which would fetch page 1.
+
+    refreshPOList(poId); // Pass poId for potential scrolling to the updated item
 }
+
 
 function saveForm(form, poId, modalId = null, successMessage = "PO Saved!") {
   console.log(`[saveForm] Called for PO ID: ${poId}, Modal ID: ${modalId}`);
