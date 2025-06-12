@@ -56,6 +56,12 @@
                       {% if request.resolver_match.url_name == 'warehouse_management' and request.resolver_match.app_name == 'warehouse' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
                 📦 PO
             </a>
+
+            <a href="{% url 'customers:customer_list' %}"
+              class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
+                      {% if request.resolver_match.app_name == 'customers' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
+                Customers
+            </a>
         </div>
         {% endif %}
       </div>
@@ -83,10 +89,16 @@
             <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52 z-[1]">
               {% if not user.is_superuser and user.warehouse %}
               <li><a href="{% url 'inventory:stock_take_operator' %}">Start Stock Take</a></li>
+              <li><a href="{% url 'operation:manage_customs_declarations' %}">Customs Declarations</a></li> {# <-- ADD THIS LINE #}
+              <li><a href="{% url 'operation:packaging_management' %}">Packaging Management</a></li> {# <-- ADD THIS LINE #}
+
               {% endif %}
               {% if user.is_superuser %}
               <li><a href="{% url 'inventory:stock_take_session_list' %}">Batch Stock Take</a></li>
               <li><a href="{% url 'inventory:erp_stock_check_list' %}">LWA Stock Checks</a></li>
+
+              <li class="menu-title"><span></span></li>
+
 
               {% endif %}
               {% if user.is_superuser %}

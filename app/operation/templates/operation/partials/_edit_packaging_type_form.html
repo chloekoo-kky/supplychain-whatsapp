@@ -1,0 +1,39 @@
+<form hx-post="{% url 'operation:edit_packaging_type' packaging_type.pk %}" hx-target="body" hx-swap="outerHTML">
+    {% csrf_token %}
+    <h3 class="font-bold text-lg">Edit: {{ packaging_type.name }}</h3>
+    <p class="py-4">Update the details for this packaging type.</p>
+
+    {# Render main form fields #}
+    {% for field in form %}
+        <div class="form-control w-full mb-3">
+            <label class="label" for="{{ field.id_for_label }}">
+                <span class="label-text">{{ field.label }}</span>
+            </label>
+            {{ field }}
+            {% if field.help_text %}<span class="text-xs text-gray-500 mt-1">{{ field.help_text }}</span>{% endif %}
+            {% for error in field.errors %}<span class="text-error text-xs mt-1">{{ error }}</span>{% endfor %}
+        </div>
+    {% endfor %}
+
+    <h4 class="font-semibold mt-6 mb-2">Materials & Quantities</h4>
+    <div class="max-h-60 overflow-y-auto p-2 border rounded-md">
+        {# Loop through the new pre-processed list from the view #}
+        {% for data in materials_data %}
+            <div class="form-control flex-row items-center gap-4 mb-2">
+                <label class="label cursor-pointer flex-grow">
+                    <span class="label-text">{{ data.name }}</span>
+                </label>
+                <input type="number"
+                       name="quantity_{{ data.id }}"
+                       value="{{ data.quantity }}"
+                       class="input input-bordered input-sm w-24"
+                       placeholder="Qty">
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="modal-action mt-6">
+      <label for="edit-modal-toggle" class="btn btn-ghost">Cancel</label>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </div>
+</form>

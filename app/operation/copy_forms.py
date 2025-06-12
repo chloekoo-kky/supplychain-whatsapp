@@ -1,5 +1,4 @@
 # app/operation/forms.py
-import random
 from django import forms
 from django.forms import inlineformset_factory, NumberInput
 from .models import Parcel, ParcelItem, OrderItem, Order, CustomsDeclaration, CourierCompany, PackagingType, PackagingTypeMaterialComponent
@@ -171,17 +170,17 @@ RemoveOrderItemFormSet = forms.formset_factory(RemoveOrderItemForm, extra=0)
 
 # New Forms for Parcel Customs Details
 class ParcelCustomsDetailForm(forms.ModelForm):
-    dimensional_weight_kg = forms.CharField(widget=forms.HiddenInput(attrs={'id': 'id_dimensional_weight_kg'}), required=True)
+    dimensional_weight_kg = forms.CharField(widget=forms.HiddenInput(attrs={'id': 'id_dimensional_weight_kg'}), required=False)
 
     customs_declaration = forms.ModelChoiceField(
         queryset=CustomsDeclaration.objects.none(),
         widget=forms.RadioSelect,
-        required=True,
+        required=False,
         empty_label=None,
         label="Choose a Customs Description for this Parcel"
     )
     length = forms.IntegerField(
-        required=True,
+        required=False,
         label="Length (cm)",
         widget=forms.NumberInput(attrs={
             'class': 'input input-sm input-bordered w-1/5 dimensional-weight-input',
@@ -189,17 +188,8 @@ class ParcelCustomsDetailForm(forms.ModelForm):
             'id': 'id_parcel_length_form'
         })
     )
-    weight = forms.DecimalField(
-        required=True,
-        label="Parcel Actual Weight (kg)",
-        widget=forms.NumberInput(attrs={
-            'class': 'input input-bordered input-sm w-full',
-            'placeholder': 'e.g., 1.25',
-            'step': '0.1'
-        })
-    )
     width = forms.IntegerField(
-        required=True,
+        required=False,
         label="Width (cm)",
         widget=forms.NumberInput(attrs={
             'class': 'input input-sm input-bordered w-1/5 dimensional-weight-input',
@@ -208,22 +198,12 @@ class ParcelCustomsDetailForm(forms.ModelForm):
         })
     )
     height = forms.IntegerField(
-        required=True,
+        required=False,
         label="Height (cm)",
         widget=forms.NumberInput(attrs={
             'class': 'input input-sm input-bordered w-1/5 dimensional-weight-input',
             'placeholder': 'H (cm)',
             'id': 'id_parcel_height_form'
-        })
-    )
-    declared_value_myr = forms.DecimalField(
-        required=False,
-        label="Total Declared Value (MYR)",
-        widget=forms.NumberInput(attrs={
-            'class': 'input input-bordered input-sm w-full bg-base-200', # Style as read-only
-            'readonly': 'readonly',
-            'step': '0.01',
-            'id': 'id_declared_value_myr' # Add ID for JavaScript
         })
     )
 
@@ -235,14 +215,14 @@ class ParcelCustomsDetailForm(forms.ModelForm):
         widgets = {
             'packaging_type': forms.Select(attrs={'class': 'select select-bordered w-full'}),
             'weight': forms.NumberInput(attrs={'class': 'input input-bordered input-sm w-full', 'placeholder': 'e.g., 1.25', 'step': '0.1'}),
-            'declared_value': forms.NumberInput(attrs={'class': 'input input-bordered input-sm w-full', 'placeholder': 'e.g., 45.90', 'step': '1', 'id': 'id_declared_value_usd'}),
+            'declared_value': forms.NumberInput(attrs={'class': 'input input-bordered input-sm w-full', 'placeholder': 'e.g., 45.90', 'step': '0.01'}),
         }
 
         labels = {
             'packaging_type': 'Packaging Type',
             'weight': 'Parcel Actual Weight (kg)',
             'customs_declaration': 'Customs Description',
-            'declared_value': 'Total Declared Value (USD)',
+            'declared_value': 'Total Declared Value (Parcel)',
         }
 
     def __init__(self, *args, **kwargs):
@@ -252,11 +232,12 @@ class ParcelCustomsDetailForm(forms.ModelForm):
         if declarations_queryset is not None:
             self.fields['customs_declaration'].queryset = declarations_queryset
 
+            # This line will now work correctly!
             if self.instance and self.instance.customs_declaration:
                 self.initial['customs_declaration'] = self.instance.customs_declaration.pk
 
         if self.instance and self.instance.pk:
-            # Ensure existing dimension values are displayed as integers
+            # First, ensure existing values are displayed as integers
             if self.instance.length is not None:
                 self.initial['length'] = int(self.instance.length)
             if self.instance.width is not None:
@@ -264,44 +245,27 @@ class ParcelCustomsDetailForm(forms.ModelForm):
             if self.instance.height is not None:
                 self.initial['height'] = int(self.instance.height)
 
-            # --- Logic for default values based on environment type ---
-            effective_env_type = None
-            if self.instance.packaging_type and self.instance.packaging_type.environment_type in ['COLD', 'AMBIENT']:
-                effective_env_type = self.instance.packaging_type.environment_type
-            elif self.instance.order.is_cold_chain:
-                effective_env_type = 'COLD'
-            else:
-                effective_env_type = 'AMBIENT'
+            # --- UPDATED BLOCK FOR ALL DEFAULT VALUES ---
+            is_cold_packaging = (
+                self.instance.packaging_type and
+                self.instance.packaging_type.environment_type == 'COLD'
+            )
 
-            # Set default weight & dimensions for cold chain if not already set
-            if effective_env_type == 'COLD':
+            # If it's a cold chain parcel, set defaults for any unset fields
+            if is_cold_packaging:
+                # Set default weight if not already set
                 if self.instance.weight is None or self.instance.weight <= 0:
                     self.initial['weight'] = 4.5
+
+                # Set default dimensions if not already set
                 if self.instance.length is None or self.instance.length <= 0:
                     self.initial['length'] = 30
+
                 if self.instance.width is None or self.instance.width <= 0:
                     self.initial['width'] = 30
+
                 if self.instance.height is None or self.instance.height <= 0:
                     self.initial['height'] = 25
-
-            # --- ADD THIS BLOCK FOR DEFAULT DECLARED VALUE ---
-            # Set default declared value if not already set
-            if self.instance.declared_value is None or self.instance.declared_value <= 0:
-                if effective_env_type == 'COLD':
-                    self.initial['declared_value'] = random.randint(100, 150)
-                elif effective_env_type == 'AMBIENT':
-                    self.initial['declared_value'] = random.randint(80, 120)
-
-            usd_value = self.initial.get('declared_value')
-            if usd_value:
-                try:
-                    # Calculate MYR value and format to 2 decimal places
-                    myr_value = Decimal(str(usd_value)) * Decimal('4.3')
-                    self.initial['declared_value_myr'] = myr_value.quantize(Decimal('0.01'))
-                except Exception:
-                    # In case of an error, leave it blank
-                    self.initial['declared_value_myr'] = None
-
 
 
 

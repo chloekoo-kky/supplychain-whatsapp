@@ -1,0 +1,172 @@
+{# app/operation/templates/operation/partials/_parcel_edit_form_content.html #}
+{% load i18n %}
+
+<form id="view-edit-parcel-detail-form" method="POST" action="{% url 'operation:update_parcel_customs_details' parcel.pk %}">
+    {% csrf_token %}
+    <input type="hidden" name="packaging_type" value="{{ parcel.packaging_type.pk|default:'' }}">
+
+    {# Display static parcel info ... (ensure this part is correct) ... #}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 mb-6 text-md">
+        <div>
+            <p><strong>Customer:</strong> <span id="modal-parcel-customer-name">{{ parcel_data.customer_name|default:"N/A" }}</span></p>
+            <p><strong>City:</strong>
+                <span id="modal-parcel-city">{{ parcel_data.recipient_address_city|default:"" }}</span>
+            </p>
+            <p><strong>State:</strong>
+                <span id="modal-parcel-state">{{ parcel_data.recipient_address_state|default:"" }}</span>
+            </p>
+            <p><strong>Zip:</strong>
+                <span id="modal-parcel-zip">{{ parcel_data.recipient_address_zip|default:"" }}</span>
+            </p>
+        </div>
+        <div>
+            <p class="text-md mb-2 text-gray-800"><strong>Courier:</strong> <span id="modal-parcel-courier">{{ parcel_data.courier_name|default:"N/A" }}</span></p>
+            <p class="text-md mb-2 text-gray-800"><strong>Packaging:</strong> <span id="modal-parcel-packaging">{{ parcel_data.packaging_type_display|default:"N/A" }}</span></p>
+        </div>
+    </div>
+
+    {# Parcel Level Customs Details Form #}
+    <div class="border-t pt-4 mb-6">
+        <h4 class="text-md font-semibold mb-2 text-gray-800">Parcel Customs Information</h4>
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+
+            <div class="md:col-span-3">
+
+
+                <div class="bg-base-200/50 p-2 rounded-lg max-h-56 overflow-y-auto border border-base-300">
+                    {# Add error display for the field #}
+                    {% for error in parcel_form.customs_declaration.errors %}
+                        <div class="text-error text-xs p-2">{{ error }}</div>
+                    {% endfor %}
+
+                    {% if declarations_for_template %}
+                        {% for decl in declarations_for_template %}
+                        <div class="flex items-center space-x-3 p-2 rounded-md hover:bg-primary/10 transition-colors duration-150 ease-in-out">
+
+                            <input type="radio"
+                                   name="{{ parcel_form.customs_declaration.html_name }}"
+                                   value="{{ decl.pk }}"
+                                   id="id_customs_declaration_{{ forloop.counter }}"
+                                   class="radio radio-primary"
+                                   {% if parcel_form.customs_declaration.value == decl.pk %}checked{% endif %}>
+
+                            <label for="id_customs_declaration_{{ forloop.counter }}" class="cursor-pointer w-full">
+                                {# This will now work correctly #}
+                                <span class="font-medium text-sm text-gray-800">{{ decl.description }}</span>
+                                <span class="text-xs text-gray-500 block">HS Code: {{ decl.hs_code }}</span>
+                            </label>
+
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="text-sm text-gray-500 p-4 text-center">
+                            <p>No suitable customs descriptions were found for this parcel's courier and shipment type.</p>
+                            <a href="{% url 'operation:manage_customs_declarations' %}" target="_blank" class="link link-primary text-xs mt-1 inline-block">
+                                You may need to add or edit a declaration.
+                            </a>
+                        </div>
+                    {% endif %}
+                    </div>
+
+                {% if parcel_form.customs_declaration.help_text %}
+                <div class="label">
+                    <span class="label-text-alt">{{ parcel_form.customs_declaration.help_text }}</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="md:col-span-2">
+
+                <label for="{{ parcel_form.weight.id_for_label }}" class="label text-xs pb-0.5">{{ parcel_form.weight.label }}</label>
+                {{ parcel_form.weight }} {# id="id_weight" name="weight" #}
+                {% if parcel_form.weight.errors %}<p class="text-red-500 text-xs mt-1">{{ parcel_form.weight.errors|join:", " }}</p>{% endif %}
+
+                <label class="label text-xs pb-0.5">Parcel Dimensional Weight (L x W x H)/5000</label>
+                <div class="flex items-center space-x-2">
+                    {{ parcel_form.length }} {# id="id_parcel_length_form" name="length" #}
+                    <span class="text-sm">x</span>
+                    {{ parcel_form.width }}  {# id="id_parcel_width_form" name="width" #}
+                    <span class="text-sm">x</span>
+                    {{ parcel_form.height }} {# id="id_parcel_height_form" name="height" #}
+                    <span id="dimensional-weight-result" class="font-semibold ml-2">0.00 kg</span>
+                </div>
+                {{ parcel_form.dimensional_weight_kg }} {# Renders hidden input: id="id_dimensional_weight_kg" name="dimensional_weight_kg" #}
+
+                {% if parcel_form.length.errors %}<p class="text-red-500 text-xs mt-1">{{ parcel_form.length.errors|join:", " }}</p>{% endif %}
+                {% if parcel_form.width.errors %}<p class="text-red-500 text-xs mt-1">{{ parcel_form.width.errors|join:", " }}</p>{% endif %}
+                {% if parcel_form.height.errors %}<p class="text-red-500 text-xs mt-1">{{ parcel_form.height.errors|join:", " }}</p>{% endif %}
+                {% if parcel_form.dimensional_weight_kg.errors %}<p class="text-red-500 text-xs mt-1">{{ parcel_form.dimensional_weight_kg.errors|join:", " }}</p>{% endif %}
+
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="{{ parcel_form.declared_value.id_for_label }}" class="label text-xs pb-0.5">{{ parcel_form.declared_value.label }}</label>
+                        {{ parcel_form.declared_value }}
+                        {% if parcel_form.declared_value.errors %}
+                            <p class="text-red-500 text-xs mt-1">{{ parcel_form.declared_value.errors|join:", " }}</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label for="{{ parcel_form.declared_value_myr.id_for_label }}" class="label text-xs pb-0.5">{{ parcel_form.declared_value_myr.label }}</label>
+                        {{ parcel_form.declared_value_myr }}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% for error in parcel_form.non_field_errors %}
+            <p class="text-red-500 text-xs mt-1">{{ error }}</p>
+        {% endfor %}
+    </div>
+
+    {# Parcel Items Customs Details Formset #}
+    <div class="border-t pt-4">
+        <h4 class="text-md font-semibold mb-2 text-gray-800">Parcel Items Customs Information</h4>
+        {{ item_formset.management_form }}
+        <div class="overflow-x-auto max-h-60">
+            <table class="table table-xs w-full">
+                <thead>
+                    <tr>
+                        <th class="w-[300px] py-1 px-1 text-left">Product (SKU)</th>
+                        <th class="w-1/12 py-1 px-1 text-center">Qty</th>
+                        <th class="w-2/5 py-1 px-1 text-left">{{ item_formset.empty_form.customs_description.label_tag }}</th>
+                        <th class="w-1/12 py-1 px-1 text-left">{{ item_formset.empty_form.declared_value.label_tag }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for form in item_formset %}
+                        <tr id="{{ form.prefix }}-row">
+                            {{ form.id }}
+                            <td class="py-1 px-1 align-middle">
+                                <div>{{ form.sku_display }}{{ form.product_name_display }}</div>
+                            </td>
+                            <td class="py-1 px-1 align-middle text-center">
+                                {{ form.quantity_shipped_display }}
+                            </td>
+                            <td class="py-1 px-1 align-middle">
+                                {{ form.customs_description }}
+                                {% if form.customs_description.errors %}<p class="text-red-500 text-xs mt-1">{{ form.customs_description.errors|join:", " }}</p>{% endif %}
+                            </td>
+                            <td class="py-1 px-1 align-middle">
+                                {{ form.declared_value }}
+                                {% if form.declared_value.errors %}<p class="text-red-500 text-xs mt-1">{{ form.declared_value.errors|join:", " }}</p>{% endif %}
+                            </td>
+                        </tr>
+                         {% for error in form.non_field_errors %}
+                            <tr><td colspan="4" class="text-red-500 text-xs py-1 px-1">{{ error }}</td></tr>
+                        {% endfor %}
+                    {% empty %}
+                        <tr><td colspan="4" class="text-center py-3 text-gray-500">No items in this parcel.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% for error in item_formset.non_form_errors %}
+            <p class="text-red-500 text-xs mt-1">{{ error }}</p>
+        {% endfor %}
+    </div>
+
+    <div class="modal-action mt-6">
+        <label for="view-edit-parcel-modal-toggle" class="btn btn-ghost modal-close-button">Cancel</label>
+        <button type="submit" class="btn btn-primary">Save Customs Details</button>
+    </div>
+</form>

@@ -1,12 +1,15 @@
 import requests
 import logging
 
-from django.conf import settings
-from .models import InventoryBatchItem
-from inventory.models import InventoryBatchItem # If in a different app's service
+from django.db import transaction
 from django.db.models import F, Q
+from django.conf import settings
 from django.utils import timezone
+
 import datetime # If working with datetime.max.date
+
+from .models import InventoryBatchItem, StockTransaction
+
 
 
 logger = logging.getLogger(__name__)
@@ -74,3 +77,40 @@ def get_suggested_batch_for_order_item(order_item, quantity_needed: int):
     return None
 
 logger.info("inventory.services.py loaded and function 'get_suggested_batch_for_order_item' is defined.")
+
+
+def deduct_stock(warehouse_product, quantity_to_deduct, user, notes=""):
+    """
+    Deducts stock for a given warehouse product using FIFO logic based on expiry date.
+    Creates stock transactions for the deductions.
+    """
+    with transaction.atomic():
+        batches = InventoryBatchItem.objects.filter(
+            warehouse_product=warehouse_product,
+            quantity__gt=0
+        ).order_by('expiry_date')
+
+        remaining_quantity_to_deduct = quantity_to_deduct
+
+        for batch in batches:
+            if remaining_quantity_to_deduct <= 0:
+                break
+
+            quantity_to_deduct_from_batch = min(batch.quantity, remaining_quantity_to_deduct)
+
+            batch.quantity -= quantity_to_deduct_from_batch
+            batch.save()
+
+            StockTransaction.objects.create(
+                inventory_item=batch,
+                transaction_type='DEDUCTION',
+                quantity=quantity_to_deduct_from_batch,
+                user=user,
+                notes=notes
+            )
+
+            remaining_quantity_to_deduct -= quantity_to_deduct_from_batch
+
+        if remaining_quantity_to_deduct > 0:
+            # This check is important to ensure you don't proceed with an order if there's not enough stock.
+            raise Exception(f"Not enough stock for {warehouse_product.product.name}. Cannot deduct {remaining_quantity_to_deduct} more units.")

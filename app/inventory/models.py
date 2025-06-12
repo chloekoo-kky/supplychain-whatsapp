@@ -129,27 +129,31 @@ class InventoryBatchItem(models.Model):
         return None
 
 class StockTransaction(models.Model):
-    TRANSACTION_TYPES = [
-        ('IN', 'Stock In'),         # Receiving stock, positive adjustment, PO fulfillment
-        ('OUT', 'Stock Out'),       # Shipping stock, negative adjustment, order fulfillment
-        ('ADJ_P', 'Positive Adjustment'), # Manual positive adjustment (e.g., found stock)
-        ('ADJ_N', 'Negative Adjustment'), # Manual negative adjustment (e.g., damaged, lost)
-        ('TRANSFER_OUT', 'Transfer Out'), # Stock moved to another warehouse (source)
-        ('TRANSFER_IN', 'Transfer In'),   # Stock received from another warehouse (destination)
-        ('RETURN_IN', 'Return In'),       # Customer return received
-        ('ST_INITIAL', 'Stock Take Initial'), # Represents the initial state at a stock take before any changes
-        ('ST_UPDATE', 'Stock Take Update'),   # Represents an update/reconciliation during/after a stock take
-    ]
+    # --- MODIFICATION: Use TextChoices for better organization ---
+    class TransactionTypes(models.TextChoices):
+        STOCK_IN = 'IN', 'Stock In'
+        STOCK_OUT = 'OUT', 'Stock Out' # General stock out
+        ADJ_POSITIVE = 'ADJ_P', 'Positive Adjustment'
+        ADJ_NEGATIVE = 'ADJ_N', 'Negative Adjustment'
+        TRANSFER_OUT = 'TRANSFER_OUT', 'Transfer Out'
+        TRANSFER_IN = 'TRANSFER_IN', 'Transfer In'
+        RETURN_IN = 'RETURN_IN', 'Return In'
+        STOCKTAKE_INITIAL = 'ST_INITIAL', 'Stock Take Initial'
+        STOCKTAKE_UPDATE = 'ST_UPDATE', 'Stock Take Update'
+        SALE_PACKED_OUT = 'SALE_PACKED_OUT', 'Sale - Packed Out' # Added for clarity
+    # --- END MODIFICATION ---
+
     warehouse = models.ForeignKey('warehouse.Warehouse', on_delete=models.PROTECT, related_name='stock_transactions')
     warehouse_product = models.ForeignKey('warehouse.WarehouseProduct', on_delete=models.PROTECT, related_name='stock_transactions',
                                         help_text="The specific warehouse product this transaction affects.")
     product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='stock_transactions_direct',
                                 help_text="Direct link to the Product (denormalized for easier querying if needed).")
 
-    transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=TransactionTypes.choices # MODIFIED: Use choices from TextChoices
+    )
     quantity = models.IntegerField(help_text="Change in quantity. Positive for stock in/positive adjustments, negative for stock out/negative adjustments.")
-
-    # NEW FIELD: Link to the specific InventoryBatchItem involved, if applicable
     batch_item_involved = models.ForeignKey(
         InventoryBatchItem,
         on_delete=models.SET_NULL,
@@ -158,14 +162,9 @@ class StockTransaction(models.Model):
         related_name='stock_transactions',
         help_text="The specific batch item involved in this transaction, if applicable."
     )
-
-    # Contextual References
     reference_note = models.CharField(max_length=255, blank=True, null=True, help_text="E.g., PO number, Order ID, Adjustment reason, Stock Take Session ID.")
     related_order = models.ForeignKey('operation.Order', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_transactions')
     related_po = models.ForeignKey('warehouse.PurchaseOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_transactions')
-    # related_stock_take_session = models.ForeignKey('StockTakeSession', on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_transactions')
-
-    # User and Timestamp
     transaction_date = models.DateTimeField(default=timezone.now)
     recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -175,20 +174,36 @@ class StockTransaction(models.Model):
         verbose_name_plural = "Stock Transactions"
 
     def __str__(self):
+        # MODIFIED: Use get_transaction_type_display for TextChoices
         return f"{self.get_transaction_type_display()} of {self.quantity} for {self.product.name} ({self.warehouse.name}) on {self.transaction_date.strftime('%Y-%m-%d %H:%M')}"
 
     def clean(self):
         super().clean()
-        if self.transaction_type in ['IN', 'ADJ_P', 'TRANSFER_IN', 'RETURN_IN', 'ST_INITIAL', 'ST_UPDATE'] and self.quantity < 0:
-            raise ValidationError(f"{self.get_transaction_type_display()} transactions must have a non-negative quantity.")
-        if self.transaction_type in ['OUT', 'ADJ_N', 'TRANSFER_OUT'] and self.quantity > 0:
-            raise ValidationError(f"{self.get_transaction_type_display()} transactions must have a non-positive quantity (or zero).")
+        # MODIFIED: Refer to TextChoices values for validation
+        positive_qty_types = [
+            self.TransactionTypes.STOCK_IN, self.TransactionTypes.ADJ_POSITIVE,
+            self.TransactionTypes.TRANSFER_IN, self.TransactionTypes.RETURN_IN,
+            self.TransactionTypes.STOCKTAKE_INITIAL, self.TransactionTypes.STOCKTAKE_UPDATE
+        ]
+        negative_qty_types = [
+            self.TransactionTypes.STOCK_OUT, self.TransactionTypes.ADJ_NEGATIVE,
+            self.TransactionTypes.TRANSFER_OUT, self.TransactionTypes.SALE_PACKED_OUT
+        ]
 
-        # Ensure product consistency
+        if self.transaction_type in positive_qty_types and self.quantity < 0:
+            raise ValidationError(f"{self.get_transaction_type_display()} transactions must have a non-negative quantity.")
+        if self.transaction_type in negative_qty_types and self.quantity > 0:
+            # For outgoing stock, quantity should be stored as negative.
+            # If user inputs positive, it should be converted or validated.
+            # Assuming quantity should be negative for these types.
+            raise ValidationError(f"{self.get_transaction_type_display()} transactions typically have a non-positive quantity (or zero if it represents a 'before' state).")
+
+
         if self.warehouse_product and self.product != self.warehouse_product.product:
             raise ValidationError("Product in WarehouseProduct and direct Product link must match.")
         if self.batch_item_involved and self.warehouse_product != self.batch_item_involved.warehouse_product:
             raise ValidationError("WarehouseProduct of StockTransaction and BatchItemInvolved must match.")
+
 
 
 class StockTakeSession(models.Model):
@@ -431,3 +446,28 @@ def process_order_allocation(order_instance):
             item.suggested_batch_number_display = "N/A" # Or None, depending on desired display
             item.suggested_batch_expiry_date_display = None
             item.save(update_fields=['status', 'suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display'])
+
+class PackagingMaterial(models.Model):
+    name = models.CharField(max_length=150, unique=True, help_text="Name of the packaging material (e.g., Foam Box A1, Gel Pack 500g).")
+    material_code = models.CharField(max_length=50, unique=True, blank=True, null=True, help_text="Internal SKU or code for the material.")
+    description = models.TextField(blank=True, null=True)
+
+    length_cm = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    width_cm = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    height_cm = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+
+    current_stock = models.PositiveIntegerField(default=0, help_text="Current available stock quantity.")
+    supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, blank=True, null=True) # If you have a Supplier model
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    reorder_level = models.PositiveIntegerField(default=10, help_text="Stock level at which to reorder.")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} (Code: {self.material_code or 'N/A'}) - Stock: {self.current_stock}"
+
+    class Meta:
+        verbose_name = "Packaging Material"
+        verbose_name_plural = "Packaging Materials"
+        ordering = ['name']

@@ -13,6 +13,8 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.views.generic.base import RedirectView
+from django.contrib.staticfiles.storage import staticfiles_storage
 
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -27,12 +29,18 @@ from django.views.generic.base import RedirectView
 
 # app/urls.py
 urlpatterns = [
+    path(
+        "favicon.ico",
+        RedirectView.as_view(url=staticfiles_storage.url("favicon.ico")),
+        name="favicon"
+    ),
     path('', RedirectView.as_view(pattern_name='inventory:inventory_batch_list_view', permanent=False), name='home'),
     path('admin/', admin.site.urls),
-    path('accounts/', include('django.contrib.auth.urls')), 
+    path('accounts/', include('django.contrib.auth.urls')),
     path('warehouse/', include(('warehouse.urls', 'warehouse'), namespace='warehouse-ui')),
     path('inventory/', include(('inventory.urls', 'inventory'), namespace='inventory-ui')),  # for UI
     path('operation/', include(('operation.urls', 'operation'), namespace='operation-ui')),
+    path('customers/', include(('customers.urls', 'customers'), namespace='customers')),
     path('api/schema/', SpectacularAPIView.as_view(), name='api-schema'),
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='api-schema'), name='api-docs'),
     path('api/user/', include('user.urls')),

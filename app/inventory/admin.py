@@ -14,7 +14,8 @@ from datetime import datetime
 from .models import (
     Product, Supplier, StockTransaction, InventoryBatchItem,
     StockTakeSession, StockTakeItem,
-     ErpStockCheckSession, ErpStockCheckItem, WarehouseProductDiscrepancy # New Stock Take Models
+     ErpStockCheckSession, ErpStockCheckItem, WarehouseProductDiscrepancy, # New Stock Take Models
+     PackagingMaterial
 )
 from warehouse.models import Warehouse, WarehouseProduct # Import WarehouseProduct
 from .models import StockDiscrepancy
@@ -655,3 +656,9 @@ class WarehouseProductDiscrepancyAdmin(admin.ModelAdmin):
     def warehouse_product_display(self, obj):
         return str(obj.warehouse_product)
     warehouse_product_display.short_description = "Warehouse Product"
+
+@admin.register(PackagingMaterial)
+class PackagingMaterialAdmin(admin.ModelAdmin):
+    list_display = ('name', 'material_code', 'current_stock', 'reorder_level', 'supplier')
+    search_fields = ('name', 'material_code')
+    autocomplete_fields = ['supplier']

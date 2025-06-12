@@ -1,0 +1,32 @@
+{# app/operation/templates/operation/partials/_customer_shipments_modal_content.html #}
+
+<h3 class="font-bold text-xl mb-4">Complete Shipment History for: {{ customer.customer_name }}</h3>
+
+<div class="overflow-x-auto max-h-[70vh]">
+    <table class="table table-sm w-full">
+        <thead>
+            <tr>
+                <th>Parcel Code</th>
+                <th>Order ID</th>
+                <th>Courier</th>
+                <th>Tracking #</th>
+                <th>Status</th>
+                <th>Date Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for parcel in parcels %}
+            <tr class="hover">
+                <td class="font-mono">{{ parcel.parcel_code_system }}</td>
+                <td>{{ parcel.order.erp_order_id }}</td>
+                <td>{{ parcel.courier_company.name|default:'N/A' }}</td>
+                <td>{{ parcel.tracking_number|default:'N/A' }}</td>
+                <td><span class="badge badge-sm">{{ parcel.get_status_display }}</span></td>
+                <td>{{ parcel.created_at|date:"Y-m-d" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-center py-4">No shipments found for this customer.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

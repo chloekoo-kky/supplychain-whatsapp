@@ -103,7 +103,7 @@
                             </td>
                             <td class="py-2 px-4 text-left align-top">{{ order.order_date|date:"d/m/Y" }}</td>
                             <td class="py-2 px-4 text-left align-top">
-                                <div class="font-medium">{{ order.customer_name|default:"N/A" }}</div>
+                                <div class="font-medium">{{ order.customer.customer_name|default:"N/A" }}</div>
                                 {% if order.company_name %}
                                     <div class="text-xs text-gray-600">{{ order.company_name }}</div>
                                 {% endif %}

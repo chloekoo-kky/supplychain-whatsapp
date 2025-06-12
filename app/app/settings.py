@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'warehouse.apps.WarehouseConfig',
     'inventory.apps.InventoryConfig',
     'operation.apps.OperationConfig',
+    'customers.apps.CustomersConfig',
     'theme', # Assuming your theme app is for static files like base.css
 ]
 

@@ -2,8 +2,8 @@
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
-from .models import Order, OrderItem, Parcel, ParcelItem
-
+from .models import Order, OrderItem, Parcel, ParcelItem, CustomsDeclaration, CourierCompany, PackagingType, PackagingTypeMaterialComponent
+from inventory.models import PackagingMaterial
 # Inlines allow editing related models on the same page
 
 class OrderItemInline(admin.TabularInline):
@@ -43,61 +43,57 @@ class ParcelItemInline(admin.TabularInline):
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     """
-    Admin interface configuration for the Order model.
+    Admin interface configuration for the Order model, updated for the new
+    Customer model relationship.
     """
     list_display = (
         'erp_order_id',
-        'order_display_code', # Changed from parcel_code
-        'customer_name_display',
+        'customer_display', # UPDATED
         'warehouse_name_display',
         'order_date',
         'status',
         'is_cold_chain',
         'imported_at_formatted',
         'item_count',
-        'parcel_count_display' # New display field
+        'parcel_count_display'
     )
-    list_filter = ('status', 'warehouse', 'is_cold_chain', 'order_date', 'imported_at')
+    list_filter = ('status', 'warehouse', 'is_cold_chain', 'order_date')
     search_fields = (
         'erp_order_id',
-        'order_display_code', # Changed
-        'customer_name',
-        'company_name',
-        'warehouse__name',
+        # UPDATED: Search through the customer relationship
+        'customer__customer_id',
+        'customer__customer_name',
+        'customer__company_name',
+        'customer__phone_number',
+        'customer__email',
         'items__product__sku',
-        'items__product__name',
-        'parcels__parcel_code_system', # Search by actual parcel codes
-        'parcels__tracking_number'
+        'parcels__parcel_code_system',
     )
     readonly_fields = (
-        'order_display_code', # Changed
+        'erp_order_id', # Keep ERP ID read-only after creation
         'imported_at',
         'last_updated_at',
         'imported_by',
         'processing_log_display'
     )
-    autocomplete_fields = ['warehouse', 'imported_by']
-    inlines = [OrderItemInline] # Parcels are managed separately or via a custom action now
+    # UPDATED: Add 'customer' to enable search widget
+    autocomplete_fields = ['warehouse', 'imported_by', 'customer']
+    inlines = [OrderItemInline]
     date_hierarchy = 'order_date'
 
     fieldsets = (
         (None, {
-            'fields': ('erp_order_id', 'order_display_code', 'status', 'warehouse') # order_display_code instead of parcel_code
+            'fields': ('erp_order_id', 'status', 'warehouse')
         }),
-        ('Customer & Recipient Details', {
-            'classes': ('collapse',),
-            'fields': (
-                'customer_name', 'company_name',
-                'recipient_address_line1', 'recipient_address_city',
-                'recipient_address_state', 'recipient_address_zip', 'recipient_address_country',
-                'recipient_phone', 'vat_number'
-            )
+        # UPDATED: Replaced multiple text fields with a single, searchable link
+        ('Customer Information', {
+            'fields': ('customer',)
         }),
         ('Order Dates & Import Info', {
             'classes': ('collapse',),
             'fields': ('order_date', 'imported_at', 'imported_by', 'last_updated_at')
         }),
-        ('Shipping & Handling (Order Level)', { # Clarified this is order-level
+        ('Shipping & Handling (Order Level)', {
             'classes': ('collapse',),
             'fields': ('is_cold_chain', 'title_notes', 'shipping_notes')
         }),
@@ -107,12 +103,14 @@ class OrderAdmin(admin.ModelAdmin):
         }),
     )
 
-    def customer_name_display(self, obj):
-        if obj.company_name:
-            return f"{obj.customer_name} ({obj.company_name})"
-        return obj.customer_name
-    customer_name_display.short_description = 'Customer'
-    customer_name_display.admin_order_field = 'customer_name'
+    # UPDATED: This method now gets data from the linked customer object
+    @admin.display(description='Customer', ordering='customer__customer_name')
+    def customer_display(self, obj):
+        if obj.customer:
+            if obj.customer.company_name:
+                return f"{obj.customer.customer_name} ({obj.customer.company_name})"
+            return obj.customer.customer_name
+        return "N/A"
 
     def warehouse_name_display(self, obj):
         return obj.warehouse.name if obj.warehouse else "-"
@@ -131,7 +129,6 @@ class OrderAdmin(admin.ModelAdmin):
     def parcel_count_display(self, obj):
         return obj.parcels.count()
     parcel_count_display.short_description = 'Parcels'
-
 
     def processing_log_display(self, obj):
         if obj.processing_log:
@@ -211,20 +208,20 @@ class ParcelAdmin(admin.ModelAdmin):
     list_display = (
         'order_link',
         'parcel_code_system', # Changed display name consistency
-        'courier_name',
+        'courier_company',
         'tracking_number',
         'shipped_at_formatted',
         'created_at_formatted',
         'item_in_parcel_count',
         'created_by_display' # Added
     )
-    list_filter = ('courier_name', 'shipped_at', 'order__warehouse', 'created_at', 'created_by')
+    list_filter = ('courier_company', 'shipped_at', 'order__warehouse', 'created_at', 'created_by')
     search_fields = (
         'order__erp_order_id',
         'order__order_display_code', # Changed
         'parcel_code_system',
         'tracking_number',
-        'courier_name'
+        'courier_company'
     )
     readonly_fields = ('created_at','parcel_code_system', 'created_by') # parcel_code_system is auto-gen
     autocomplete_fields = ['order'] # created_by is set automatically in view
@@ -236,7 +233,7 @@ class ParcelAdmin(admin.ModelAdmin):
             'fields': ('order', 'parcel_code_system')
         }),
         ('Shipment Details', {
-            'fields': ('courier_name', 'tracking_number', 'shipped_at')
+            'fields': ('courier_company', 'tracking_number', 'shipped_at')
         }),
         ('Notes & Timestamps', {
             'fields': ('notes', 'created_at', 'created_by') # Added created_by
@@ -281,7 +278,7 @@ class ParcelItemAdmin(admin.ModelAdmin):
         'quantity_shipped_in_this_parcel',
         'shipped_from_batch_display'
     )
-    list_filter = ('parcel__courier_name', 'order_item__product__name', 'parcel__order__warehouse')
+    list_filter = ('parcel__courier_company', 'order_item__product__name', 'parcel__order__warehouse')
     search_fields = (
         'parcel__tracking_number',
         'parcel__parcel_code_system',
@@ -322,3 +319,77 @@ class ParcelItemAdmin(admin.ModelAdmin):
         return "-"
     shipped_from_batch_display.short_description = 'Shipped from Batch'
     shipped_from_batch_display.admin_order_field = 'shipped_from_batch__batch_number'
+
+@admin.register(CourierCompany)
+class CourierCompanyAdmin(admin.ModelAdmin):
+    list_display = ('name', 'code', 'updated_at')
+    search_fields = ('name', 'code')
+
+@admin.register(CustomsDeclaration)
+class CustomsDeclarationAdmin(admin.ModelAdmin):
+    list_display = ('description', 'hs_code', 'get_courier_companies_display', 'get_shipment_types_display', 'updated_at')
+    search_fields = ('description', 'hs_code', 'courier_companies__name', 'courier_companies__code')
+    list_filter = ('courier_companies', 'applies_to_ambient', 'applies_to_cold_chain', 'applies_to_mix', 'updated_at')
+    filter_horizontal = ('courier_companies',) # Better UI for ManyToManyField
+    fieldsets = (
+        (None, {
+            'fields': ('description', 'hs_code', 'notes')
+        }),
+        ('Applicability', {
+            'fields': ('courier_companies', ('applies_to_ambient', 'applies_to_cold_chain', 'applies_to_mix'))
+        }),
+    )
+
+    def get_courier_companies_display(self, obj):
+        return ", ".join([c.name for c in obj.courier_companies.all()])
+    get_courier_companies_display.short_description = 'Courier Companies'
+
+    def get_shipment_types_display(self, obj):
+        return obj.get_shipment_types_display()
+    get_shipment_types_display.short_description = 'Shipment Types'
+
+class PackagingTypeMaterialComponentInline(admin.TabularInline):
+    """
+    Inline admin for managing the materials and quantities that make up a PackagingType.
+    """
+    model = PackagingTypeMaterialComponent
+    fields = ('packaging_material', 'quantity')
+    autocomplete_fields = ['packaging_material']
+    extra = 1
+    verbose_name = "Material Component"
+    verbose_name_plural = "Material Components"
+
+@admin.register(PackagingType)
+class PackagingTypeAdmin(admin.ModelAdmin):
+    """
+    Admin interface configuration for the PackagingType model.
+    """
+    list_display = (
+        'name',
+        'type_code',
+        'environment_type',
+        'default_length_cm',
+        'default_width_cm',
+        'default_height_cm',
+        'is_active'
+    )
+    list_filter = ('environment_type', 'is_active')
+    # Corrected: Removed 'legacy_code' from search_fields as it does not exist on the model
+    search_fields = ('name', 'type_code')
+
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'type_code', 'is_active')
+        }),
+        ('Type & Dimensions', {
+            'fields': ('environment_type', ('default_length_cm', 'default_width_cm', 'default_height_cm'))
+        }),
+        ('Description', {
+            'classes': ('collapse',),
+            'fields': ('description',)
+        }),
+    )
+    inlines = [PackagingTypeMaterialComponentInline]
+
+
+

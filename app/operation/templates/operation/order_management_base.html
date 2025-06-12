@@ -68,7 +68,7 @@
     <div class="prose prose-sm max-w-none text-xs">
         <p>Ensure your Excel file (.xlsx or .xls) follows this format:</p>
         <ul><li>First sheet, first row must be headers.</li><li>Each row is one order item. Repeat order details for multiple items in one order.</li></ul>
-        <p><strong>Expected Columns:</strong> <code>Order ID</code>, <code>Order Date</code> (YYYY-MM-DD or Month D,YYYY), <code>Address Name</code> (as Customer), <code>Product Name</code> (as SKU or Name), <code>Product Quantity</code>, <code>Warehouse Name</code>. Other columns like <code>Company</code>, <code>Address</code>, <code>isCold</code>, etc., will also be processed if present and mapped.</p>
+        <p><strong>Expected Columns:</strong> `Order ID`, `Order Date` (YYYY-MM-DD or Month D,YYYY), `Address Name` (as Customer), `Product Name` (as SKU or Name), `Product Quantity`, `Warehouse Name`. Other columns like `Company`, `Address`, `isCold`, etc., will also be processed if present and mapped.</p>
     </div>
   </div>
   <label class="modal-backdrop" for="import-orders-modal-toggle">Close</label>
@@ -77,7 +77,7 @@
 {# Pack Order Modal #}
 <input type="checkbox" id="pack-order-modal-toggle" class="modal-toggle" />
 <div class="modal" role="dialog" id="pack-order-modal-container">
-    <div class="modal-box max-w-3xl">
+    <div class="modal-box max-w-3xl" id="pack-order-modal-content"> {# Added id for event delegation #}
         <label for="pack-order-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 modal-close-button">✕</label>
         <h3 class="font-bold text-xl mb-1" id="pack-modal-title">Pack Order</h3>
         <p class="text-sm text-gray-500 mb-4" id="pack-modal-customer"></p>
@@ -89,56 +89,26 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 mb-4">
                 <div class="border p-3 rounded-md bg-gray-50">
-                    {# NEW: Daily Courier Counts Display #}
                     <div id="daily-courier-counts-display" class="mb-3">
                         <h4 class="text-sm font-semibold text-gray-700 mb-1">Today's Couriers:</h4>
-                        {# Updated UL for dashboard layout #}
-                        <ul class="flex flex-wrap gap-3" id="courier-counts-list">
-                            {# Content will be populated by JavaScript #}
-                            {# Example of one item's structure (for reference, JS will create this):
-                            <li class="border border-gray-300 p-3 rounded-lg text-center bg-white shadow-sm min-w-[100px]">
-                                <span class="block text-xs font-semibold text-gray-700">DHL</span>
-                                <span class="block text-2xl font-bold text-gray-800 mt-1">15</span>
-                            </li>
-                            #}
-                        </ul>
+                        <ul class="flex flex-wrap gap-3" id="courier-counts-list"></ul>
                     </div>
-                    {# END NEW #}
-
                     <label class="label"><span class="label-text font-semibold">Select Courier</span></label>
                     <div class="flex flex-wrap gap-2" id="courier-selection-buttons">
-                        <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="DHL_AY">DHL-AY</button>
-                        <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="DHL_CH">DHL-CH</button>
-                        <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="Fedex">Fedex</button>
-                        <button type="button" class="btn btn-sm btn-outline courier-btn" data-courier="UPS">UPS</button>
+                        {# Dynamically populated by JavaScript #}
                     </div>
-                    <input type="hidden" name="parcel-courier_name" id="id_parcel-courier_name">
-
-
+                    <input type="hidden" name="parcel-courier_id" id="id_parcel-courier_id">
                 </div>
 
                 <div class="border p-3 rounded-md bg-gray-50 mt-4 md:mt-0">
                     <div class="mb-2">
                         <h4 class="text-sm font-semibold text-gray-700">Order Requirement:</h4>
-                            <span id="order-cold-chain-status-display" class="font-bold">Loading...</span>
+                        <span id="order-cold-chain-status-display" class="font-bold">Loading...</span>
                     </div>
-
                     <label class="label"><span class="label-text font-semibold">Select Packaging</span></label>
 
-                    <div id="packaging-iscold-options" class="mb-2">
-                        <div class="flex flex-wrap gap-2 mt-1">
-                            <button type="button" class="btn btn-sm btn-outline packaging-btn" data-packaging="FOAM_BOX_A1">Foam Box A1</button>
-                            <button type="button" class="btn btn-sm btn-outline packaging-btn" data-packaging="FOAM_BOX_PLUS">Foam Box +Amb</button>
+                    <div id="packaging-options-container" class="flex flex-wrap gap-2 mt-1">
                         </div>
-                    </div>
-
-                    <div id="packaging-ambient-options">
-                        <div class="flex flex-wrap gap-2 mt-1">
-                            <button type="button" class="btn btn-sm btn-outline packaging-btn" data-packaging="FLYER_S">Flyer S</button>
-                            <button type="button" class="btn btn-sm btn-outline packaging-btn" data-packaging="FLYER_M">Flyer M</button>
-                            <button type="button" class="btn btn-sm btn-outline packaging-btn" data-packaging="FLYER_L">Flyer L</button>
-                        </div>
-                    </div>
 
                     <input type="hidden" name="parcel-packaging_type" id="id_parcel-packaging_type">
                 </div>
@@ -161,7 +131,6 @@
     </div>
     <label class="modal-backdrop modal-close-button" for="pack-order-modal-toggle">Close</label>
 </div>
-
 
 {# Edit Order Modal #}
 <input type="checkbox" id="edit-order-modal-toggle" class="modal-toggle" />
@@ -194,6 +163,34 @@
     <label class="modal-backdrop modal-close-button-edit" for="edit-order-modal-toggle">Close</label>
 </div>
 
+{# --- NEW MODAL FOR VIEW/EDIT PARCEL DETAILS --- #}
+<input type="checkbox" id="view-edit-parcel-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog" id="view-edit-parcel-modal-container">
+    <div class="modal-box max-w-4xl"> {# Increased max-width for more content #}
+        <label for="view-edit-parcel-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 modal-close-button">✕</label>
+        <h3 class="font-bold text-xl mb-4" id="view-edit-parcel-modal-title">View/Edit Parcel Details</h3>
+        <div id="view-edit-parcel-modal-content-area">
+            {# Static info and form will be loaded here by JS #}
+            <p class="text-center py-8">Loading parcel details...</p>
+        </div>
+    </div>
+    <label class="modal-backdrop modal-close-button" for="view-edit-parcel-modal-toggle">Close</label>
+</div>
+{# --- END NEW MODAL --- #}
+
+{# --- START: New Modal for Customer's Shipment History --- #}
+<input type="checkbox" id="customer-shipments-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog">
+    <div class="modal-box max-w-5xl">
+        <label for="customer-shipments-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
+        <div id="customer-shipments-modal-content">
+            <p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>
+        </div>
+    </div>
+    <label class="modal-backdrop" for="customer-shipments-modal-toggle">Close</label>
+</div>
+{# --- END: New Modal --- #}
+
 
 {% endblock %}
 
@@ -204,22 +201,32 @@
     const DEFAULT_CUSTOMER_ORDERS_TAB = "{{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}";
     const DEFAULT_PARCELS_TAB = "{{ DEFAULT_PARCELS_TAB|escapejs }}";
     const currentBaseUrl = "{% url 'operation:order_list' %}";
+    var courierCompaniesGlobal = [];
+    try {
+        var jsonData = '{{ all_courier_companies_json|escapejs }}';
+        if (jsonData && jsonData !== 'null' && jsonData !== 'undefined' && jsonData !== "[]") { // Check if jsonData is not empty array string
+            courierCompaniesGlobal = JSON.parse(jsonData);
+        }
+    } catch (e) {
+        console.error("Error parsing courier companies JSON:", e);
+    }
+    // console.log("Initialized courierCompaniesGlobal:", courierCompaniesGlobal); // Optional: for debugging
 
     console.log(`[Global JS Init] DEFAULT_CUSTOMER_ORDERS_TAB: '${DEFAULT_CUSTOMER_ORDERS_TAB}'`);
     console.log(`[Global JS Init] DEFAULT_PARCELS_TAB: '${DEFAULT_PARCELS_TAB}'`);
     console.log(`[Global JS Init] currentBaseUrl: '${currentBaseUrl}'`);
 
-document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function() {
     const tabContainer = document.getElementById('operation-tab-content');
     const mainPageTabs = document.querySelectorAll('.tabs a.tab');
     const ORDER_MGMT_TAB_SPECIFIC_PARAMS = {
-        '{{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}': ['warehouse', 'status', 'q', 'page'],
-        '{{ DEFAULT_PARCELS_TAB|escapejs }}': ['parcel_warehouse', 'parcel_courier', 'parcel_q', 'page'] // Added parcel_courier
+        [DEFAULT_CUSTOMER_ORDERS_TAB]: ['warehouse', 'status', 'q', 'page'],
+        [DEFAULT_PARCELS_TAB]: ['parcel_warehouse', 'parcel_courier', 'parcel_q', 'page', 'fetch_parcel_list_only'] // Added fetch_parcel_list_only
     };
-    const DEFAULT_ORDER_MGMT_TAB = "{{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}";
+    const DEFAULT_ORDER_MGMT_TAB = DEFAULT_CUSTOMER_ORDERS_TAB;
 
     let currentCustomerOrderFilters = { page: '1' };
-    let currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_q: '' }; // Initialize parcel_courier
+    let currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_q: '' };
     let isFetchingCustomerOrders = false;
     let isFetchingParcels = false;
 
@@ -234,47 +241,87 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function getCsrfToken() {
-        return CSRF_TOKEN || (document.querySelector('input[name="csrfmiddlewaretoken"]') ? document.querySelector('input[name="csrfmiddlewaretoken"]').value : '');
+        if (CSRF_TOKEN) return CSRF_TOKEN;
+        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        if (csrfInput) {
+            console.warn("getCsrfToken: Had to re-query DOM for CSRF token.");
+            return csrfInput.value;
+        }
+        console.error("getCsrfToken: CSRF Token is null and input field not found in DOM!");
+        return "";
     }
 
-    // Definition of displayCourierDashboard
-    function displayCourierDashboard(courierData = {}) {
-        const listElement = document.getElementById('courier-counts-list');
-        if (!listElement) {
-            console.error('Element with ID "courier-counts-list" not found for dashboard.');
+    function displayCourierDashboard(dailyCounts, availableCouriers) {
+        const dashboardList = document.getElementById('courier-counts-list');
+        const mainCourierInput = document.getElementById('id_parcel-courier_id');
+
+        if (!dashboardList) {
+            console.error("Courier dashboard list (ul#courier-counts-list) not found.");
             return;
         }
-
-        listElement.innerHTML = ''; // Clear previous items
-
-        if (Object.keys(courierData).length === 0) {
-            const messageItem = document.createElement('li');
-            messageItem.textContent = 'No courier data to display.';
-            // Applying some basic Tailwind classes for the message. Adjust as needed.
-            messageItem.className = 'text-sm text-gray-500 py-2';
-            listElement.appendChild(messageItem);
-            return;
+        if (!mainCourierInput) {
+            console.error("Main courier input field (#id_parcel-courier_id) not found.");
         }
 
-        for (const courierName in courierData) {
-            if (courierData.hasOwnProperty(courierName)) {
-                const count = courierData[courierName];
+        // Clear any previous buttons or messages
+        dashboardList.innerHTML = '';
 
+        // Ensure inputs are valid to prevent errors
+        const recommendations = dailyCounts || {};
+        const allCouriers = Array.isArray(availableCouriers) ? availableCouriers : [];
+
+        // Match the daily counts with the full courier details (including ID)
+        const couriersWithDetails = Object.entries(recommendations)
+            .map(([courierName, count]) => {
+                // Find the full details for the courier from the provided list
+                const companyDetails = allCouriers.find(c => c.name === courierName);
+
+                // Only include couriers that were found and have an ID
+                if (companyDetails && companyDetails.id) {
+                    return { id: companyDetails.id, name: courierName, count: count };
+                }
+                // If a courier name from the counts isn't in the main list, ignore it.
+                return null;
+            })
+            .filter(Boolean); // This removes any null entries from the list
+
+        // Sort couriers alphabetically for a consistent display
+        couriersWithDetails.sort((a, b) => a.name.localeCompare(b.name));
+
+        // --- Display Logic ---
+        if (couriersWithDetails.length === 0) {
+            const noItemsMessage = document.createElement('li');
+            noItemsMessage.className = 'text-xs text-gray-500 italic';
+            noItemsMessage.textContent = 'No courier counts for today.'; // This message will now appear correctly
+            dashboardList.appendChild(noItemsMessage);
+        } else {
+            couriersWithDetails.forEach(courierItem => {
                 const listItem = document.createElement('li');
-                listItem.className = 'border border-gray-300 p-1 rounded-lg text-center bg-white shadow-sm min-w-16';
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-lg btn-square bg-gray-200 gap-1 flex-col';
+                button.innerHTML = `<span class="text-sm">${courierItem.name}</span><span class="text-md">${courierItem.count}</span>`;
 
-                const nameElement = document.createElement('span');
-                nameElement.textContent = courierName;
-                nameElement.className = 'block text-xs font-semibold text-gray-700';
+                // --- Interactive Click Handling ---
+                button.addEventListener('click', function() {
+                    // Update the main form's hidden input with the selected courier ID
+                    if (mainCourierInput) {
+                        mainCourierInput.value = courierItem.id;
+                    }
 
-                const countElement = document.createElement('span');
-                countElement.textContent = count;
-                countElement.className = 'block text-2xl font-bold text-gray-800 mt-1';
+                    // Visually highlight the selected button for better UX
+                    dashboardList.querySelectorAll('button').forEach(btn => {
+                        btn.classList.remove('btn-primary', 'text-white');
+                        btn.classList.add('bg-gray-200');
+                    });
 
-                listItem.appendChild(nameElement);
-                listItem.appendChild(countElement);
-                listElement.appendChild(listItem);
-            }
+                    this.classList.add('btn-primary', 'text-white');
+                    this.classList.remove('bg-gray-200');
+                });
+
+                listItem.appendChild(button);
+                dashboardList.appendChild(listItem);
+            });
         }
     }
 
@@ -287,27 +334,20 @@ document.addEventListener('DOMContentLoaded', function() {
     function saveTabFiltersToSession(tabName, filterState) {
         const paramsForStorage = new URLSearchParams();
         const allowedParams = ORDER_MGMT_TAB_SPECIFIC_PARAMS[tabName] || [];
-        const sourceObject = (filterState instanceof URLSearchParams) ? Object.fromEntries(filterState.entries()) : filterState;
-
+        const sourceObject = (filterState instanceof URLSearchParams) ? Object.fromEntries(filterState.entries()) : (typeof filterState === 'object' && filterState !== null ? filterState : {});
         allowedParams.forEach(key => {
             if (sourceObject.hasOwnProperty(key) && sourceObject[key]) {
-                if (key === 'page' && sourceObject[key] === '1') {
-                    // No change needed here, was already fine
-                } else {
-                    paramsForStorage.set(key, sourceObject[key]);
-                }
+                paramsForStorage.set(key, sourceObject[key]);
             }
         });
         const paramsString = paramsForStorage.toString();
         sessionStorage.setItem(`tabFilters_${tabName}`, paramsString);
-        console.log(`[saveTabFiltersToSession] Saved for tab '${tabName}': '${paramsString}'`, JSON.parse(JSON.stringify(filterState)));
     }
 
     function loadTabFiltersFromSession(tabName) {
         const storedParamsString = sessionStorage.getItem(`tabFilters_${tabName}`);
-        console.log(`[loadTabFiltersFromSession] Loaded for tab '${tabName}': '${storedParamsString}'`);
         const params = new URLSearchParams(storedParamsString || '');
-        if (!params.has('page')) {
+        if ((ORDER_MGMT_TAB_SPECIFIC_PARAMS[tabName] || []).includes('page') && !params.has('page')) {
             params.set('page', '1');
         }
         return params;
@@ -315,13 +355,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function clearTabFiltersFromSession(tabName) {
          sessionStorage.removeItem(`tabFilters_${tabName}`);
-         console.log(`[clearTabFiltersFromSession] Cleared filters for tab '${tabName}'`);
     }
     function clearAllTabFiltersFromSession() {
         for (const tabName in ORDER_MGMT_TAB_SPECIFIC_PARAMS) {
             sessionStorage.removeItem(`tabFilters_${tabName}`);
         }
-        console.log(`[clearAllTabFiltersFromSession] All tab filters cleared from session.`);
     }
 
     function updateCustomerOrderFiltersUI() {
@@ -331,59 +369,41 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!filterPanel || !currentTabContent.querySelector('#customer-orders-list-tbody')) {
             return;
         }
-
         const activeWarehouse = currentCustomerOrderFilters.warehouse || "";
         filterPanel.querySelectorAll('.warehouse-filter-btn').forEach(btn => {
-            if (btn.dataset.value === activeWarehouse) {
-                btn.classList.add('btn-neutral', 'text-white'); btn.classList.remove('btn-outline');
-            } else {
-                btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
-            }
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeWarehouse);
+            btn.classList.toggle('text-white', btn.dataset.value === activeWarehouse);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeWarehouse);
         });
         const activeStatus = currentCustomerOrderFilters.status || "";
         filterPanel.querySelectorAll('.status-filter-btn').forEach(btn => {
-            if (btn.dataset.value === activeStatus) {
-                btn.classList.add('btn-neutral', 'text-white'); btn.classList.remove('btn-outline');
-            } else {
-                btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
-            }
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeStatus);
+            btn.classList.toggle('text-white', btn.dataset.value === activeStatus);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeStatus);
         });
         const searchInput = filterPanel.querySelector('.dynamic-search-input');
-        if (searchInput) {
-             if (searchInput.value !== (currentCustomerOrderFilters.q || "")) {
-                searchInput.value = currentCustomerOrderFilters.q || "";
-            }
+        if (searchInput && searchInput.value !== (currentCustomerOrderFilters.q || "")) {
+            searchInput.value = currentCustomerOrderFilters.q || "";
         }
-
         const orderCountSpan = filterPanel.querySelector('.customer-order-count');
          if (orderCountSpan && currentCustomerOrderFilters.total_orders_count !== undefined) {
             orderCountSpan.textContent = `(${currentCustomerOrderFilters.total_orders_count} orders)`;
         }
-        console.log("[updateCustomerOrderFiltersUI] Customer order filter UI updated.");
     }
 
     function loadInitialCustomerOrderFilters(urlParams) {
-        currentCustomerOrderFilters.warehouse = urlParams.get('warehouse') || "";
-        currentCustomerOrderFilters.status = urlParams.get('status') || "";
-        currentCustomerOrderFilters.q = urlParams.get('q') || "";
-        currentCustomerOrderFilters.page = urlParams.get('page') || '1';
-        console.log("[loadInitialCustomerOrderFilters] Initialized currentCustomerOrderFilters:", JSON.parse(JSON.stringify(currentCustomerOrderFilters)));
+        const sessionFilters = loadTabFiltersFromSession(DEFAULT_CUSTOMER_ORDERS_TAB);
+        currentCustomerOrderFilters.warehouse = urlParams.get('warehouse') || sessionFilters.get('warehouse') || "";
+        currentCustomerOrderFilters.status = urlParams.get('status') || sessionFilters.get('status') || "";
+        currentCustomerOrderFilters.q = urlParams.get('q') || sessionFilters.get('q') || "";
+        currentCustomerOrderFilters.page = urlParams.get('page') || sessionFilters.get('page') || '1';
         updateCustomerOrderFiltersUI();
     }
 
-    function applyCustomerOrderFilters(resetPage = true, caller="unknown") {
-        if (isFetchingCustomerOrders) {
-            console.log(`[applyCustomerOrderFilters BY ${caller}] Already fetching, request ignored.`);
-            return;
-        }
+    function applyCustomerOrderFilters(resetPage = true, caller="unknown_co_caller") {
+        if (isFetchingCustomerOrders) return;
         isFetchingCustomerOrders = true;
-        console.log(`[applyCustomerOrderFilters BY ${caller}] resetPage: ${resetPage}. Setting isFetchingCustomerOrders = true.`);
-
-
-        if (resetPage) {
-            currentCustomerOrderFilters.page = '1';
-        }
-        console.log("[applyCustomerOrderFilters] Applying with filters:", JSON.parse(JSON.stringify(currentCustomerOrderFilters)));
+        if (resetPage) currentCustomerOrderFilters.page = '1';
 
         const paramsForHistory = new URLSearchParams();
         paramsForHistory.set('tab', DEFAULT_CUSTOMER_ORDERS_TAB);
@@ -392,50 +412,31 @@ document.addEventListener('DOMContentLoaded', function() {
         if (currentCustomerOrderFilters.q) paramsForHistory.set('q', currentCustomerOrderFilters.q);
         if (currentCustomerOrderFilters.page && currentCustomerOrderFilters.page !== '1') {
             paramsForHistory.set('page', currentCustomerOrderFilters.page);
-        } else if (paramsForHistory.has('page')) {
-             paramsForHistory.delete('page');
         }
-
         const historyUrl = `${currentBaseUrl}?${paramsForHistory.toString()}`;
 
-        const paramsForFetch = new URLSearchParams();
-        paramsForFetch.set('tab', DEFAULT_CUSTOMER_ORDERS_TAB);
-        if (currentCustomerOrderFilters.warehouse) paramsForFetch.set('warehouse', currentCustomerOrderFilters.warehouse);
-        if (currentCustomerOrderFilters.status) paramsForFetch.set('status', currentCustomerOrderFilters.status);
-        if (currentCustomerOrderFilters.q) paramsForFetch.set('q', currentCustomerOrderFilters.q);
-        if (currentCustomerOrderFilters.page) paramsForFetch.set('page', currentCustomerOrderFilters.page);
-
+        const paramsForFetch = new URLSearchParams(paramsForHistory);
+        paramsForFetch.set('page', currentCustomerOrderFilters.page);
         paramsForFetch.set('fetch_dynamic_content_only', 'true');
         const fetchUrl = `${currentBaseUrl}?${paramsForFetch.toString()}`;
 
         const dynamicContentContainer = document.getElementById('customer-orders-dynamic-content');
-
         if (dynamicContentContainer) {
-            dynamicContentContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span> [JS Loading Orders...]</div>';
+            dynamicContentContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
         } else {
-            console.error("CRITICAL: #customer-orders-dynamic-content not found for replacement.");
-            isFetchingCustomerOrders = false;
-            return;
+            isFetchingCustomerOrders = false; return;
         }
-
         history.pushState({path: historyUrl, tab: DEFAULT_CUSTOMER_ORDERS_TAB}, '', historyUrl);
         saveTabFiltersToSession(DEFAULT_CUSTOMER_ORDERS_TAB, currentCustomerOrderFilters);
 
         fetch(fetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
             .then(response => {
-                if (!response.ok) throw new Error('Network response was not ok for customer orders table refresh.');
+                if (!response.ok) throw new Error(`Network error: ${response.statusText}`);
                 const totalCountHeader = response.headers.get('X-Total-Orders-Count');
-                if (totalCountHeader !== null) {
-                    currentCustomerOrderFilters.total_orders_count = totalCountHeader;
-                }
+                if (totalCountHeader !== null) currentCustomerOrderFilters.total_orders_count = totalCountHeader;
                 const hxTrigger = response.headers.get('HX-Trigger-After-Swap');
-                if (hxTrigger === 'loadMoreCustomerOrdersUnavailable') {
-                    const loadMoreContainer = document.getElementById('load-more-customer-orders-container');
-                    if (loadMoreContainer) loadMoreContainer.style.display = 'none';
-                } else if (hxTrigger === 'loadMoreCustomerOrdersAvailable') {
-                     const loadMoreContainer = document.getElementById('load-more-customer-orders-container');
-                    if (loadMoreContainer) loadMoreContainer.style.display = '';
-                }
+                const loadMoreContainer = document.getElementById('load-more-customer-orders-container');
+                if (loadMoreContainer) loadMoreContainer.style.display = (hxTrigger === 'loadMoreCustomerOrdersAvailable') ? '' : 'none';
                 return response.text();
             })
             .then(html => {
@@ -443,45 +444,27 @@ document.addEventListener('DOMContentLoaded', function() {
                     dynamicContentContainer.innerHTML = html;
                     initializePackOrderButtons();
                     initializeEditOrderButtons();
+                    initializeCustomerShipmentsModal();
                     initLoadMoreCustomerOrders();
                 }
                 updateCustomerOrderFiltersUI();
-                 console.log("[applyCustomerOrderFilters] Customer orders table refreshed and JS re-initialized.");
             })
             .catch(error => {
-                console.error('Failed to refresh customer orders table:', error);
                 if (dynamicContentContainer) dynamicContentContainer.innerHTML = '<div class="text-center py-10 text-red-500">Error loading orders.</div>';
-                const orderCountSpan = document.querySelector('#operation-tab-content .operations-filter-panel .customer-order-count');
-                if (orderCountSpan) orderCountSpan.textContent = '(Error)';
             })
-            .finally(() => {
-                isFetchingCustomerOrders = false;
-                console.log(`[applyCustomerOrderFilters FINALLY BY ${caller}] Setting isFetchingCustomerOrders = false.`);
-            });
+            .finally(() => { isFetchingCustomerOrders = false; });
     }
     const debouncedApplyCustomerOrderFilters = debounce(applyCustomerOrderFilters, 400);
 
     function bindCustomerOrderFilterControls() {
         const currentTabContent = document.getElementById('operation-tab-content');
-        if (!currentTabContent) {
-            console.warn("[bindCustomerOrderFilterControls] #operation-tab-content not found.");
-            return;
-        }
+        if (!currentTabContent) return;
         const filterPanel = currentTabContent.querySelector('.operations-filter-panel');
-
-        if (!filterPanel || !currentTabContent.querySelector('#customer-orders-list-tbody')) {
-            console.warn("[bindCustomerOrderFilterControls] Not binding: specific filter panel or tbody for customer orders not found in current #operation-tab-content.");
-            return;
-        }
-        if (filterPanel.dataset.customerOrderFilterBound === 'true') {
-            console.log("[bindCustomerOrderFilterControls] Already bound to this specific panel instance:", filterPanel);
-            return;
-        }
+        if (!filterPanel || !currentTabContent.querySelector('#customer-orders-list-tbody') || filterPanel.dataset.customerOrderFilterBound === 'true') return;
 
         filterPanel.addEventListener('click', function(event) {
             const target = event.target.closest('button');
             if (!target || !target.closest('.operations-filter-panel')) return;
-
             let filtersChanged = false;
             if (target.classList.contains('warehouse-filter-btn')) {
                 currentCustomerOrderFilters.warehouse = target.dataset.value; filtersChanged = true;
@@ -491,48 +474,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentCustomerOrderFilters = { page: '1' };
                 const searchInput = filterPanel.querySelector('.dynamic-search-input');
                 if (searchInput) searchInput.value = "";
-                filtersChanged = true;
-                clearTabFiltersFromSession(DEFAULT_CUSTOMER_ORDERS_TAB);
+                filtersChanged = true; clearTabFiltersFromSession(DEFAULT_CUSTOMER_ORDERS_TAB);
             }
-            if (filtersChanged) {
-                applyCustomerOrderFilters(true, "CO Button Click");
-            }
+            if (filtersChanged) applyCustomerOrderFilters(true, "CO Button Click");
         });
-
         const searchInput = filterPanel.querySelector('.dynamic-search-input');
         if (searchInput && !searchInput.dataset.coListenerAttached) {
             searchInput.addEventListener('input', function() {
                 if (!this.closest('.operations-filter-panel') || this.closest('.parcel-filters')) return;
-                console.log("[CustomerOrderSearchInput] User typed:", this.value);
                 currentCustomerOrderFilters.q = this.value.trim();
                 debouncedApplyCustomerOrderFilters(true, "CO Search Input");
             });
             searchInput.dataset.coListenerAttached = 'true';
         }
         filterPanel.dataset.customerOrderFilterBound = 'true';
-        console.log("[bindCustomerOrderFilterControls] Customer order filter controls bound to specific panel:", filterPanel);
     }
 
     function initLoadMoreCustomerOrders() {
         const currentTabContent = document.getElementById('operation-tab-content');
         if (!currentTabContent) return;
-
         const loadMoreBtn = currentTabContent.querySelector('#explore-more-customer-orders-btn');
         const loadMoreContainer = currentTabContent.querySelector('#load-more-customer-orders-container');
         const ordersTbody = currentTabContent.querySelector('#customer-orders-list-tbody');
 
         if (!loadMoreBtn || !loadMoreContainer || !ordersTbody) {
-            if(loadMoreContainer) loadMoreContainer.style.display = 'none';
-            return;
+            if(loadMoreContainer) loadMoreContainer.style.display = 'none'; return;
         }
-        if (loadMoreBtn.dataset.coListenerAttached === 'true') {
-            return;
-        }
+        if (loadMoreBtn.dataset.coListenerAttached === 'true') return;
 
         loadMoreBtn.addEventListener('click', function() {
             let currentPage = parseInt(currentCustomerOrderFilters.page || '1');
             const nextPage = currentPage + 1;
-            console.log(`[LoadMoreCustomerOrders Click] Current page: ${currentPage}, Fetching next: ${nextPage}`);
 
             const params = new URLSearchParams();
             if (currentCustomerOrderFilters.warehouse) params.set('warehouse', currentCustomerOrderFilters.warehouse);
@@ -542,13 +514,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const fetchUrl = `/operation/customer-orders/load-more/?${params.toString()}`;
 
-            loadMoreBtn.disabled = true;
-            loadMoreBtn.innerHTML = '<span class="loading loading-spinner"></span> Loading More Orders...';
+            loadMoreBtn.disabled = true; loadMoreBtn.innerHTML = '<span class="loading loading-spinner"></span> Loading...';
 
             fetch(fetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
             .then(response => {
                 const trigger = response.headers.get('HX-Trigger');
-                if (!response.ok) throw new Error('Network response was not ok for loading more customer orders.');
+                if (!response.ok) throw new Error('Network error loading more orders.');
                 return response.text().then(html => ({html, trigger}));
             })
             .then(({html, trigger}) => {
@@ -556,34 +527,238 @@ document.addEventListener('DOMContentLoaded', function() {
                     ordersTbody.insertAdjacentHTML('beforeend', html);
                     currentCustomerOrderFilters.page = nextPage.toString();
                     saveTabFiltersToSession(DEFAULT_CUSTOMER_ORDERS_TAB, currentCustomerOrderFilters);
-                    initializePackOrderButtons();
-                    initializeEditOrderButtons();
+                    initializePackOrderButtons(); initializeEditOrderButtons(); initializeCustomerShipmentsModal();
                 }
-
-                if (trigger === 'loadMoreCustomerOrdersAvailable') {
-                    loadMoreBtn.disabled = false;
-                    loadMoreBtn.innerHTML = 'Explore More Orders';
-                    if(loadMoreContainer) loadMoreContainer.style.display = '';
-                } else {
-                    if(loadMoreContainer) loadMoreContainer.style.display = 'none';
-                }
+                loadMoreContainer.style.display = (trigger === 'loadMoreCustomerOrdersAvailable' && html.trim() !== "") ? '' : 'none';
             })
-            .catch(error => {
-                console.error("Failed to load more customer orders:", error);
-                if(loadMoreContainer) loadMoreContainer.style.display = 'none';
-            })
-            .finally(() => {
-                if (loadMoreContainer && loadMoreContainer.style.display !== 'none') {
-                    loadMoreBtn.disabled = false;
-                    loadMoreBtn.innerHTML = 'Explore More Orders';
-                }
-            });
+            .catch(error => { loadMoreContainer.style.display = 'none'; })
+            .finally(() => { if (loadMoreContainer.style.display !== 'none') { loadMoreBtn.disabled = false; loadMoreBtn.innerHTML = 'Explore More Orders'; }});
         });
         loadMoreBtn.dataset.coListenerAttached = 'true';
     }
 
+    function initializePackOrderButtons() {
+        const currentTabContent = document.getElementById('operation-tab-content');
+        if (!currentTabContent) return;
+
+        currentTabContent.querySelectorAll('.pack-order-btn').forEach(button => {
+            if (button.dataset.listenerAttached === 'true') return;
+
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                const orderPk = this.dataset.orderPk;
+                if (!orderPk) return;
+
+                const packModalToggle = document.getElementById('pack-order-modal-toggle');
+                const packFormsetContainer = document.getElementById('pack-order-items-formset-container');
+                const packModalTitle = document.getElementById('pack-modal-title');
+                const packModalCustomer = document.getElementById('pack-modal-customer');
+                const packForm = document.getElementById('pack-order-form');
+                const orderPkHiddenInput = document.getElementById('order_pk_for_packing_modal_hidden_id');
+                const dailyCourierCountsDisplay = document.getElementById('daily-courier-counts-display');
+                const courierCountsList = document.getElementById('courier-counts-list');
+                const courierSelectionButtonsDiv = document.getElementById('courier-selection-buttons');
+                const hiddenCourierInput = document.getElementById('id_parcel-courier_id');
+                const notesTextarea = document.getElementById('id_parcel-notes');
+                const hiddenPackagingInput = document.getElementById('id_parcel-packaging_type');
+                const packagingOptionsContainer = document.getElementById('packaging-options-container');
+
+                if (!packModalToggle || !packFormsetContainer || !packModalTitle || !packModalCustomer || !packForm || !orderPkHiddenInput || !dailyCourierCountsDisplay || !courierCountsList || !courierSelectionButtonsDiv || !hiddenCourierInput || !hiddenPackagingInput || !packagingOptionsContainer) {
+                    console.error("DEBUG: One or more modal elements could not be found. Please check all element IDs.");
+                    return;
+                }
+
+                packFormsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items...</p>';
+                courierCountsList.innerHTML = '';
+                dailyCourierCountsDisplay.style.display = 'none';
+                courierSelectionButtonsDiv.innerHTML = '';
+                hiddenCourierInput.value = '';
+                hiddenPackagingInput.value = '';
+                packagingOptionsContainer.innerHTML = '';
+                notesTextarea.value = '';
+
+                fetch(`/operation/order/${orderPk}/get-packing-items/`)
+                    .then(response => response.ok ? response.json() : response.text().then(text => { throw new Error(text || `Server error: ${response.status}`);}))
+                    .then(data => {
+                        if (data.success) {
+                            if (packModalTitle) packModalTitle.textContent = `Pack Order: ${data.erp_order_id || orderPk}`;
+                            if (packModalCustomer) packModalCustomer.textContent = `Customer: ${data.customer_name || 'N/A'}`;
+                            if (packFormsetContainer) packFormsetContainer.innerHTML = data.formset_html;
+                            if (packForm) packForm.action = `/operation/order/${orderPk}/process-packing/`;
+                            if (orderPkHiddenInput) orderPkHiddenInput.value = orderPk;
+                            if (notesTextarea) notesTextarea.value = data.shipping_notes_for_parcel || '';
+
+                            const isCold = data.is_cold_chain === true;
+                            const coldStatusEl = document.getElementById('order-cold-chain-status-display');
+                            if (coldStatusEl) {
+                                coldStatusEl.textContent = isCold ? "Cold Chain" : "Ambient";
+                                coldStatusEl.className = isCold ? "font-bold text-blue-600" : "font-bold text-green-600";
+                            }
+
+                            if (data.available_packaging) {
+                                if (data.available_packaging.length > 0) {
+                                    data.available_packaging.forEach(pkg => {
+                                        const btn = document.createElement('button');
+                                        btn.type = 'button';
+                                        btn.className = 'btn btn-sm btn-outline packaging-btn';
+                                        btn.dataset.packagingId = pkg.id;
+                                        btn.textContent = pkg.name;
+                                        packagingOptionsContainer.appendChild(btn);
+                                    });
+                                } else {
+                                    packagingOptionsContainer.innerHTML = '<p class="text-xs text-gray-500 italic">No packaging types available.</p>';
+                                }
+                            }
+
+                            if (courierSelectionButtonsDiv && data.available_couriers) {
+                                if (data.available_couriers.length > 0) {
+                                    data.available_couriers.forEach(courier => {
+                                        const btn = document.createElement('button');
+                                        btn.type = 'button';
+                                        btn.className = 'btn btn-sm btn-outline courier-btn';
+                                        btn.dataset.courierId = courier.id;
+                                        btn.textContent = courier.name;
+                                        courierSelectionButtonsDiv.appendChild(btn);
+                                    });
+                                } else {
+                                    courierSelectionButtonsDiv.innerHTML = '<p class="text-xs text-gray-500">No couriers configured.</p>';
+                                }
+                            }
+
+                            if (typeof setupDynamicBatchDropdowns === "function") {
+                                setupDynamicBatchDropdowns();
+                            }
+
+                            if (typeof displayCourierDashboard === "function" && data.daily_courier_counts_object) {
+                                displayCourierDashboard(data.daily_courier_counts_object, data.available_couriers);
+                                if (dailyCourierCountsDisplay) dailyCourierCountsDisplay.style.display = 'block';
+                            } else if (dailyCourierCountsDisplay) {
+                                dailyCourierCountsDisplay.style.display = 'none';
+                            }
+                            if (packModalToggle) packModalToggle.checked = true;
+
+                        } else {
+                            if (packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center py-3">${data.message || 'Failed to load packing items.'}</p>`;
+                            if (typeof Swal !== 'undefined') Swal.fire('Info', data.message || 'Could not load items for packing.', 'info');
+                        }
+                    })
+                    .catch(error => {
+                        if (packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center py-3">Error: ${error.message || 'Unknown fetch error'}</p>`;
+                        if (typeof Swal !== 'undefined') Swal.fire('Error', `Could not fetch packing details: ${error.message || 'Unknown error'}`, 'error');
+                    });
+            });
+            button.dataset.listenerAttached = 'true';
+        });
+    }
+
+    const packOrderModalContent = document.getElementById('pack-order-modal-content');
+    if (packOrderModalContent) {
+        packOrderModalContent.addEventListener('click', function(e) {
+            const courierBtn = e.target.closest('.courier-btn');
+            const packagingBtn = e.target.closest('.packaging-btn');
+
+            if (courierBtn) {
+                e.preventDefault();
+                const selectedCourierId = courierBtn.dataset.courierId;
+                const hiddenCourierInput = document.getElementById('id_parcel-courier_id');
+                if (hiddenCourierInput) {
+                    hiddenCourierInput.value = selectedCourierId;
+                }
+
+                const parentDiv = courierBtn.closest('#courier-selection-buttons');
+                if (parentDiv) {
+                    parentDiv.querySelectorAll('.courier-btn').forEach(btn => {
+                        btn.classList.remove('btn-active', 'btn-neutral');
+                        btn.classList.add('btn-outline');
+                    });
+                }
+                courierBtn.classList.add('btn-active', 'btn-neutral');
+                courierBtn.classList.remove('btn-outline');
+            }
+
+            if (packagingBtn) {
+                e.preventDefault();
+                const selectedPackagingId = packagingBtn.dataset.packagingId;
+                const hiddenPackagingInput = document.getElementById('id_parcel-packaging_type');
+                if (hiddenPackagingInput) {
+                    hiddenPackagingInput.value = selectedPackagingId;
+                }
+                const packagingOptionsContainer = packagingBtn.closest('#packaging-options-container');
+                if(packagingOptionsContainer) {
+                    packagingOptionsContainer.querySelectorAll('.packaging-btn').forEach(btn => {
+                        btn.classList.toggle('btn-active', btn === packagingBtn);
+                        btn.classList.toggle('btn-neutral', btn === packagingBtn);
+                        btn.classList.toggle('btn-outline', btn !== packagingBtn);
+                    });
+                }
+            }
+        });
+    }
+
+    function initializeEditOrderButtons() {
+        const currentContainer = document.getElementById('operation-tab-content');
+        if (!currentContainer) return;
+
+        currentContainer.querySelectorAll('.edit-order-btn').forEach(button => {
+            if (button.dataset.editListenerAttached === 'true') return;
+
+            button.addEventListener('click', function(event) {
+                event.preventDefault();
+                const orderPk = this.dataset.orderPk;
+                const modalToggle = document.getElementById('edit-order-modal-toggle');
+                const formsetContainer = document.getElementById('edit-order-items-formset-container');
+                const modalTitle = document.getElementById('edit-modal-title');
+                const customerInfo = document.getElementById('edit-modal-customer-info');
+                const hiddenPkInput = document.getElementById('order_pk_for_editing_modal_hidden_id_js');
+                const logDisplay = document.getElementById('removed-items-display');
+                const formEl = document.getElementById('edit-order-form');
+
+                if (!orderPk || !modalToggle || !formsetContainer || !modalTitle || !customerInfo || !formEl || !hiddenPkInput || !logDisplay) return;
+
+                formsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items...</p>';
+                logDisplay.innerHTML = '<p class="text-sm text-gray-500">Loading removal log...</p>';
+
+                fetch(`/operation/order/${orderPk}/get-items-for-editing/`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            modalTitle.textContent = `Edit Items for Order: ${data.erp_order_id || orderPk}`;
+                            customerInfo.textContent = `Customer: ${data.customer_name || 'N/A'}`;
+                            formsetContainer.innerHTML = data.formset_html;
+                            formEl.action = `/operation/order/${orderPk}/process-item-removal/`;
+                            hiddenPkInput.value = orderPk;
+
+                            if (data.removed_items_log && data.removed_items_log.length > 0) {
+                                let logHtml = '<ul class="list-disc list-inside space-y-1">';
+                                data.removed_items_log.forEach(log => {
+                                    const removedAt = new Date(log.removed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                    logHtml += `<li class="border-b border-gray-200 pb-1 mb-1">SKU <strong>${log.product_sku||'N/A'}</strong>: ${log.removed_qty} removed on ${removedAt}</li>`;
+                                });
+                                logDisplay.innerHTML = logHtml + '</ul>';
+                            } else {
+                                logDisplay.innerHTML = '<p class="text-sm text-gray-500">No items previously removed for this order.</p>';
+                            }
+                            modalToggle.checked = true;
+                        } else {
+                            if (typeof Swal !== 'undefined') Swal.fire('Error', data.message || 'Could not load items for editing.', 'error');
+                            else alert(data.message || 'Could not load items for editing.');
+                            formsetContainer.innerHTML = `<p class="text-red-500 text-center py-3">${data.message || 'Failed to load items.'}</p>`;
+                        }
+                    })
+                    .catch(error => {
+                        if (typeof Swal !== 'undefined') Swal.fire('Error', 'An error occurred. Check console.', 'error');
+                        formsetContainer.innerHTML = '<p class="text-red-500 text-center py-3">Error loading. Check console.</p>';
+                    });
+            });
+            button.dataset.editListenerAttached = 'true';
+        });
+    }
+
     function setupDynamicBatchDropdowns() {
-        document.querySelectorAll('.pack-items-table .pack-item-row').forEach(row => {
+        const formsetContainer = document.getElementById('pack-order-items-formset-container');
+        if (!formsetContainer) return;
+
+        formsetContainer.querySelectorAll('.pack-items-table .pack-item-row').forEach(row => {
             const orderItemId = row.dataset.orderItemId;
             const batchSelect = row.querySelector('.available-batches-select');
             const hiddenSelectedBatchIdInput = row.querySelector('input[name$="-selected_batch_item_id"]');
@@ -598,47 +773,37 @@ document.addEventListener('DOMContentLoaded', function() {
             if (errorPlaceholder) errorPlaceholder.textContent = '';
 
             fetch(`/operation/order-item/${orderItemId}/get-available-batches/`)
-                .then(response => {
-                    if (!response.ok) {
-                        return response.json().catch(() => response.text()).then(errDataOrText => {
-                            let errMsg = `Error ${response.status}: `;
-                            if (typeof errDataOrText === 'object' && errDataOrText.message) { errMsg += errDataOrText.message;
-                            } else if (typeof errDataOrText === 'string') {
-                                if (errDataOrText.trim().toLowerCase().startsWith('<!doctype html') || errDataOrText.trim().startsWith('<html')) {
-                                    errMsg += `Server returned an HTML error page.`;
-                                } else { errMsg += errDataOrText.substring(0, 150); }
-                            } else { errMsg += response.statusText; }
-                            throw new Error(errMsg);
-                        });
-                    }
-                    return response.json();
-                })
+                .then(response => response.ok ? response.json() : response.text().then(text => { throw new Error(text || `Server error fetching batches: ${response.status}`); }))
                 .then(data => {
                     batchSelect.innerHTML = '<option value="">--- Select Batch ---</option>';
                     if (data.success && data.batches && data.batches.length > 0) {
                         data.batches.forEach(batch => {
-                            const option = document.createElement('option');
-                            option.value = batch.id;
-                            option.textContent = batch.display_name;
-                            batchSelect.appendChild(option);
+                            const option = new Option(batch.display_name, batch.id);
+                            option.dataset.quantityAvailable = batch.quantity_available;
+                            batchSelect.add(option);
                         });
+
                         if (initialSuggestedBatchId && batchSelect.querySelector(`option[value="${initialSuggestedBatchId}"]`)) {
                             batchSelect.value = initialSuggestedBatchId;
-                            if (hiddenSelectedBatchIdInput) hiddenSelectedBatchIdInput.value = initialSuggestedBatchId;
+                            hiddenSelectedBatchIdInput.value = initialSuggestedBatchId;
                         } else if (initialSuggestedBatchId) {
-                            if (hiddenSelectedBatchIdInput) hiddenSelectedBatchIdInput.value = '';
-                            if (errorPlaceholder) errorPlaceholder.textContent = 'Note: Suggested batch not in current available list.';
+                            hiddenSelectedBatchIdInput.value = '';
+                            if (errorPlaceholder) errorPlaceholder.textContent = 'Note: Previously suggested batch may no longer be suitable or available.';
+                        } else {
+                             hiddenSelectedBatchIdInput.value = '';
                         }
+
                     } else {
-                        const message = data.message || 'No batches available.';
+                        const message = data.message || 'No suitable batches found.';
                         batchSelect.innerHTML = `<option value="">${message}</option>`;
                         if (errorPlaceholder) errorPlaceholder.textContent = message;
+                        hiddenSelectedBatchIdInput.value = '';
                     }
                 })
                 .catch(error => {
-                    console.error(`Error fetching batches for order item ${orderItemId}:`, error);
-                    batchSelect.innerHTML = '<option value="">Error loading</option>';
+                    batchSelect.innerHTML = '<option value="">Error loading batches</option>';
                     if (errorPlaceholder) errorPlaceholder.textContent = `Client-side error: ${error.message}`;
+                    hiddenSelectedBatchIdInput.value = '';
                 });
 
             if (!batchSelect.dataset.listenerAttachedBatchChange) {
@@ -646,373 +811,101 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (hiddenSelectedBatchIdInput) {
                         hiddenSelectedBatchIdInput.value = this.value;
                     }
+                    if(errorPlaceholder) errorPlaceholder.textContent = '';
                 });
                 batchSelect.dataset.listenerAttachedBatchChange = 'true';
             }
         });
     }
-    function initializePackOrderButtons() {
-        const currentTabContent = document.getElementById('operation-tab-content');
-        if (!currentTabContent) { return; }
 
-        currentTabContent.querySelectorAll('.pack-order-btn').forEach(button => {
-            if (button.dataset.listenerAttached === 'true') return;
-            button.addEventListener('click', function(event) {
-                event.preventDefault();
-                const orderPk = this.dataset.orderPk;
-                if (!orderPk) { return; }
-                const packModalToggle = document.getElementById('pack-order-modal-toggle');
-                const packFormsetContainer = document.getElementById('pack-order-items-formset-container');
-                const packModalTitle = document.getElementById('pack-modal-title');
-                const packModalCustomer = document.getElementById('pack-modal-customer');
-                const packForm = document.getElementById('pack-order-form');
-                const orderPkHiddenInput = document.getElementById('order_pk_for_packing_modal_hidden_id');
-                // Elements for courier counts
-                const dailyCourierCountsDisplay = document.getElementById('daily-courier-counts-display');
-                const courierCountsList = document.getElementById('courier-counts-list');
-
-
-                if (!packModalToggle || !packFormsetContainer || !packModalTitle || !packModalCustomer || !packForm || !orderPkHiddenInput || !dailyCourierCountsDisplay || !courierCountsList) {
-                    console.error("One or more Pack Order Modal elements are missing from the DOM.");
-                    return;
-                }
-                packFormsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items...</p>';
-                // Clear previous courier counts and hide display initially
-                courierCountsList.innerHTML = ''; // This will be populated by displayCourierDashboard
-                dailyCourierCountsDisplay.style.display = 'none'; // Hide until data is available
-
-
-                fetch(`/operation/order/${orderPk}/get-packing-items/`)
-                    .then(response => {
-                        const contentType = response.headers.get("content-type");
-                        if (!response.ok) {
-                            if (contentType && contentType.indexOf("application/json") !== -1) {
-                                return response.json().then(errData => { throw new Error(errData.message || `Server error: ${response.status}`); });
-                            } else {
-                                return response.text().then(text => {
-                                    if (text.trim().startsWith('<')) { throw new Error(`Unexpected HTML response (status: ${response.status}).`);}
-                                    throw new Error(text || `Server error: ${response.status}`);
-                                });
-                            }
-                        }
-                        if (contentType && contentType.indexOf("application/json") !== -1) { return response.json(); }
-                        else { throw new Error("Unexpected non-JSON response."); }
-                    })
-                    .then(data => {
-                        if (data.success) {
-                            if (packModalTitle) packModalTitle.textContent = `Pack Order: ${data.erp_order_id || orderPk}`;
-                            if (packModalCustomer) packModalCustomer.textContent = `Customer: ${data.customer_name || 'N/A'}`;
-                            if (packFormsetContainer) packFormsetContainer.innerHTML = data.formset_html;
-                            if (packForm) packForm.action = `/operation/order/${orderPk}/process-packing/`;
-                            if (orderPkHiddenInput) orderPkHiddenInput.value = orderPk;
-                            const isColdOrderFromServer = data.is_cold_chain === true;
-                            const coldChainStatusDisplayEl = document.getElementById('order-cold-chain-status-display');
-                            const packagingIscoldOptionsEl = document.getElementById('packaging-iscold-options');
-                            const packagingAmbientOptionsEl = document.getElementById('packaging-ambient-options');
-                            if (coldChainStatusDisplayEl) {
-                                coldChainStatusDisplayEl.textContent = isColdOrderFromServer ? "Cold Chain" : "Ambient";
-                                coldChainStatusDisplayEl.className = isColdOrderFromServer ? "font-bold text-blue-600" : "font-bold text-green-600";
-                            }
-                            if (packagingIscoldOptionsEl && packagingAmbientOptionsEl) {
-                                packagingIscoldOptionsEl.style.display = isColdOrderFromServer ? '' : 'none';
-                                packagingAmbientOptionsEl.style.display = isColdOrderFromServer ? 'none' : '';
-                            }
-                            const hiddenCourierInput = document.getElementById('id_parcel-courier_name');
-                            if(hiddenCourierInput) hiddenCourierInput.value = '';
-                            document.querySelectorAll('#courier-selection-buttons .courier-btn').forEach(btn => { btn.classList.remove('btn-active'); btn.classList.add('btn-outline');});
-
-                            const parcelNotesTextarea = document.getElementById('id_parcel-notes');
-                            if (parcelNotesTextarea) {
-                                parcelNotesTextarea.value = data.shipping_notes_for_parcel || '';
-                            }
-
-                            const hiddenPackagingInput = document.getElementById('id_parcel-packaging_type');
-                            if(hiddenPackagingInput) hiddenPackagingInput.value = '';
-                            document.querySelectorAll('.packaging-btn').forEach(btn => {btn.classList.remove('btn-active', 'btn-neutral'); btn.classList.add('btn-outline');});
-                            if (typeof setupDynamicBatchDropdowns === "function") setupDynamicBatchDropdowns();
-                            if (packModalToggle) packModalToggle.checked = true;
-
-                            // MODIFIED: Populate daily courier counts using the dashboard function
-                            const dailyCourierCountsDataForDashboard = {};
-                            if (data.daily_courier_counts && data.daily_courier_counts.length > 0) {
-                                data.daily_courier_counts.forEach(courier => {
-                                    dailyCourierCountsDataForDashboard[courier.name] = courier.count;
-                                });
-                            }
-                            // Call displayCourierDashboard which handles empty/populated cases
-                            if (typeof displayCourierDashboard === "function") {
-                                displayCourierDashboard(dailyCourierCountsDataForDashboard);
-                            } else {
-                                // Fallback if displayCourierDashboard is somehow not defined
-                                console.error("displayCourierDashboard function is not defined! Using fallback.");
-                                courierCountsList.innerHTML = ''; // Clear
-                                if (Object.keys(dailyCourierCountsDataForDashboard).length > 0) {
-                                    for (const name in dailyCourierCountsDataForDashboard) {
-                                        const li = document.createElement('li');
-                                        li.textContent = `${name}: ${dailyCourierCountsDataForDashboard[name]}`;
-                                        courierCountsList.appendChild(li);
-                                    }
-                                } else {
-                                    courierCountsList.innerHTML = '<li>No courier data to display (fallback).</li>';
-                                }
-                            }
-                            // Ensure the display section for courier counts is visible
-                            if (dailyCourierCountsDisplay) dailyCourierCountsDisplay.style.display = 'block';
-
-
-                        } else {
-                            if (packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center">${data.message || 'Failed to load items.'}</p>`;
-                            if (typeof Swal !== 'undefined') Swal.fire('Info', data.message || 'Could not load items.', 'info'); else alert(data.message || 'Could not load items.');
-                            if (packModalToggle && data.message) packModalToggle.checked = true;
-                        }
-                    })
-                    .catch(error => {
-                        if (packFormsetContainer) packFormsetContainer.innerHTML = `<p class="text-red-500 text-center">Error: ${error.message}</p>`;
-                        if (packModalToggle) packModalToggle.checked = true; // Show modal to display error
-                    });
-            });
-            button.dataset.listenerAttached = 'true';
-        });
-    }
-
-    function initializeEditOrderButtons() {
-        const currentContainer = document.getElementById('operation-tab-content');
-        if (!currentContainer) return;
-        currentContainer.querySelectorAll('.edit-order-btn').forEach(button => {
-            if (button.dataset.editListenerAttached === 'true') return;
-            button.addEventListener('click', function(event) {
-                event.preventDefault();
-                const orderPk = this.dataset.orderPk;
-                const editModalToggle = document.getElementById('edit-order-modal-toggle');
-                const editFormsetContainer = document.getElementById('edit-order-items-formset-container');
-                const editModalTitle = document.getElementById('edit-modal-title');
-                const editModalCustomer = document.getElementById('edit-modal-customer-info');
-                const hiddenOrderPkInput = document.getElementById('order_pk_for_editing_modal_hidden_id_js');
-                const removedItemsDisplay = document.getElementById('removed-items-display');
-                const editOrderForm = document.getElementById('edit-order-form');
-
-                if (!orderPk || !editModalToggle || !editFormsetContainer || !editModalTitle || !editModalCustomer || !editOrderForm || !hiddenOrderPkInput || !removedItemsDisplay) return;
-                editFormsetContainer.innerHTML = '<p class="text-center py-4 text-gray-400">Fetching items...</p>';
-                removedItemsDisplay.innerHTML = '<p>Loading log...</p>';
-                fetch(`/operation/order/${orderPk}/get-items-for-editing/`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.success) {
-                            editModalTitle.textContent = `Edit Items for Order: ${data.erp_order_id || orderPk}`;
-                            editModalCustomer.textContent = `Customer: ${data.customer_name || 'N/A'}`;
-                            editFormsetContainer.innerHTML = data.formset_html;
-                            editOrderForm.action = `/operation/order/${orderPk}/process-item-removal/`;
-                            hiddenOrderPkInput.value = orderPk;
-                            if (data.removed_items_log && data.removed_items_log.length > 0) {
-                                let logHtml = '<ul>';
-                                data.removed_items_log.forEach(logEntry => {
-                                    logHtml += `<li class="mb-1 p-1 border-b border-gray-200">SKU ${logEntry.product_sku || 'N/A'}: ${logEntry.removed_qty} unit(s) removed on ${new Date(logEntry.removed_at).toLocaleString()}</li>`;
-                                });
-                                logHtml += '</ul>';
-                                removedItemsDisplay.innerHTML = logHtml;
-                            } else {
-                                removedItemsDisplay.innerHTML = '<p>No items previously removed.</p>';
-                            }
-                            editModalToggle.checked = true;
-                        } else {
-                            if (typeof Swal !== 'undefined') Swal.fire('Error', data.message || 'Could not load items.', 'error'); else alert(data.message || 'Could not load items.');
-                            editFormsetContainer.innerHTML = `<p class="text-red-500 p-2">${data.message || 'Failed to load.'}</p>`;
-                        }
-                    })
-                    .catch(error => {
-                        if (typeof Swal !== 'undefined') Swal.fire('Error', 'Could not load data. Check console.', 'error');
-                        editFormsetContainer.innerHTML = '<p class="text-red-500 p-2">Error loading data.</p>';
-                    });
-            });
-            button.dataset.editListenerAttached = 'true';
-        });
-    }
-
-    function updateParcelFilterControlsUI() {
-        const currentTabContent = document.getElementById('operation-tab-content');
-        if (!currentTabContent) return;
-        const filterPanel = currentTabContent.querySelector('.operations-filter-panel');
-        if (!filterPanel || !currentTabContent.querySelector('#parcels-list-tbody')) {
-             console.warn("[updateParcelFilterControlsUI] Parcel filter panel or tbody not found in current tab content.");
-            return;
-        }
+    function updateParcelFiltersUI() {
+        const parcelFilterPanel = tabContainer.querySelector('.parcel-filters');
+        if (!parcelFilterPanel || !tabContainer.querySelector('#parcels-list-tbody')) return;
 
         const activeWarehouse = currentParcelFilters.parcel_warehouse || "";
-        filterPanel.querySelectorAll('.parcel-warehouse-filter-btn').forEach(btn => {
-            if (btn.dataset.value === activeWarehouse) {
-                btn.classList.add('btn-neutral', 'text-white'); btn.classList.remove('btn-outline');
-            } else {
-                btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
-            }
+        parcelFilterPanel.querySelectorAll('.parcel-warehouse-filter-btn').forEach(btn => {
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeWarehouse);
+            btn.classList.toggle('text-white', btn.dataset.value === activeWarehouse);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeWarehouse);
         });
-
         const activeCourier = currentParcelFilters.parcel_courier || "";
-        filterPanel.querySelectorAll('.parcel-courier-filter-btn').forEach(btn => {
-            if (btn.dataset.value === activeCourier) {
-                btn.classList.add('btn-neutral', 'text-white'); btn.classList.remove('btn-outline');
-            } else {
-                btn.classList.remove('btn-neutral', 'text-white'); btn.classList.add('btn-outline');
-            }
+        parcelFilterPanel.querySelectorAll('.parcel-courier-filter-btn').forEach(btn => {
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeCourier);
+            btn.classList.toggle('text-white', btn.dataset.value === activeCourier);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeCourier);
         });
+        const searchInput = parcelFilterPanel.querySelector('.parcel-dynamic-search-input');
+        if (searchInput && searchInput.value !== (currentParcelFilters.parcel_q || "")) searchInput.value = currentParcelFilters.parcel_q || "";
 
-        const searchInput = filterPanel.querySelector('.parcel-dynamic-search-input');
-        if (searchInput) {
-             if (searchInput.value !== (currentParcelFilters.parcel_q || "")) {
-                searchInput.value = currentParcelFilters.parcel_q || "";
-            }
-        }
-        const parcelCountSpan = filterPanel.querySelector('.parcel-count');
-        if (parcelCountSpan && currentParcelFilters.total_parcels_count !== undefined) {
-             parcelCountSpan.textContent = `(${currentParcelFilters.total_parcels_count} parcels)`;
-        }
-         console.log("[updateParcelFilterControlsUI] Parcel filter UI updated.");
+        const parcelCountSpan = parcelFilterPanel.querySelector('.parcel-count-display');
+        if (parcelCountSpan && currentParcelFilters.total_parcels_count !== undefined) parcelCountSpan.textContent = `(${currentParcelFilters.total_parcels_count} parcels)`;
     }
 
-    const debouncedParcelSearch = debounce(function(caller) {
-        applyParcelFilters(true, caller);
-    }, 400);
-
-    function bindParcelFilterControls() {
-        const currentTabContent = document.getElementById('operation-tab-content');
-        if (!currentTabContent) {
-            console.warn("[bindParcelFilterControls] #operation-tab-content not found.");
-            return;
-        }
-        const filterPanel = currentTabContent.querySelector('.operations-filter-panel');
-
-        if (!filterPanel || !currentTabContent.querySelector('#parcels-list-tbody')) {
-             console.warn("[bindParcelFilterControls] Parcel filter panel or tbody not found in current content. Listeners NOT attached.");
-             return;
-        }
-        console.log("[bindParcelFilterControls] Found parcel filter panel:", filterPanel);
-
-        filterPanel.querySelectorAll('.parcel-warehouse-filter-btn').forEach(button => {
-            if (button.dataset.parcelWhListenerAttached === 'true') return;
-            button.addEventListener('click', function() {
-                console.log("[ParcelFilterClick] Warehouse button clicked. Value:", this.dataset.value);
-                currentParcelFilters.parcel_warehouse = this.dataset.value;
-                applyParcelFilters(true, "Parcel WH Button Click");
-            });
-            button.dataset.parcelWhListenerAttached = 'true';
-        });
-
-        filterPanel.querySelectorAll('.parcel-courier-filter-btn').forEach(button => {
-            if (button.dataset.parcelCourierListenerAttached === 'true') return;
-            button.addEventListener('click', function() {
-                console.log("[ParcelFilterClick] Courier button clicked. Value:", this.dataset.value);
-                currentParcelFilters.parcel_courier = this.dataset.value;
-                applyParcelFilters(true, "Parcel Courier Click");
-            });
-            button.dataset.parcelCourierListenerAttached = 'true';
-        });
-
-        const resetButton = filterPanel.querySelector('.parcel-reset-filters-btn');
-        if (resetButton && resetButton.dataset.parcelResetListenerAttached !== 'true') {
-            resetButton.addEventListener('click', function() {
-                console.log("[ParcelFilterClick] Reset button clicked.");
-                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_q: '' };
-                clearTabFiltersFromSession(DEFAULT_PARCELS_TAB);
-                const searchInputInPanel = filterPanel.querySelector('input.parcel-dynamic-search-input');
-                if (searchInputInPanel) searchInputInPanel.value = "";
-                applyParcelFilters(true, "Parcel Reset Click");
-            });
-            resetButton.dataset.parcelResetListenerAttached = 'true';
-        }
-
-        const searchInput = filterPanel.querySelector('input.parcel-dynamic-search-input');
-        if (searchInput && !searchInput.dataset.parcelSearchListener) {
-            searchInput.addEventListener('input', function() {
-                console.log("[ParcelSearchInput] Value:", this.value);
-                currentParcelFilters.parcel_q = this.value.trim();
-                debouncedParcelSearch("Parcel Search Input");
-            });
-            searchInput.dataset.parcelSearchListener = 'true';
-            console.log("[bindParcelFilterControls] Parcel search input listener attached.");
-        }
-        console.log("[bindParcelFilterControls] Parcel filter controls binding attempt complete.");
+    function loadInitialParcelFilters(urlParams) {
+        const sessionFilters = loadTabFiltersFromSession(DEFAULT_PARCELS_TAB);
+        currentParcelFilters.parcel_warehouse = urlParams.get('parcel_warehouse') || sessionFilters.get('parcel_warehouse') || "";
+        currentParcelFilters.parcel_courier = urlParams.get('parcel_courier') || sessionFilters.get('parcel_courier') || "";
+        currentParcelFilters.parcel_q = urlParams.get('parcel_q') || sessionFilters.get('parcel_q') || "";
+        currentParcelFilters.page = urlParams.get('page') || sessionFilters.get('page') || '1';
+        // 'fetch_parcel_list_only' is not loaded from URL/session, it's for specific fetch calls
+        updateParcelFiltersUI();
     }
 
-    function applyParcelFilters(resetPage = true, caller = "unknown") {
-        if (isFetchingParcels) {
-            console.log(`[applyParcelFilters BY ${caller}] Already fetching parcels, request ignored.`);
-            return;
-        }
-        isFetchingParcels = true;
-        console.log(`[applyParcelFilters BY ${caller}] resetPage: ${resetPage}. Setting isFetchingParcels = true.`);
-
-        if (resetPage) {
-            currentParcelFilters.page = '1';
-        }
-        console.log(`[applyParcelFilters] Applying with filters:`, JSON.parse(JSON.stringify(currentParcelFilters)));
+    function applyParcelFilters(resetPage = true, caller="unknown_parcel_caller") {
+        if (isFetchingParcels) return; isFetchingParcels = true;
+        if (resetPage) currentParcelFilters.page = '1';
 
         const params = new URLSearchParams();
         params.set('tab', DEFAULT_PARCELS_TAB);
+        if (currentParcelFilters.parcel_warehouse) params.set('parcel_warehouse', currentParcelFilters.parcel_warehouse);
+        if (currentParcelFilters.parcel_courier) params.set('parcel_courier', currentParcelFilters.parcel_courier);
+        if (currentParcelFilters.parcel_q) params.set('parcel_q', currentParcelFilters.parcel_q);
         params.set('page', currentParcelFilters.page);
+        params.set('fetch_parcel_list_only', 'true'); // Crucial: Fetch only the list content
+        const fetchUrl = `${currentBaseUrl}?${params.toString()}`;
 
-        if (currentParcelFilters.parcel_warehouse) {
-            params.set('parcel_warehouse', currentParcelFilters.parcel_warehouse);
-        }
-        if (currentParcelFilters.parcel_courier) {
-            params.set('parcel_courier', currentParcelFilters.parcel_courier);
-        }
-        if (currentParcelFilters.parcel_q) {
-            params.set('parcel_q', currentParcelFilters.parcel_q);
-        }
+        const parcelTableContainer = document.getElementById('parcels-table-container');
+        if (parcelTableContainer) parcelTableContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
+        else { isFetchingParcels = false; return; }
 
-        const newUrl = `${currentBaseUrl}?${params.toString()}`;
-        history.pushState({path: newUrl, tab: DEFAULT_PARCELS_TAB}, '', newUrl);
-        saveTabFiltersToSession(DEFAULT_PARCELS_TAB, currentParcelFilters);
+        const paramsForHistory = new URLSearchParams(params);
+        paramsForHistory.delete('fetch_parcel_list_only'); // Don't put helper param in URL history
+        if (paramsForHistory.get('page') === '1') paramsForHistory.delete('page');
+        const historyUrl = `${currentBaseUrl}?${paramsForHistory.toString()}`;
 
-        const tabContentContainer = document.getElementById('operation-tab-content');
+        history.pushState({path: historyUrl, tab: DEFAULT_PARCELS_TAB}, '', historyUrl);
+        saveTabFiltersToSession(DEFAULT_PARCELS_TAB, currentParcelFilters); // Save all current filters (excluding fetch_parcel_list_only)
 
-        if (tabContentContainer) {
-            tabContentContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span> [JS Fetching Parcels...]</div>';
-        } else {
-            console.error("CRITICAL: #operation-tab-content not found for parcel tab update.");
-            isFetchingParcels = false;
-            return;
-        }
-
-        fetch(newUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
+        fetch(fetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'HX-Request': 'true' }})
             .then(response => {
-                if (!response.ok) {
-                    return response.text().then(text => { throw new Error(`Network error: ${response.status}. ${text.substring(0,100)}`); });
-                }
+                if (!response.ok) throw new Error('Network error fetching parcels.');
                 const totalCountHeader = response.headers.get('X-Total-Parcels-Count');
-                if (totalCountHeader !== null) {
-                    currentParcelFilters.total_parcels_count = totalCountHeader;
-                }
+                if (totalCountHeader !== null) currentParcelFilters.total_parcels_count = totalCountHeader;
                 return response.text();
             })
             .then(html => {
-                if(tabContentContainer) {
-                    tabContentContainer.innerHTML = html;
-                    loadInitialParcelFilters(new URLSearchParams(newUrl.split('?')[1]));
-                    bindParcelFilterControls();
+                if (parcelTableContainer) {
+                    parcelTableContainer.innerHTML = html; // This HTML is now only _parcels_list_content.html
                     bindParcelPaginationButtons();
+                    initializeViewEditParcelModalButtons();
                 }
-                updateParcelFilterControlsUI();
-                console.log("[applyParcelFilters] Parcel tab content refreshed.");
+                // `loadInitialParcelFilters` updates currentParcelFilters based on URL/session, which might not be what we want here.
+                // We only need to update the UI to reflect potentially new counts.
+                updateParcelFiltersUI();
             })
-            .catch(error => {
-                console.error('[applyParcelFilters] Fetch CATCH block. Error:', error.message, error);
-                if (tabContentContainer) {
-                    tabContentContainer.innerHTML = `<p class="text-center py-10 text-red-500">Error loading parcels: ${error.message}</p>`;
-                }
-            })
-            .finally(() => {
-                isFetchingParcels = false;
-                console.log(`[applyParcelFilters FINALLY BY ${caller}] Setting isFetchingParcels = false.`);
-            });
+            .catch(error => { if (parcelTableContainer) parcelTableContainer.innerHTML = '<p class="text-red-500">Error loading parcels.</p>';})
+            .finally(() => { isFetchingParcels = false; });
     }
+    const debouncedApplyParcelFilters = debounce(applyParcelFilters, 400);
+
+
+    // Removed the `bindParcelFilterControls` function. Event delegation is now used.
 
     function bindParcelPaginationButtons() {
         const currentTabContent = document.getElementById('operation-tab-content');
         if (!currentTabContent) return;
         const paginationControls = currentTabContent.querySelector('.parcel-pagination-controls');
-        if (!paginationControls) {
-            return;
-        }
+        if (!paginationControls) return;
 
         paginationControls.querySelectorAll('.parcel-page-btn').forEach(button => {
             if (button.dataset.pageListenerAttached === 'true') return;
@@ -1020,348 +913,494 @@ document.addEventListener('DOMContentLoaded', function() {
                 e.preventDefault();
                 const page = this.dataset.page;
                 if (page) {
-                    console.log(`[ParcelPagination] Page button clicked: ${page}`);
                     currentParcelFilters.page = page;
                     applyParcelFilters(false, `Parcel Page ${page} Click`);
                 }
             });
             button.dataset.pageListenerAttached = 'true';
         });
-        console.log("[bindParcelPaginationButtons] Parcel pagination buttons bound.");
+    }
+
+    function initializeViewEditParcelModalButtons() {
+        const tabContent = document.getElementById('operation-tab-content');
+        if (!tabContent) {
+            return;
+        }
+        if (!tabContent.dataset.parcelEditListenerAttached) {
+            tabContent.addEventListener('click', handleViewEditParcelButtonClick);
+            tabContent.dataset.parcelEditListenerAttached = 'true';
+        }
+    }
+
+    function handleViewEditParcelButtonClick(event) {
+        const button = event.target.closest('.view-edit-parcel-btn');
+        if (button) {
+            event.preventDefault();
+            const parcelPk = button.dataset.parcelPk;
+            if (parcelPk) {
+                openViewEditParcelModal(parcelPk);
+            }
+        }
     }
 
 
-    function loadInitialParcelFilters(urlParams) {
-        currentParcelFilters.parcel_warehouse = urlParams.get('parcel_warehouse') || "";
-        currentParcelFilters.parcel_courier = urlParams.get('parcel_courier') || "";
-        currentParcelFilters.parcel_q = urlParams.get('parcel_q') || "";
-        currentParcelFilters.page = urlParams.get('page') || '1';
-        console.log("[loadInitialParcelFilters] Initialized currentParcelFilters:", JSON.parse(JSON.stringify(currentParcelFilters)));
-        updateParcelFilterControlsUI();
+    function openViewEditParcelModal(parcelPk) {
+        const modalContentArea = document.getElementById('view-edit-parcel-modal-content-area');
+        const modalToggle = document.getElementById('view-edit-parcel-modal-toggle');
+        const modalTitle = document.getElementById('view-edit-parcel-modal-title');
+
+        if (!modalContentArea || !modalToggle || !modalTitle) {
+            console.error("Modal elements not found");
+            return;
+        }
+
+        modalTitle.textContent = `View/Edit Parcel Details (ID: ${parcelPk})`;
+        modalContentArea.innerHTML = '<div class="flex justify-center items-center h-32"><span class="loading loading-dots loading-lg"></span><p class="ml-2">Loading parcel details...</p></div>';
+        if(modalToggle) modalToggle.checked = true;
+
+        let packagingTypeSelect, lengthInput, widthInput, heightInput;
+        let dimensionalWeightResultSpan, dimensionalWeightHiddenInput;
+        let allPackagingData = [];
+
+        function _getElements() {
+            const parcelEditForm = modalContentArea.querySelector('#view-edit-parcel-detail-form');
+            if (!parcelEditForm) return false;
+
+            packagingTypeSelect = parcelEditForm.querySelector('#id_packaging_type');
+            lengthInput = parcelEditForm.querySelector('#id_parcel_length_form');
+            widthInput = parcelEditForm.querySelector('#id_parcel_width_form');
+            heightInput = parcelEditForm.querySelector('#id_parcel_height_form');
+            dimensionalWeightResultSpan = parcelEditForm.querySelector('#dimensional-weight-result');
+            dimensionalWeightHiddenInput = parcelEditForm.querySelector('#id_dimensional_weight_kg');
+
+            return true;
+        }
+
+        function calculateAndDisplayDimWeight() {
+            if (!_getElements()) return;
+
+            const length = parseFloat(lengthInput ? lengthInput.value : 0) || 0;
+            const width = parseFloat(widthInput ? widthInput.value : 0) || 0;
+            const height = parseFloat(heightInput ? heightInput.value : 0) || 0;
+
+            if (dimensionalWeightResultSpan) {
+                if (length > 0 && width > 0 && height > 0) {
+                    const dimWeight = (length * width * height) / 5000;
+                    dimensionalWeightResultSpan.textContent = `${dimWeight.toFixed(2)} kg`;
+                    if (dimensionalWeightHiddenInput) {
+                        dimensionalWeightHiddenInput.value = dimWeight.toFixed(2);
+                    }
+                } else {
+                    dimensionalWeightResultSpan.textContent = '0.00 kg';
+                    if (dimensionalWeightHiddenInput) {
+                        dimensionalWeightHiddenInput.value = '';
+                    }
+                }
+            }
+        }
+
+
+        fetch(`/operation/parcel/${parcelPk}/get-details-for-editing/`)
+            .then(response => {
+                if (!response.ok) throw new Error(`Failed to fetch parcel details. Status: ${response.status}`);
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    modalContentArea.innerHTML = data.form_html;
+
+                    const usdInput = document.getElementById('id_declared_value_usd');
+                    const myrInput = document.getElementById('id_declared_value_myr');
+
+                    if (usdInput && myrInput) {
+                        const updateMyrValue = () => {
+                            const usdValue = parseFloat(usdInput.value) || 0;
+                            const myrValue = usdValue * 4.3;
+                            myrInput.value = myrValue.toFixed(2);
+                        };
+
+                        // Listen for changes to the USD input
+                        usdInput.addEventListener('input', updateMyrValue);
+
+                        // Run once on load to set the initial value
+                        updateMyrValue();
+                    }
+
+                    allPackagingData = data.available_packaging || [];
+
+                    if (_getElements()) {
+                        if (data.parcel_data && data.parcel_data.parcel_code_system) {
+                            modalTitle.textContent = `View/Edit Parcel: ${data.parcel_data.parcel_code_system}`;
+                        }
+                        const parcelEditForm = modalContentArea.querySelector('#view-edit-parcel-detail-form');
+                        if (parcelEditForm) {
+                            parcelEditForm.addEventListener('submit', (e) => handleParcelCustomsFormSubmit(e, parcelPk));
+
+                            if (packagingTypeSelect) {
+                                packagingTypeSelect.addEventListener('change', applyPackagingDefaults);
+                            }
+
+                            [lengthInput, widthInput, heightInput].forEach(input => {
+                                if (input) {
+                                    input.addEventListener('input', calculateAndDisplayDimWeight);
+                                }
+                            });
+                            calculateAndDisplayDimWeight();
+                        }
+                    } else {
+                        console.error("Could not find form elements after loading HTML.");
+                    }
+                } else {
+                    modalContentArea.innerHTML = `<p class="text-red-500 text-center p-4">Error: ${data.message || 'Could not load details.'}</p>`;
+                }
+            })
+            .catch(error => {
+                console.error("Fetch error:", error);
+                modalContentArea.innerHTML = `<p class="text-red-500 text-center p-4">Error fetching details: ${error.message}</p>`;
+            });
+    }
+
+
+
+
+    function handleParcelCustomsFormSubmit(event, parcelPk) {
+        event.preventDefault();
+        const form = event.target;
+        const formData = new FormData(form);
+        const saveButton = form.querySelector('button[type="submit"]');
+        const originalButtonText = saveButton ? saveButton.textContent : 'Save Customs Details';
+
+        if (saveButton) {
+            saveButton.disabled = true;
+            saveButton.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Saving...';
+        }
+
+        fetch(`/operation/parcel/${parcelPk}/update-customs-details/`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire({ toast: true, icon: 'success', title: data.message || 'Parcel details updated!', position: 'top-end', showConfirmButton: false, timer: 2500 });
+                } else {
+                    alert(data.message || 'Parcel details updated!');
+                }
+                const modalToggle = document.getElementById('view-edit-parcel-modal-toggle');
+                if (modalToggle) modalToggle.checked = false;
+
+                if (typeof applyParcelFilters === "function") {
+                     applyParcelFilters(false, "Parcel Edit Success");
+                } else {
+                    const currentTab = getCurrentTabNameFromUrl();
+                    if (typeof loadTabContent === "function" && currentTab === DEFAULT_PARCELS_TAB) {
+                        const paramsForTarget = loadTabFiltersFromSession(DEFAULT_PARCELS_TAB);
+                        paramsForTarget.set("tab", DEFAULT_PARCELS_TAB);
+                        loadTabContent(`${currentBaseUrl}?${paramsForTarget.toString()}`, false);
+                    }
+                }
+            } else {
+                let errorMsg = data.message || 'Update failed.';
+                if (data.errors) {
+                    let errorsHtml = '<ul class="text-left list-disc list-inside">';
+                    if (data.errors.parcel_form) {
+                        try {
+                            const pFormErrors = JSON.parse(data.errors.parcel_form);
+                            for (const field in pFormErrors) {
+                                errorsHtml += `<li><strong>Parcel - ${field.replace(/_/g, " ")}:</strong> ${pFormErrors[field].join(', ')}</li>`;
+                            }
+                        } catch(e) { errorsHtml += `<li>Parcel form errors exist (could not parse details).</li>`;}
+                    }
+                    if (data.errors.item_formset && Array.isArray(data.errors.item_formset)) {
+                         data.errors.item_formset.forEach((form_err_json, idx) => {
+                             if(form_err_json){
+                                try {
+                                    const err = JSON.parse(form_err_json);
+                                    for(const field in err){
+                                        errorsHtml += `<li><strong>Item ${idx+1} - ${field.replace(/_/g, " ")}:</strong> ${err[field].join(', ')}</li>`;
+                                    }
+                                } catch(e){ errorsHtml += `<li>Item ${idx+1} had errors (could not parse details).</li>`;}
+                             }
+                         });
+                    }
+                    if(data.errors.item_formset_non_form && data.errors.item_formset_non_form.length > 0) {
+                        errorsHtml += `<li><strong>General Item Errors:</strong> ${data.errors.item_formset_non_form.join(', ')}</li>`;
+                    }
+                    errorsHtml += '</ul>';
+                    if (errorsHtml !== '<ul class="text-left list-disc list-inside"></ul>') errorMsg = errorsHtml;
+                }
+                 if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Update Failed', html: errorMsg });
+                else alert(data.message || 'Update failed. Check console for details.');
+            }
+        })
+        .catch(error => {
+            if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: `Could not submit form: ${error.message}` });
+            else alert(`Network error: ${error.message}`);
+        })
+        .finally(() => {
+            if (saveButton) {
+                saveButton.disabled = false;
+                saveButton.innerHTML = originalButtonText;
+            }
+        });
     }
 
     function highlightActiveTab(activeTabName) {
         mainPageTabs.forEach(tabLink => {
             const tabLinkName = tabLink.dataset.tab;
-            const activeClasses = ['tab-active', 'bg-blue-500', 'text-white'];
-            const inactiveClasses = ['bg-gray-200', 'text-gray-700', 'hover:bg-gray-300'];
+            const isActive = tabLinkName === activeTabName;
+            tabLink.classList.toggle('tab-active', isActive);
+            tabLink.classList.toggle('bg-blue-500', isActive);
+            tabLink.classList.toggle('text-white', isActive);
+            tabLink.classList.toggle('bg-gray-200', !isActive);
+            tabLink.classList.toggle('text-gray-700', !isActive);
+            tabLink.classList.toggle('hover:bg-gray-300', !isActive);
+        });
+    }
 
-            if (tabLinkName === activeTabName) {
-                tabLink.classList.remove(...inactiveClasses);
-                tabLink.classList.add(...activeClasses);
-            } else {
-                tabLink.classList.remove(...activeClasses);
-                tabLink.classList.add(...inactiveClasses);
+    function initializeCustomerShipmentsModal() {
+        const tabContent = document.getElementById('operation-tab-content');
+        if (!tabContent) return;
+
+        if (tabContent.dataset.customerShipmentsListenerAttached === 'true') return;
+
+        tabContent.addEventListener('click', function(event) {
+            const button = event.target.closest('.show-customer-shipments-btn');
+            if (!button) return;
+
+            event.preventDefault();
+
+            // --- START: Corrected JavaScript Logic ---
+            const url = button.dataset.url; // <-- Get the correct URL from the link
+            const modalToggle = document.getElementById('customer-shipments-modal-toggle');
+            const modalContent = document.getElementById('customer-shipments-modal-content');
+
+            if (!url || !modalToggle || !modalContent) {
+                console.error('Modal element or data-url attribute not found.');
+                return;
+            }
+
+            modalContent.innerHTML = '<p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>';
+            modalToggle.checked = true;
+
+            // Fetch the content from the correct URL
+            fetch(url)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to load shipment history.');
+                    return response.text();
+                })
+                .then(html => {
+                    modalContent.innerHTML = html;
+                })
+                .catch(error => {
+                    modalContent.innerHTML = `<p class="text-red-500 text-center py-8">${error.message}</p>`;
+                    console.error('Error fetching customer shipments modal:', error);
+                });
+            // --- END: Corrected JavaScript Logic ---
+        });
+        tabContent.dataset.customerShipmentsListenerAttached = 'true';
+    }
+
+
+
+
+    function loadTabContent(url, isTabClick = false, isInitialLoad = false) { /* ... same as before (main logic) ... */
+        const urlObj = new URL(url, window.location.origin); const tabName = urlObj.searchParams.get('tab') || DEFAULT_ORDER_MGMT_TAB;
+        if (tabContainer) tabContainer.innerHTML = '<div class="text-center py-20"><span class="loading loading-ball loading-lg"></span></div>'; else return;
+        // For loadTabContent, we ensure 'fetch_parcel_list_only' is NOT sent, so server returns full parcels_table.html
+        urlObj.searchParams.delete('fetch_parcel_list_only');
+        const finalFetchUrl = urlObj.toString();
+
+        fetch(finalFetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'HX-Request': 'true' }})
+            .then(response => { if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                const totalCO = response.headers.get('X-Total-Orders-Count'), totalP = response.headers.get('X-Total-Parcels-Count'), hxT = response.headers.get('HX-Trigger-After-Swap');
+                return response.text().then(html => ({html, totalCO, totalP, hxT }));
+            })
+            .then(({html, totalCO, totalP, hxT}) => {
+                if (tabContainer) tabContainer.innerHTML = html; highlightActiveTab(tabName);
+                if (isTabClick || isInitialLoad) history.pushState({path: finalFetchUrl, tab: tabName}, '', finalFetchUrl);
+                if (tabName === DEFAULT_CUSTOMER_ORDERS_TAB) { if(totalCO!==null)currentCustomerOrderFilters.total_orders_count=totalCO; const lmc=document.getElementById('load-more-customer-orders-container'); if(lmc)lmc.style.display=(hxT==='loadMoreCustomerOrdersAvailable')?'':'none'; loadInitialCustomerOrderFilters(urlObj.searchParams); bindCustomerOrderFilterControls(); initLoadMoreCustomerOrders(); }
+                else if (tabName === DEFAULT_PARCELS_TAB) { if(totalP!==null)currentParcelFilters.total_parcels_count=totalP; loadInitialParcelFilters(urlObj.searchParams); /* bindParcelFilterControls() removed - handled by delegation */ bindParcelPaginationButtons(); initializeViewEditParcelModalButtons(); }
+                initializePackOrderButtons(); initializeEditOrderButtons(); initializeCustomerShipmentsModal();
+                if(isInitialLoad) saveTabFiltersToSession(tabName, tabName===DEFAULT_CUSTOMER_ORDERS_TAB ? currentCustomerOrderFilters : currentParcelFilters);
+            }).catch(error => { if (tabContainer) tabContainer.innerHTML = `<p class="text-red-500">Error loading ${tabName}: ${error.message}</p>`;});
+    }
+
+    // Event delegation for Parcel Filters (attached ONCE to tabContainer)
+    if (tabContainer && !tabContainer.dataset.parcelFilterDelegationAttached) { /* ... same as before ... */
+        tabContainer.addEventListener('click', function(event) {
+            const target = event.target.closest('button');
+            if (!target || !target.closest('.parcel-filters') || getCurrentTabNameFromUrl() !== DEFAULT_PARCELS_TAB) return;
+            let filtersChanged = false;
+            if (target.classList.contains('parcel-warehouse-filter-btn')) { currentParcelFilters.parcel_warehouse = target.dataset.value; filtersChanged = true; }
+            else if (target.classList.contains('parcel-courier-filter-btn')) { currentParcelFilters.parcel_courier = target.dataset.value; filtersChanged = true; }
+            else if (target.classList.contains('parcel-reset-filters-btn')) {
+                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_q: '' };
+                const searchInput = tabContainer.querySelector('.parcel-filters .parcel-dynamic-search-input');
+                if (searchInput) searchInput.value = ""; filtersChanged = true; sessionStorage.removeItem(`tabFilters_${DEFAULT_PARCELS_TAB}`);
+            }
+            if (filtersChanged) applyParcelFilters(true, "Parcel Delegated Button Click");
+        });
+        tabContainer.addEventListener('input', function(event) {
+            const searchInput = event.target.closest('.parcel-dynamic-search-input');
+            if (searchInput && searchInput.closest('.parcel-filters') && getCurrentTabNameFromUrl() === DEFAULT_PARCELS_TAB) {
+                currentParcelFilters.parcel_q = searchInput.value.trim(); debouncedApplyParcelFilters(true, "Parcel Delegated Search Input");
             }
         });
-         console.log(`[highlightActiveTab] Active tab set to: ${activeTabName}`);
+        tabContainer.dataset.parcelFilterDelegationAttached = 'true';
     }
 
-    function loadTabContent(tabUrl, pushState = true) {
-        if (!tabContainer) {
-            console.error("[loadTabContent] tabContainer is not defined!");
-            return;
-        }
-        tabContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
-
-        const fetchedUrlParams = new URLSearchParams(tabUrl.split('?')[1]);
-        const targetTabName = fetchedUrlParams.get('tab') || DEFAULT_ORDER_MGMT_TAB;
-
-        console.log(`[loadTabContent] Attempting to load tab content for: '${targetTabName}', URL: '${tabUrl}'`);
-
-        let isCurrentlyFetching = false;
-        if (targetTabName === DEFAULT_CUSTOMER_ORDERS_TAB) {
-            isCurrentlyFetching = isFetchingCustomerOrders;
-        } else if (targetTabName === DEFAULT_PARCELS_TAB) {
-            isCurrentlyFetching = isFetchingParcels;
-        }
-
-        if (isCurrentlyFetching) {
-            console.log(`[loadTabContent] Already fetching for tab '${targetTabName}', request to load new content ignored.`);
-            if (tabContainer.innerHTML.indexOf('loading-dots') === -1) {
-                 tabContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
-            }
-            return;
-        }
-
-        if (targetTabName === DEFAULT_CUSTOMER_ORDERS_TAB) isFetchingCustomerOrders = true;
-        else if (targetTabName === DEFAULT_PARCELS_TAB) isFetchingParcels = true;
-
-
-        fetch(tabUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-            .then(response => {
-                if (!response.ok) throw new Error(`HTTP error ${response.status} for ${tabUrl}`);
-                console.log(`[loadTabContent] Fetched response for '${targetTabName}', status: ${response.status}`);
-                return response.text();
-            })
-            .then(html => {
-                console.log(`[loadTabContent] Successfully fetched HTML for tab: '${targetTabName}'.`);
-                tabContainer.innerHTML = html;
-                if (pushState) {
-                    history.pushState({path: tabUrl, tab: targetTabName}, '', tabUrl);
-                }
-                highlightActiveTab(targetTabName);
-                console.log(`[loadTabContent] Initializing JS (sync) for tab: '${targetTabName}'`);
-
-                if (targetTabName === DEFAULT_CUSTOMER_ORDERS_TAB) {
-                    console.log("[loadTabContent] -> Initializing Customer Orders tab JS.");
-                    loadInitialCustomerOrderFilters(fetchedUrlParams);
-                    bindCustomerOrderFilterControls();
-                    initializePackOrderButtons();
-                    initializeEditOrderButtons();
-                    initLoadMoreCustomerOrders();
-                } else if (targetTabName === DEFAULT_PARCELS_TAB) {
-                    console.log("[loadTabContent] -> Initializing Parcels Detail tab JS.");
-                    loadInitialParcelFilters(fetchedUrlParams);
-                    bindParcelFilterControls();
-                    bindParcelPaginationButtons();
-                    console.log("[loadTabContent] -> Parcel tab specific JS initializers CALLED.");
-                } else {
-                    console.warn(`[loadTabContent] Tab '${targetTabName}' did not match any known tab for JS initialization.`);
-                }
-            })
-            .catch(error => {
-                console.error(`[loadTabContent] Failed to load tab content for '${targetTabName}':`, error);
-                if (tabContainer) tabContainer.innerHTML = `<p class="text-red-500 text-center">Error loading content for ${targetTabName}. Please try again.</p>`;
-            })
-            .finally(() => {
-                if (targetTabName === DEFAULT_CUSTOMER_ORDERS_TAB) isFetchingCustomerOrders = false;
-                else if (targetTabName === DEFAULT_PARCELS_TAB) isFetchingParcels = false;
-                console.log(`[loadTabContent FINALLY] Fetching flag for '${targetTabName}' reset.`);
-            });
-    }
-
-    mainPageTabs.forEach(tab => {
+    mainPageTabs.forEach(tab => { /* ... same as before, ensuring fetch_parcel_list_only is removed from URL for full tab loads ... */
         if (tab.dataset.tabListenerAttached === 'true') return;
         tab.addEventListener("click", function (e) {
-            e.preventDefault();
-            const targetTabName = this.dataset.tab;
-            const currentActiveTab = getCurrentTabNameFromUrl();
-
-            console.log(`[Tab Click] Target: ${targetTabName}, Current: ${currentActiveTab}`);
-
+            e.preventDefault(); const targetTabName = this.dataset.tab; const currentActiveTab = getCurrentTabNameFromUrl();
             if (currentActiveTab && currentActiveTab !== targetTabName) {
                 let stateToSaveOnClick = {};
-                if (currentActiveTab === DEFAULT_CUSTOMER_ORDERS_TAB) {
-                    stateToSaveOnClick = currentCustomerOrderFilters;
-                } else if (currentActiveTab === DEFAULT_PARCELS_TAB) {
-                    stateToSaveOnClick = currentParcelFilters;
-                }
+                if (currentActiveTab === DEFAULT_CUSTOMER_ORDERS_TAB) stateToSaveOnClick = currentCustomerOrderFilters;
+                else if (currentActiveTab === DEFAULT_PARCELS_TAB) stateToSaveOnClick = currentParcelFilters;
                 saveTabFiltersToSession(currentActiveTab, stateToSaveOnClick);
-                console.log(`[Tab Switch] Saved filters for outgoing tab '${currentActiveTab}':`, JSON.parse(JSON.stringify(stateToSaveOnClick)));
             }
-
-            const paramsFromSessionForTargetTab = loadTabFiltersFromSession(targetTabName);
-            paramsFromSessionForTargetTab.set("tab", targetTabName);
-
-            const finalUrlForTargetTab = `${currentBaseUrl}?${paramsFromSessionForTargetTab.toString()}`;
-            console.log(`[Tab Switch] Navigating to tab '${targetTabName}' with URL (from session): ${finalUrlForTargetTab}`);
-
-            loadTabContent(finalUrlForTargetTab, true);
+            const paramsForTarget = loadTabFiltersFromSession(targetTabName);
+            paramsForTarget.set("tab", targetTabName);
+            if((ORDER_MGMT_TAB_SPECIFIC_PARAMS[targetTabName]||[]).includes('page')&&!paramsForTarget.has('page'))paramsForTarget.set('page','1');
+            paramsForTarget.delete('fetch_parcel_list_only'); // Ensure full tab load
+            loadTabContent(`${currentBaseUrl}?${paramsForTarget.toString()}`, true);
         });
         tab.dataset.tabListenerAttached = 'true';
     });
 
-    window.onpopstate = function(event) {
-        let poppedUrl;
-        if (event.state && event.state.path) {
-            poppedUrl = event.state.path;
-        } else {
-            const params = new URLSearchParams(window.location.search);
-            const currentTabFromUrl = params.get('tab') || DEFAULT_ORDER_MGMT_TAB;
-            params.set('tab', currentTabFromUrl);
-            poppedUrl = `${currentBaseUrl}?${params.toString()}`;
-        }
-        console.log("[onpopstate] Popped URL:", poppedUrl);
-        loadTabContent(poppedUrl, false);
+    window.onpopstate = function(event) { /* ... same as before, ensuring fetch_parcel_list_only is removed ... */
+        let poppedUrl = (event.state && event.state.path) ? event.state.path : `${currentBaseUrl}?tab=${DEFAULT_ORDER_MGMT_TAB}`;
+        const urlParams = new URLSearchParams(poppedUrl.split('?')[1] || '');
+        urlParams.delete('fetch_parcel_list_only');
+        loadTabContent(`${currentBaseUrl}?${urlParams.toString()}`, false);
     };
 
-    const initialUrlParamsOnLoad = new URLSearchParams(window.location.search);
-    let initialTabNameOnLoad = initialUrlParamsOnLoad.get('tab') || DEFAULT_ORDER_MGMT_TAB;
-
-    if (!initialUrlParamsOnLoad.has('tab')) {
-        initialUrlParamsOnLoad.set('tab', initialTabNameOnLoad);
+    // Initial page load logic: Ensure 'fetch_parcel_list_only' is not part of the initial URL.
+    const initialUrlParamsCleaned = new URLSearchParams(window.location.search); /* ... rest of initial load logic same as before, ensuring fetch_parcel_list_only is removed ... */
+    initialUrlParamsCleaned.delete('fetch_parcel_list_only');
+    let initialTab = initialUrlParamsCleaned.get('tab') || DEFAULT_ORDER_MGMT_TAB;
+    if (window.location.pathname.endsWith('/order_management_base/') && !initialUrlParamsCleaned.has('tab') && window.location.search.length <=1 ) {
+        clearAllTabFiltersFromSession(); initialTab = DEFAULT_ORDER_MGMT_TAB; const newParams = new URLSearchParams();
+        newParams.set('tab', initialTab); if((ORDER_MGMT_TAB_SPECIFIC_PARAMS[initialTab]||[]).includes('page'))newParams.set('page','1');
+        const freshLoadUrl = `${currentBaseUrl}?${newParams.toString()}`; history.replaceState({path:freshLoadUrl,tab:initialTab},'',freshLoadUrl); loadTabContent(freshLoadUrl,false,true);
+    } else {
+        const sessionP = loadTabFiltersFromSession(initialTab); const combinedP = new URLSearchParams(initialUrlParamsCleaned);
+        sessionP.forEach((v,k)=>{if(!combinedP.has(k))combinedP.set(k,v);}); if(!combinedP.has('tab'))combinedP.set('tab',initialTab);
+        if((ORDER_MGMT_TAB_SPECIFIC_PARAMS[initialTab]||[]).includes('page')&&!combinedP.has('page'))combinedP.set('page','1');
+        combinedP.delete('fetch_parcel_list_only');
+        const finalUrl = `${currentBaseUrl}?${combinedP.toString()}`; history.replaceState({path:finalUrl,tab:initialTab},'',finalUrl); loadTabContent(finalUrl,false,true);
     }
-
-    const paramsFromSessionForInitialTab = loadTabFiltersFromSession(initialTabNameOnLoad);
-    const finalParamsForInitialLoad = new URLSearchParams(initialUrlParamsOnLoad);
-
-    paramsFromSessionForInitialTab.forEach((value, key) => {
-        if (!finalParamsForInitialLoad.has(key)) {
-            finalParamsForInitialLoad.set(key, value);
-        }
-    });
-    finalParamsForInitialLoad.set('tab', initialTabNameOnLoad);
-
-    const finalInitialUrl = `${currentBaseUrl}?${finalParamsForInitialLoad.toString()}`;
-    console.log(`[Initial Load] Final URL for initial load: ${finalInitialUrl}`);
-    history.replaceState({path: finalInitialUrl, tab: initialTabNameOnLoad}, '', finalInitialUrl);
-    highlightActiveTab(initialTabNameOnLoad);
-
-    if (tabContainer) {
-        tabContainer.innerHTML = '<div class="text-center py-10"><span class="loading loading-dots loading-lg"></span></div>';
-    }
-
-    fetch(finalInitialUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }})
-        .then(response => {
-            if (!response.ok) throw new Error('Network response was not ok for initial tab content.');
-            const totalOrdersCountHeader = response.headers.get('X-Total-Orders-Count');
-            const totalParcelsCountHeader = response.headers.get('X-Total-Parcels-Count');
-            if (initialTabNameOnLoad === DEFAULT_CUSTOMER_ORDERS_TAB && totalOrdersCountHeader !== null) {
-                currentCustomerOrderFilters.total_orders_count = totalOrdersCountHeader;
-            } else if (initialTabNameOnLoad === DEFAULT_PARCELS_TAB && totalParcelsCountHeader !== null) {
-                currentParcelFilters.total_parcels_count = totalParcelsCountHeader;
-            }
-            return response.text();
-        })
-        .then(html => {
-            if (tabContainer) tabContainer.innerHTML = html;
-            requestAnimationFrame(() => {
-                const initialUrlParams = new URLSearchParams(finalInitialUrl.split('?')[1]);
-                const initialActiveTabName = initialUrlParams.get('tab') || DEFAULT_ORDER_MGMT_TAB;
-
-                console.log(`[DOMContentLoaded - rAF] Initializing JS. Determined initialActiveTabName: '${initialActiveTabName}'`);
-
-                if (initialActiveTabName === DEFAULT_CUSTOMER_ORDERS_TAB) {
-                    console.log("[DOMContentLoaded - rAF] Matched CUSTOMER_ORDERS_TAB for initial load. Initializing its JS.");
-                    loadInitialCustomerOrderFilters(initialUrlParams);
-                    bindCustomerOrderFilterControls();
-                    initializePackOrderButtons();
-                    initializeEditOrderButtons();
-                    initLoadMoreCustomerOrders();
-                } else if (initialActiveTabName === DEFAULT_PARCELS_TAB) {
-                    console.log("[DOMContentLoaded - rAF] Matched PARCELS_TAB for initial load. Initializing its JS.");
-                    loadInitialParcelFilters(initialUrlParams);
-                    bindParcelFilterControls();
-                    bindParcelPaginationButtons();
-                    console.log("[DOMContentLoaded - rAF] Parcel tab specific JS initializers called for initial load.");
-                } else {
-                     console.warn(`[DOMContentLoaded - rAF] Tab '${initialActiveTabName}' did not match any known tab for initial JS initialization.`);
-                }
-            });
-
-        })
-        .catch(error => {
-            console.error("Error loading initial tab content:", error);
-            if (tabContainer) tabContainer.innerHTML = `<p class="text-red-500 text-center">Error loading initial content: ${error.message}.</p>`;
-        });
 
     const importModalToggle = document.getElementById('import-orders-modal-toggle');
     const importFileInput = document.querySelector('.modal input[type="file"][name="excel_file"]');
     if (importModalToggle && importFileInput) {
-        const observer = new MutationObserver(function(mutationsList, observer) {
+        const observer = new MutationObserver((mutationsList) => {
             for (const mutation of mutationsList) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'checked') {
-                    if (!importModalToggle.checked) { importFileInput.value = ''; }
+                if (mutation.attributeName === 'checked' && !importModalToggle.checked) {
+                    importFileInput.value = '';
                 }
             }
         });
         observer.observe(importModalToggle, { attributes: true });
     }
 
-    const packModalToggle = document.getElementById('pack-order-modal-toggle');
-    const packForm = document.getElementById('pack-order-form');
-    // const packFormsetContainer = document.getElementById('pack-order-items-formset-container'); // Already declared above
-    // const packModalTitle = document.getElementById('pack-modal-title'); // Already declared above
-    // const packModalCustomer = document.getElementById('pack-modal-customer'); // Already declared above
-    // const orderPkHiddenInput = document.getElementById('order_pk_for_packing_modal_hidden_id'); // Already declared above
+    const packOrderModalContainer = document.getElementById('pack-order-modal-container');
+    if (packOrderModalContainer) {
+        packOrderModalContainer.addEventListener('click', function(e) {
+            const courierBtn = e.target.closest('.courier-btn');
+            const packagingBtn = e.target.closest('.packaging-btn');
 
-    const allPackagingButtonsContainer = document.querySelector('.modal-box #pack-order-form');
-    if (allPackagingButtonsContainer) {
-        allPackagingButtonsContainer.addEventListener('click', function(e) {
-            const clickedButton = e.target.closest('.packaging-btn');
-            if (clickedButton) {
+            if (courierBtn) {
                 e.preventDefault();
-                const selectedPackagingValue = clickedButton.dataset.packaging;
+                const selectedCourierId = courierBtn.dataset.courierId;
+                const hiddenCourierInput = document.getElementById('id_parcel-courier_id');
+                if (hiddenCourierInput) hiddenCourierInput.value = selectedCourierId;
+
+                document.querySelectorAll('#courier-selection-buttons .courier-btn').forEach(btn => {
+                    const isActive = btn === courierBtn && selectedCourierId !== "";
+                    btn.classList.toggle('btn-active', isActive);
+                    btn.classList.toggle('btn-neutral', isActive);
+                    btn.classList.toggle('btn-outline', !isActive);
+                });
+            }
+
+            if (packagingBtn) {
+                e.preventDefault();
+                const selectedPackaging = packagingBtn.dataset.packagingId;
                 const hiddenPackagingInput = document.getElementById('id_parcel-packaging_type');
+                if (hiddenPackagingInput) hiddenPackagingInput.value = selectedPackaging;
 
-                if (hiddenPackagingInput) {
-                    hiddenPackagingInput.value = selectedPackagingValue;
-                } else {
-                    console.error("[PackagingClick] Hidden input #id_parcel-packaging_type not found!");
-                    return;
-                }
                 document.querySelectorAll('.packaging-btn').forEach(btn => {
-                    if (btn === clickedButton && selectedPackagingValue !== "") {
-                        btn.classList.add('btn-active', 'btn-neutral');
-                        btn.classList.remove('btn-outline');
-                    } else {
-                        btn.classList.remove('btn-active', 'btn-neutral');
-                        btn.classList.add('btn-outline');
-                    }
+                    const isActive = btn === packagingBtn && selectedPackaging !== "";
+                    btn.classList.toggle('btn-active', isActive);
+                    btn.classList.toggle('btn-neutral', isActive);
+                    btn.classList.toggle('btn-outline', !isActive);
                 });
-            }
-        });
-    } else {
-        console.error("Common parent for packaging buttons not found in modal.");
-    }
-
-    const courierButtonsContainer = document.getElementById('courier-selection-buttons');
-    if (courierButtonsContainer) {
-        const hiddenCourierInput = document.getElementById('id_parcel-courier_name');
-        courierButtonsContainer.addEventListener('click', function(e) {
-            if (e.target.classList.contains('courier-btn')) {
-                e.preventDefault();
-                const selectedCourier = e.target.dataset.courier;
-
-                if (hiddenCourierInput) {
-                    hiddenCourierInput.value = selectedCourier;
-                }
-
-                courierButtonsContainer.querySelectorAll('.courier-btn').forEach(btn => {
-                    if (btn === e.target && selectedCourier !== "") {
-                        btn.classList.add('btn-active', 'btn-neutral');
-                        btn.classList.remove('btn-outline');
-                    } else {
-                        btn.classList.remove('btn-active', 'btn-neutral');
-                        btn.classList.add('btn-outline');
-                    }
-                });
-                if (selectedCourier === "") {
-                     if (hiddenCourierInput) hiddenCourierInput.value = "";
-                }
             }
         });
     }
 
+    const packForm = document.getElementById('pack-order-form');
     if (packForm) {
         packForm.addEventListener('submit', function(event) {
             event.preventDefault();
             const formData = new FormData(packForm);
             const saveBtn = packForm.querySelector('button[type="submit"]');
             const originalBtnText = saveBtn.innerHTML;
-            saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Processing...';
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Processing...';
 
             fetch(packForm.action, {
                 method: 'POST',
                 body: formData,
-                headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
+                headers: {
+                    'X-CSRFToken': formData.get('csrfmiddlewaretoken'),
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
             })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
                     if(typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Parcel created!', position: 'top-end', showConfirmButton: false, timer: 2500});
-                    else alert(data.message || 'Parcel created!');
+                    const packModalToggle = document.getElementById('pack-order-modal-toggle');
                     if(packModalToggle) packModalToggle.checked = false;
                     packForm.reset();
-                    const targetTabUrl = data.redirect_url || `${window.location.pathname}?tab={{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}`;
-                    if(typeof loadTabContent === "function") loadTabContent(targetTabUrl, true);
-                    else window.location.href = targetTabUrl;
+
+                    const currentTab = getCurrentTabNameFromUrl();
+                    const paramsForRefresh = loadTabFiltersFromSession(currentTab);
+                    paramsForRefresh.set('tab', currentTab);
+                     if ((ORDER_MGMT_TAB_SPECIFIC_PARAMS[currentTab] || []).includes('page') && !paramsForRefresh.has('page')){
+                         paramsForRefresh.set('page', '1');
+                     }
+
+                    if (typeof loadTabContent === "function") {
+                         loadTabContent(`${currentBaseUrl}?${paramsForRefresh.toString()}`, false);
+                    } else {
+                        window.location.reload();
+                    }
+
                 } else {
                     let errorMsg = data.message || 'Could not create parcel.';
-                    if (data.errors && typeof data.errors === 'object') {
-                        errorMsg += " Details: " + Object.entries(data.errors).map(([field, err]) => `${field.replace(/^parcel-/, '').replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; ');
+                    if (data.errors) {
+                        errorMsg += " Details: " + (typeof data.errors === 'string' ? data.errors : JSON.stringify(data.errors));
                     }
-                    if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Packing Failed', text: errorMsg, confirmButtonText: 'OK' });
+                    if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Packing Failed', text: errorMsg });
                     else alert(errorMsg);
                 }
             })
             .catch(error => {
-                console.error('Error submitting pack form:', error);
-                if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form. Please try again.'});
-                else alert('Network Error: Could not submit form. Please try again.');
+                if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit packing form.'});
+                else alert('Network error during packing.');
             })
-            .finally(() => { if(saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; } });
+            .finally(() => {
+                if(saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; }
+            });
         });
     }
 
@@ -1372,7 +1411,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const formData = new FormData(editOrderForm);
             const saveBtn = editOrderForm.querySelector('button[type="submit"]');
             const originalBtnText = saveBtn.innerHTML;
-            saveBtn.disabled = true; saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Processing...';
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<span class="loading loading-spinner"></span> Processing...';
 
             fetch(editOrderForm.action, {
                 method: 'POST',
@@ -1382,47 +1422,42 @@ document.addEventListener('DOMContentLoaded', function() {
                     'X-Requested-With': 'XMLHttpRequest'
                 }
             })
-            .then(response => response.json() )
+            .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    if(typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Order items updated!', position: 'top-end', showConfirmButton: false, timer: 2500});
-                    else alert(data.message || 'Order items updated!');
+                    if(typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Order updated!', position: 'top-end', showConfirmButton: false, timer: 2500});
                     const editModalToggle = document.getElementById('edit-order-modal-toggle');
                     if(editModalToggle) editModalToggle.checked = false;
                     editOrderForm.reset();
-                    const currentUrlParams = new URLSearchParams(window.location.search);
-                    const activeTab = currentUrlParams.get('tab') || DEFAULT_CUSTOMER_ORDERS_TAB;
+
+                    const activeTab = getCurrentTabNameFromUrl();
                     if (activeTab === DEFAULT_CUSTOMER_ORDERS_TAB && typeof applyCustomerOrderFilters === "function") {
                         applyCustomerOrderFilters(false, "EditForm Success");
-                    } else if (activeTab === DEFAULT_CUSTOMER_ORDERS_TAB) {
-                        loadTabContent(`${currentBaseUrl}?tab=${DEFAULT_CUSTOMER_ORDERS_TAB}`, true);
-                    } else {
-                        window.location.reload();
+                    } else if (activeTab === DEFAULT_CUSTOMER_ORDERS_TAB){
+                        const paramsForRefresh = loadTabFiltersFromSession(DEFAULT_CUSTOMER_ORDERS_TAB);
+                        paramsForRefresh.set('tab', DEFAULT_CUSTOMER_ORDERS_TAB);
+                        if (!paramsForRefresh.has('page')) paramsForRefresh.set('page', '1');
+                        loadTabContent(`${currentBaseUrl}?${paramsForRefresh.toString()}`, false);
                     }
                 }  else {
                     let errorMsg = data.message || 'Could not update order items.';
-                    if (data.errors && typeof data.errors === 'object') {
-                        errorMsg += " Details: " + Object.entries(data.errors).map(([field, errs]) => `${field}: ${errs.join(', ')}`).join('; ');
-                    } else if (data.formset_errors) {
-                         errorMsg += " Formset Errors: " + JSON.stringify(data.formset_errors);
+                    if (data.errors) {
+                        errorMsg += " Details: " + (typeof data.errors === 'string' ? data.errors : JSON.stringify(data.errors));
                     }
-                    if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Update Failed', text: errorMsg, confirmButtonText: 'OK' });
+                    if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Update Failed', text: errorMsg });
                     else alert(errorMsg);
                 }
             })
             .catch(error => {
-                console.error('[JS EditForm] Fetch Error:', error);
-                if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form. Check console. (' + error.message + ')'});
-                else alert('Network Error: Could not submit form. Check console. (' + error.message + ')');
+                if(typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit item removal form. (' + error.message + ')'});
+                else alert('Network error during item removal. (' + error.message + ')');
             })
             .finally(() => {
-                if(saveBtn) {
-                    saveBtn.disabled = false;
-                    saveBtn.innerHTML = originalBtnText;
-                }
+                if(saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; }
             });
         });
     }
+
 });
 </script>
 {% endblock %}

@@ -42,9 +42,6 @@ from .models import (Order,
 from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
 from warehouse.models import Warehouse, WarehouseProduct
 from inventory.services import get_suggested_batch_for_order_item
-from customers.utils import get_or_create_customer_from_import
-from customers.models import Customer
-
 
 logger = logging.getLogger(__name__)
 DEFAULT_CUSTOMER_ORDERS_TAB = "customer_orders"
@@ -82,7 +79,7 @@ def order_list_view(request):
         logger.debug(f"[CustomerOrdersTab] Filters: warehouse='{selected_warehouse_id}', status='{selected_status}', q='{query}', page='{page_number}'")
 
         orders_qs = Order.objects.select_related(
-            'warehouse', 'imported_by', 'customer'
+            'warehouse', 'imported_by'
         ).prefetch_related(
             Prefetch('items', queryset=OrderItem.objects.select_related('product', 'suggested_batch_item', 'warehouse_product').order_by('product__name')),
             # FIX: Added select_related('courier_company') to efficiently fetch the courier name.
@@ -107,13 +104,9 @@ def order_list_view(request):
             orders_qs = orders_qs.filter(status=selected_status)
         if query:
             orders_qs = orders_qs.filter(
-                Q(erp_order_id__icontains=query) |
-                Q(order_display_code__icontains=query) |
-                Q(customer__customer_name__icontains=query) |
-                Q(customer__company_name__icontains=query) |
-                Q(items__product__sku__icontains=query) |
-                Q(items__product__name__icontains=query) |
-                Q(parcels__parcel_code_system__icontains=query) |
+                Q(erp_order_id__icontains=query) | Q(customer_name__icontains=query) |
+                Q(order_display_code__icontains=query) | Q(items__product__sku__icontains=query) |
+                Q(items__product__name__icontains=query) | Q(parcels__parcel_code_system__icontains=query) |
                 Q(parcels__tracking_number__icontains=query)
             ).distinct()
 
@@ -133,26 +126,8 @@ def order_list_view(request):
         all_courier_companies_for_js = list(CourierCompany.objects.all().values('id', 'name', 'code'))
         context['all_courier_companies_json'] = json.dumps(all_courier_companies_for_js, cls=DjangoJSONEncoder)
 
-        # --- START: New logic to get total parcel counts for displayed customers ---
-        # 1. Get the unique customer IDs from the orders on the current page.
-        customer_ids_on_page = {order.customer.id for order in orders_page_obj.object_list if order.customer}
-
-        # 2. Run one efficient query to get the total parcel count for each of those customers.
-        parcel_counts = Customer.objects.filter(
-            id__in=customer_ids_on_page
-        ).annotate(
-            total_parcel_count=Count('orders__parcels')
-        )
-
-        # 3. Create a dictionary for easy lookup in the template.
-        customer_parcel_counts = {
-            customer.id: customer.total_parcel_count for customer in parcel_counts
-        }
-        # --- END: New logic ---
-
         context.update({
             'orders_page_obj': orders_page_obj,
-            'customer_parcel_counts': customer_parcel_counts,
             'total_orders_count': paginator.count,
             'selected_warehouse': selected_warehouse_id,
             'selected_status': selected_status,
@@ -173,8 +148,6 @@ def order_list_view(request):
             else:
                 response['HX-Trigger-After-Swap'] = 'loadMoreCustomerOrdersUnavailable'
             return response
-
-
 
     elif active_tab == DEFAULT_PARCELS_TAB:
         # Check for the specific parcel list fetch parameter for AJAX
@@ -530,28 +503,6 @@ def import_orders_from_excel(request):
                                 logger.warning(f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Unparseable order_date '{order_date_val}'.")
                                 # This order will be skipped by the `if not all(...)` check below if date is critical
 
-                            # --- START: New Customer Logic Integration ---
-                            # 1. Collect all customer info from the row
-                            customer_address_details = {
-                                'address_line1': get_current_row_value('address_line1', ''),
-                                'city': get_current_row_value('city', ''),
-                                'state': get_current_row_value('state', ''),
-                                'zip_code': get_current_row_value('zip_code', ''),
-                                'country': get_current_row_value('country', ''),
-                            }
-
-                            # 2. Find or create the customer record using the utility function
-                            customer_obj, created = get_or_create_customer_from_import(
-                                customer_name=get_current_row_value('customer_name', ''),
-                                company_name=get_current_row_value('company_name', ''),
-                                phone_number=get_current_row_value('phone', ''),
-                                address_info=customer_address_details,
-                                vat_number=get_current_row_value('vat_number', '')
-                            )
-                            if created:
-                                logger.info(f"Import created new customer: {customer_obj.customer_name} ({customer_obj.customer_id})")
-                            # --- END: New Customer Logic Integration ---
-
                         # Check if critical order-level details are present for a new order entry
                         if not all([order_date_for_this_entry, warehouse_name, customer_name]):
                             error_parts = []
@@ -567,11 +518,19 @@ def import_orders_from_excel(request):
                         # Store order details
                         orders_data[erp_order_id_to_use] = {
                             'order_details': {
-                                'customer_obj': customer_obj, # Store the actual object
-                                'erp_order_id': erp_order_id_to_use,
+                                'erp_order_id': str(erp_order_id_to_use), # Ensure string key
                                 'order_date': order_date_for_this_entry,
-                                'warehouse_name': get_current_row_value('warehouse_name'),
-                                'is_cold_chain': False,
+                                'warehouse_name': warehouse_name,
+                                'customer_name': customer_name,
+                                'company_name': get_current_row_value('company_name'),
+                                'recipient_address_line1': get_current_row_value('address_line1'),
+                                'recipient_address_city': get_current_row_value('city'),
+                                'recipient_address_state': get_current_row_value('state'),
+                                'recipient_address_zip': get_current_row_value('zip_code'),
+                                'recipient_address_country': get_current_row_value('country'),
+                                'recipient_phone': get_current_row_value('phone'),
+                                'vat_number': get_current_row_value('vat_number'),
+                                'is_cold_chain': False, # Initialize, will be updated by items
                                 'title_notes': get_current_row_value('title_notes'),
                                 'shipping_notes': get_current_row_value('shipping_notes'),
                             },
@@ -626,15 +585,13 @@ def import_orders_from_excel(request):
 
                         # Prepare fields for Order model instance, excluding those used for lookup or processed separately
                         order_field_defaults = {
-                            'customer': order_details_map['customer_obj'], # <-- Use the customer object
-                            'order_date': order_details_map['order_date'],
-                            'warehouse': warehouse,
-                            'is_cold_chain': order_details_map['is_cold_chain'],
-                            'title_notes': order_details_map['title_notes'],
-                            'shipping_notes': order_details_map['shipping_notes'],
-                            'status': 'NEW_ORDER',
-                            'imported_by': request.user if request.user.is_authenticated else None
+                            k: v for k, v in order_details_map.items()
+                            if k not in ['erp_order_id', 'warehouse_name'] and hasattr(Order, k)
                         }
+
+                        order_field_defaults['warehouse'] = warehouse
+                        order_field_defaults['status'] = 'NEW_ORDER' # Default status for new/updated orders
+                        order_field_defaults['imported_by'] = request.user if request.user.is_authenticated else None
 
                         # Ensure erp_order_id is a string for consistency
                         current_order_erp_id_str = str(order_details_map['erp_order_id'])
@@ -841,13 +798,11 @@ def get_order_items_for_packing(request, order_pk):
             for c in active_couriers
         ]
 
-        customer_name_display = order.customer.customer_name if order.customer else "N/A"
-
         return JsonResponse({
             'success': True,
             'order_id': order.pk,
             'erp_order_id': order.erp_order_id,
-            'customer_name': customer_name_display,
+            'customer_name': order.customer_name,
             'formset_html': formset_html_content,
             'message': message_for_modal,
             'shipping_notes_for_parcel': order.shipping_notes or '',
@@ -1172,7 +1127,7 @@ def get_order_items_for_editing(request, order_pk):
         'success': True,
         'order_id': order.pk,
         'erp_order_id': order.erp_order_id,
-        'customer_name': order.customer.customer_name,
+        'customer_name': order.customer_name,
         'formset_html': formset_html_content,
         'removed_items_log': removed_items_log_display, # Send the log
         'message': 'Items loaded for editing/removal.'
@@ -1318,48 +1273,51 @@ def process_order_item_removal(request, order_pk):
 def get_parcel_details_for_editing(request, parcel_pk):
     """
     Gets all data needed to populate the 'View/Edit Parcel' modal.
-    This version is updated to use the new customers.Customer model.
+    Now includes a filtered list of customs declarations.
     """
-    # --- UPDATED: Added 'order__customer' to select_related for efficiency ---
     parcel = get_object_or_404(
         Parcel.objects.select_related(
-            'order__warehouse', 'order__customer', 'packaging_type',
-            'courier_company', 'customs_declaration'
-        ).prefetch_related(models.Prefetch('items_in_parcel', queryset=ParcelItem.objects.select_related('order_item__product'))),
+            'order__warehouse',
+            'packaging_type',
+            'courier_company'
+        ).prefetch_related(
+            models.Prefetch('items_in_parcel', queryset=ParcelItem.objects.select_related(
+                'order_item__product'
+            ).order_by('order_item__product__name'))
+        ),
         pk=parcel_pk
     )
 
     if not request.user.is_superuser and (not request.user.warehouse or parcel.order.warehouse != request.user.warehouse):
         return JsonResponse({'success': False, 'message': 'Permission denied.'}, status=403)
 
-    # --- Filtering logic for declarations remains the same and is correct ---
+    # --- NEW: Filter customs declarations ---
     courier_filter = Q(courier_companies__isnull=True)
     if parcel.courier_company:
         courier_filter |= Q(courier_companies=parcel.courier_company)
-    effective_env_type = None
-    if parcel.packaging_type and parcel.packaging_type.environment_type in ['COLD', 'AMBIENT']:
-        effective_env_type = parcel.packaging_type.environment_type
-    elif parcel.order.is_cold_chain:
-        effective_env_type = 'COLD'
-    else:
-        effective_env_type = 'AMBIENT'
+
     shipment_type_filter = Q()
-    if effective_env_type == 'COLD':
-        shipment_type_filter = Q(applies_to_cold_chain=True) | Q(applies_to_mix=True)
-    elif effective_env_type == 'AMBIENT':
-        shipment_type_filter = Q(applies_to_ambient=True) | Q(applies_to_mix=True)
-    declarations_queryset = CustomsDeclaration.objects.filter(courier_filter & shipment_type_filter).distinct().order_by('description')
+    if parcel.order.is_cold_chain:
+        shipment_type_filter = Q(applies_to_mix=True) | Q(applies_to_cold_chain=True)
+    else:
+        shipment_type_filter = Q(applies_to_mix=True) | Q(applies_to_ambient=True)
+
+    declarations_queryset = CustomsDeclaration.objects.filter(
+        courier_filter & shipment_type_filter
+    ).distinct().order_by('description')
+
+    # Also create a JSON version for our JavaScript helper
     declarations_json = list(declarations_queryset.values('pk', 'description', 'hs_code'))
 
-    # Instantiate forms
+    # Pass the queryset to the form
     parcel_form = ParcelCustomsDetailForm(instance=parcel, declarations_queryset=declarations_queryset)
     item_formset = ParcelItemCustomsDetailFormSet(instance=parcel, prefix='parcelitems')
 
-    # Prepare other data
     env_type = 'COLD' if parcel.order.is_cold_chain else 'AMBIENT'
-    available_packaging = list(PackagingType.objects.filter(environment_type=env_type, is_active=True).values('id', 'name', 'default_length_cm', 'default_width_cm', 'default_height_cm'))
+    available_packaging = list(PackagingType.objects.filter(
+        environment_type=env_type, is_active=True
+    ).values('id', 'name', 'default_length_cm', 'default_width_cm', 'default_height_cm'))
 
-    # --- THE FIX: Get customer info from the new 'order.customer' relationship ---
     parcel_data = {
         'parcel_code_system': parcel.parcel_code_system,
         'courier_name': parcel.courier_company.name if parcel.courier_company else "N/A",
@@ -1368,19 +1326,16 @@ def get_parcel_details_for_editing(request, parcel_pk):
         'packaging_type_display': parcel.get_packaging_type_display(),
         'created_at': parcel.created_at.strftime('%Y-%m-%d %H:%M') if parcel.created_at else "N/A",
         'shipped_at': parcel.shipped_at.strftime('%Y-%m-%d %H:%M') if parcel.shipped_at else "N/A",
-
-        # Correctly access customer data
-        'customer_name': parcel.order.customer.customer_name if parcel.order.customer else "N/A",
-        'company_name': parcel.order.customer.company_name if parcel.order.customer else "",
-        'recipient_address_line1': parcel.order.customer.address_line1 if parcel.order.customer else "",
-        'recipient_address_city': parcel.order.customer.city if parcel.order.customer else "",
-        'recipient_address_state': parcel.order.customer.state if parcel.order.customer else "",
-        'recipient_address_zip': parcel.order.customer.zip_code if parcel.order.customer else "",
-        'recipient_address_country': parcel.order.customer.country if parcel.order.customer else "",
-        'recipient_phone': parcel.order.customer.phone_number if parcel.order.customer else "",
+        'customer_name': parcel.order.customer_name,
+        'company_name': parcel.order.company_name,
+        'recipient_address_line1': parcel.order.recipient_address_line1,
+        'recipient_address_city': parcel.order.recipient_address_city,
+        'recipient_address_state': parcel.order.recipient_address_state,
+        'recipient_address_zip': parcel.order.recipient_address_zip,
+        'recipient_address_country': parcel.order.recipient_address_country,
+        'recipient_phone': parcel.order.recipient_phone,
     }
 
-    # Prepare context for rendering the template
     context = {
         'parcel': parcel,
         'parcel_form': parcel_form,
@@ -1391,30 +1346,24 @@ def get_parcel_details_for_editing(request, parcel_pk):
     }
     form_html = render_to_string('operation/partials/_parcel_edit_form_content.html', context, request=request)
 
-    # Return all data as a JSON response
     return JsonResponse({
         'success': True,
         'form_html': form_html,
         'parcel_data': parcel_data,
         'available_packaging': available_packaging,
-        'declarations_json': declarations_json,
+        'declarations_json': declarations_json, # Pass JSON data for the script
     })
-
-
 
 
 
 @login_required
 @transaction.atomic
 def update_parcel_customs_details(request, parcel_pk):
-    """
-    Handles the AJAX POST request from the parcel edit modal to save customs details.
-    This view now includes the corrected filtering logic for form validation.
-    """
     if request.method != 'POST':
         logger.warning(f"update_parcel_customs_details received non-POST request for parcel {parcel_pk}")
         return JsonResponse({'success': False, 'message': 'Invalid request method.'}, status=405)
 
+    # Use select_related to efficiently fetch related objects
     parcel = get_object_or_404(
         Parcel.objects.select_related('order__warehouse', 'courier_company', 'packaging_type'),
         pk=parcel_pk
@@ -1426,44 +1375,32 @@ def update_parcel_customs_details(request, parcel_pk):
         logger.warning(f"User {request.user.email} permission denied for parcel {parcel_pk}.")
         return JsonResponse({'success': False, 'message': 'Permission denied.'}, status=403)
 
-    # --- START: Corrected Filtering Logic ---
-    # This block must be here to ensure the form can validate the submitted data.
-    # It mirrors the logic used to display the options in the first place.
+    # --- START OF THE FIX ---
+    # Recreate the filtered queryset to be used for form validation.
+    # This must match the logic from your get_parcel_details_for_editing view.
     courier_filter = Q(courier_companies__isnull=True)
     if parcel.courier_company:
         courier_filter |= Q(courier_companies=parcel.courier_company)
 
-    # Step 1: Determine the single, effective environment type for the parcel.
-    effective_env_type = None
-    if parcel.packaging_type and parcel.packaging_type.environment_type in ['COLD', 'AMBIENT']:
-        effective_env_type = parcel.packaging_type.environment_type
-    elif parcel.order.is_cold_chain:
-        effective_env_type = 'COLD'
-    else:
-        effective_env_type = 'AMBIENT'
-
-    # Step 2: Build the filter based on the determined type.
     shipment_type_filter = Q()
-    if effective_env_type == 'COLD':
-        shipment_type_filter = Q(applies_to_cold_chain=True) | Q(applies_to_mix=True)
-    elif effective_env_type == 'AMBIENT':
-        shipment_type_filter = Q(applies_to_ambient=True) | Q(applies_to_mix=True)
+    if parcel.order.is_cold_chain:
+        shipment_type_filter = Q(applies_to_mix=True) | Q(applies_to_cold_chain=True)
+    else:
+        shipment_type_filter = Q(applies_to_mix=True) | Q(applies_to_ambient=True)
 
     valid_declarations_qs = CustomsDeclaration.objects.filter(
         courier_filter & shipment_type_filter
     ).distinct()
+    # --- END OF THE FIX ---
 
-    # --- END: Corrected Filtering Logic ---
-
-
-    # Pass the filtered queryset to the form for proper validation
+    # Pass the queryset to the form for proper validation
     parcel_form = ParcelCustomsDetailForm(request.POST, instance=parcel, declarations_queryset=valid_declarations_qs)
     item_formset = ParcelItemCustomsDetailFormSet(request.POST, instance=parcel, prefix='parcelitems')
 
     if parcel_form.is_valid() and item_formset.is_valid():
         logger.info(f"Forms are valid for parcel {parcel_pk}.")
 
-        # Your existing logic for saving the data is correct.
+        # The rest of your logic for saving and calculating dimensional weight is correct.
         updated_parcel = parcel_form.save(commit=False)
 
         length = parcel_form.cleaned_data.get('length')
@@ -1473,8 +1410,9 @@ def update_parcel_customs_details(request, parcel_pk):
         if length and width and height:
             try:
                 updated_parcel.dimensional_weight_kg = (Decimal(str(length)) * Decimal(str(width)) * Decimal(str(height))) / Decimal('5000')
+                logger.info(f"Calculated dimensional weight in view: {updated_parcel.dimensional_weight_kg} for parcel {parcel_pk}")
             except Exception as e:
-                logger.error(f"Error calculating dimensional weight for parcel {parcel_pk}: {e}")
+                logger.error(f"Error calculating dimensional weight in view for parcel {parcel_pk}: {e}")
                 updated_parcel.dimensional_weight_kg = None
         else:
             updated_parcel.dimensional_weight_kg = None
@@ -1490,6 +1428,7 @@ def update_parcel_customs_details(request, parcel_pk):
         errors = {}
         if parcel_form.errors:
             errors['parcel_form'] = parcel_form.errors.as_json()
+            logger.warning(f"Parcel form errors for parcel {parcel_pk}: {parcel_form.errors.as_json()}")
         if item_formset.errors:
             formset_errors_list = []
             for form_errors in item_formset.errors:
@@ -1497,10 +1436,16 @@ def update_parcel_customs_details(request, parcel_pk):
                     formset_errors_list.append(form_errors.as_json())
             if formset_errors_list:
                 errors['item_formset'] = formset_errors_list
+            logger.warning(f"Item formset errors for parcel {parcel_pk}: {item_formset.errors}")
         if item_formset.non_form_errors():
             errors['item_formset_non_form'] = item_formset.non_form_errors()
+            logger.warning(f"Item formset non-form errors for parcel {parcel_pk}: {item_formset.non_form_errors()}")
 
-        return JsonResponse({'success': False, 'message': "Validation failed. Please check the form details.", 'errors': errors}, status=400)
+        error_message = 'Please correct the errors in the form.'
+        if any(errors.values()):
+            error_message = "Validation failed. Please check the form details."
+
+        return JsonResponse({'success': False, 'message': error_message, 'errors': errors}, status=400)
 
 @login_required
 def manage_customs_declarations(request):
@@ -1791,24 +1736,3 @@ def edit_packaging_type(request, pk):
     # If someone tries to access this URL with a GET request, just redirect them
     # as the form is now loaded into the modal by a different view.
     return redirect('operation:packaging_management')
-
-
-
-
-@login_required
-def get_customer_shipment_history(request, customer_pk):
-    """
-    Fetches all parcels for a specific customer to display in a modal.
-    """
-    customer = get_object_or_404(Customer, pk=customer_pk)
-
-    # Get all parcels for this customer, across all their orders
-    parcels = Parcel.objects.filter(order__customer=customer).select_related(
-        'order', 'courier_company'
-    ).order_by('-created_at')
-
-    context = {
-        'customer': customer,
-        'parcels': parcels,
-    }
-    return render(request, 'operation/partials/_customer_shipments_modal_content.html', context)

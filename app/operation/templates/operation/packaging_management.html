@@ -1,0 +1,254 @@
+{% extends 'base.html' %}
+{% load static %}
+{% load i18n %}
+
+{% block page_title %}{{ page_title|default:"Packaging Management" }}{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-8">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
+        <div class="flex items-center gap-2">
+            <label for="add-type-modal" class="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-300">Add Packaging Type</label>
+            <label for="add-material-modal" class="btn btn-sm bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-300">Add Packaging Material</label>
+        </div>
+    </div>
+
+
+    <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+
+        <div class="lg:col-span-3">
+            <div class="card bg-base-100 shadow-xl h-full">
+                <div class="card-body">
+                    <h2 class="card-title text-xl mb-4">Existing Packaging Types</h2>
+                    <div class="overflow-x-auto">
+                        <table class="table w-full">
+                            <thead>
+                                <tr>
+                                    <th>Name & Code</th>
+                                    <th>Environment</th>
+                                    <th class="w-1/3">Materials Used</th>
+                                    <th>Active</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for data in packaging_types_data %}
+                                <tr>
+                                    <td>
+                                        <div>{{ data.instance.name }}</div>
+                                        <div class="text-xs text-gray-500">{{ data.instance.type_code }}</div>
+                                    </td>
+                                    <td>{{ data.instance.get_environment_type_display }}</td>
+                                    <td>
+                                        {% if data.components %}
+                                            <ul class="list-disc list-inside text-xs space-y-1">
+                                            {% for component in data.components %}
+                                                <li>{{ component.quantity }} x {{ component.packaging_material.name }}</li>
+                                            {% endfor %}
+                                            </ul>
+                                        {% else %}
+                                            <span class="text-xs text-gray-500 italic">None</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if data.instance.is_active %}
+                                        <span class="badge badge-neutral text-white">Yes</span>
+                                        {% else %}
+                                        <span class="badge badge-error text-white">No</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 w-full mt-1 edit-packaging-type-btn"
+                                                data-packaging-type='{{ data.packaging_type_json|safe }}'
+                                                data-all-materials='{{ all_materials_json|safe }}'
+                                                data-component-map='{{ data.component_map_json|safe }}'>
+                                            Edit
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="5" class="text-center">No packaging types found.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="lg:col-span-2">
+            <div class="card bg-base-100 shadow-xl h-full">
+                <div class="card-body">
+                    <h2 class="card-title text-xl mb-4">Existing Packaging Materials</h2>
+                    <div class="overflow-x-auto">
+                        <table class="table w-full">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Code</th>
+                                    <th>Stock</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for pm in packaging_materials %}
+                                <tr>
+                                    <td>{{ pm.name }}</td>
+                                    <td>{{ pm.material_code }}</td>
+                                    <td>{{ pm.current_stock|floatformat:"-2" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="3" class="text-center">No packaging materials found.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# --- Modals --- #}
+<input type="checkbox" id="add-type-modal" class="modal-toggle" />
+<div class="modal" role="dialog">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg mb-4">Add New Packaging Type</h3>
+    <form method="post" action="{% url 'operation:packaging_management' %}">
+        {% csrf_token %}
+        {{ packaging_type_form.as_p }}
+        <div class="modal-action mt-6">
+            <label for="add-type-modal" class="btn btn-ghost">Cancel</label>
+            <button type="submit" name="submit_packaging_type" class="btn btn-primary">Save</button>
+        </div>
+    </form>
+  </div>
+  <label class="modal-backdrop" for="add-type-modal">Close</label>
+</div>
+
+<input type="checkbox" id="add-material-modal" class="modal-toggle" />
+<div class="modal" role="dialog">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg mb-4">Add New Packaging Material</h3>
+        <form method="post" action="{% url 'operation:packaging_management' %}">
+            {% csrf_token %}
+            {{ packaging_material_form.as_p }}
+            <div class="modal-action mt-6">
+                <label for="add-material-modal" class="btn btn-ghost">Cancel</label>
+                <button type="submit" name="submit_packaging_material" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+    <label class="modal-backdrop" for="add-material-modal">Close</label>
+</div>
+
+<input type="checkbox" id="edit-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog">
+    <div id="edit-modal-content" class="modal-box">
+        </div>
+    <label class="modal-backdrop" for="edit-modal-toggle">Close</label>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const editModalToggle = document.getElementById('edit-modal-toggle');
+    const editModalContent = document.getElementById('edit-modal-content');
+    const csrfTokenValue = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    document.querySelectorAll('.edit-packaging-type-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            editModalContent.innerHTML = '';
+
+            const packagingType = JSON.parse(this.dataset.packagingType);
+            const allMaterials = JSON.parse(this.dataset.allMaterials);
+            const componentMap = JSON.parse(this.dataset.componentMap);
+
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = `/operation/packaging/edit/${packagingType.pk}/`;
+
+            let formHTML = `
+                <input type="hidden" name="csrfmiddlewaretoken" value="${csrfTokenValue}">
+
+                <h3 class="font-bold text-lg">Edit: ${packagingType.name}</h3>
+                <p class="py-4">Update the details for this packaging type.</p>
+
+                <div class="form-control w-full mb-3">
+                    <label class="label"><span class="label-text">Name</span></label>
+                    <input type="text" name="name" value="${packagingType.name}" class="input input-bordered w-full" required>
+                </div>
+
+                <div class="form-control w-full mb-3">
+                    <label class="label"><span class="label-text">Type Code</span></label>
+                    <input type="text" name="type_code" value="${packagingType.type_code}" class="input input-bordered w-full">
+                </div>
+
+                <div class="form-control w-full mb-3">
+                    <label class="label"><span class="label-text">Environment Type</span></label>
+                    <select name="environment_type" class="select select-bordered w-full">
+                        <option value="AMBIENT" ${packagingType.environment_type === 'AMBIENT' ? 'selected' : ''}>Ambient</option>
+                        <option value="COLD" ${packagingType.environment_type === 'COLD' ? 'selected' : ''}>Cold Chain</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text">Length (cm)</span></label>
+                        <input type="number" step="0.01" name="default_length_cm" value="${packagingType.default_length_cm}" class="input input-bordered w-full">
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text">Width (cm)</span></label>
+                        <input type="number" step="0.01" name="default_width_cm" value="${packagingType.default_width_cm}" class="input input-bordered w-full">
+                    </div>
+                    <div class="form-control w-full">
+                        <label class="label"><span class="label-text">Height (cm)</span></label>
+                        <input type="number" step="0.01" name="default_height_cm" value="${packagingType.default_height_cm}" class="input input-bordered w-full">
+                    </div>
+                </div>
+
+                <div class="form-control w-full my-3 items-start">
+                    <label class="label cursor-pointer">
+                        <span class="label-text mr-4">Is Active</span>
+                        <input type="checkbox" name="is_active" value="on" class="toggle toggle-primary" ${packagingType.is_active ? 'checked' : ''}>
+                    </label>
+                </div>
+
+                <h4 class="font-semibold mt-6 mb-2">Materials & Quantities</h4>
+                <div class="max-h-60 overflow-y-auto p-2 border rounded-md">
+            `;
+
+            allMaterials.forEach(material => {
+                const currentQuantity = componentMap[material.pk] || '';
+                formHTML += `
+                    <div class="form-control flex-row items-center gap-4 mb-2">
+                        <label class="label cursor-pointer flex-grow">
+                            <span class="label-text">${material.name}</span>
+                        </label>
+                        <input type="number"
+                               name="quantity_${material.pk}"
+                               value="${currentQuantity}"
+                               class="input input-bordered input-sm w-24"
+                               placeholder="Qty">
+                    </div>
+                `;
+            });
+
+            formHTML += `
+                </div>
+                <div class="modal-action mt-6">
+                  <label for="edit-modal-toggle" class="btn btn-ghost">Cancel</label>
+                  <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            `;
+
+            form.innerHTML = formHTML;
+            editModalContent.appendChild(form);
+            editModalToggle.checked = true;
+        });
+    });
+});
+</script>
+{% endblock %}
