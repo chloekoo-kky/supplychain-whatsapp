@@ -1,3 +1,5 @@
+# app/operation/views.py
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_POST # For delete view
@@ -28,7 +30,7 @@ from .forms import (
     ExcelImportForm, ParcelItemFormSet, InitialParcelItemFormSet,
     RemoveOrderItemForm, RemoveOrderItemFormSet,
     ParcelCustomsDetailForm, ParcelItemCustomsDetailFormSet, CustomsDeclarationForm,
-    PackagingTypeForm, PackagingMaterialForm, PackagingTypeMaterialComponentFormSet
+    PackagingTypeForm, PackagingMaterialForm, AirwayBillForm
 
 )
 from .models import (Order,
@@ -38,12 +40,15 @@ from .models import (Order,
                      CustomsDeclaration,
                      CourierCompany,
                      PackagingType,
-                     PackagingTypeMaterialComponent)
+                     PackagingTypeMaterialComponent,
+                     ParcelTrackingLog)
 from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
 from warehouse.models import Warehouse, WarehouseProduct
 from inventory.services import get_suggested_batch_for_order_item
 from customers.utils import get_or_create_customer_from_import
 from customers.models import Customer
+from .services import update_parcel_tracking_from_api
+
 
 
 logger = logging.getLogger(__name__)
@@ -205,6 +210,11 @@ def order_list_view(request):
                 parcels_qs = parcels_qs.none()
                 actual_selected_warehouse_id_for_query_and_ui = None
         context['warehouses'] = warehouses_for_parcel_filters_ui
+        selected_parcel_status = request.GET.get('parcel_status', None)
+
+        if selected_parcel_status:
+            # This now works for ANY status passed from the buttons
+            parcels_qs = parcels_qs.filter(status=selected_parcel_status)
 
         if user.is_superuser and actual_selected_warehouse_id_for_query_and_ui:
             parcels_qs = parcels_qs.filter(order__warehouse_id=actual_selected_warehouse_id_for_query_and_ui)
@@ -221,7 +231,7 @@ def order_list_view(request):
                 Q(parcel_code_system__icontains=parcel_query_param) |
                 Q(tracking_number__icontains=parcel_query_param) |
                 Q(order__erp_order_id__icontains=parcel_query_param) |
-                Q(order__customer_name__icontains=parcel_query_param) |
+                Q(order__customer__customer_name__icontains=parcel_query_param) |
                 Q(items_in_parcel__order_item__product__name__icontains=parcel_query_param) |
                 Q(items_in_parcel__order_item__product__sku__icontains=parcel_query_param) |
                 Q(items_in_parcel__shipped_from_batch__batch_number__icontains=parcel_query_param) |
@@ -1812,3 +1822,194 @@ def get_customer_shipment_history(request, customer_pk):
         'parcels': parcels,
     }
     return render(request, 'operation/partials/_customer_shipments_modal_content.html', context)
+
+
+@login_required
+def get_airway_bill_details(request, parcel_pk):
+    """
+    Fetches all necessary data to populate the Air Waybill modal.
+    """
+    parcel = get_object_or_404(
+        Parcel.objects.select_related(
+            'order__customer',
+            'order__warehouse',
+            'courier_company',
+            'customs_declaration'
+        ),
+        pk=parcel_pk
+    )
+
+    context = {
+        'parcel': parcel,
+        'form': AirwayBillForm(instance=parcel) # Pass an instance of the new form
+    }
+    return render(request, 'operation/partials/_airway_bill_modal_content.html', context)
+
+@require_POST # Ensures this view only accepts POST requests
+@login_required
+def save_airway_bill(request, parcel_pk):
+    """
+    Saves the Tracking ID and Estimated Cost from the Air Waybill modal.
+    Includes a resilient call to the background tracking task.
+    """
+    parcel = get_object_or_404(Parcel, pk=parcel_pk)
+    form = AirwayBillForm(request.POST, instance=parcel)
+
+    if form.is_valid():
+        updated_parcel = form.save()
+
+        # Check if we need to update status and trigger tracking
+        if updated_parcel.tracking_number and updated_parcel.status == 'READY_TO_SHIP':
+            updated_parcel.status = 'READY_TO_SHIP'
+            updated_parcel.shipped_at = timezone.now()
+            updated_parcel.save(update_fields=['status', 'shipped_at'])
+
+            # --- START: Make the background task call resilient ---
+            try:
+                # Attempt to schedule the background task to fetch tracking info
+                update_parcel_tracking_status.delay(updated_parcel.id)
+                logger.info(f"Successfully scheduled tracking update for parcel {updated_parcel.id}")
+            except Exception as e:
+                # If Celery isn't running or configured, this will prevent a server crash.
+                # It logs the error for the system admin and can optionally inform the user.
+                logger.error(
+                    f"Could not schedule Celery task for parcel {updated_parcel.id}. "
+                    f"Please check if the Celery worker is running. Error: {e}"
+                )
+                # You can add a Django message to inform the admin/user on the next page refresh.
+                messages.warning(request, "Parcel saved, but automatic tracking could not be initiated. Please check system services.")
+            # --- END: Make the background task call resilient ---
+
+        return JsonResponse({'success': True, 'message': 'Air Waybill details saved successfully.'})
+    else:
+        error_message = ". ".join([f"{field}: {error[0]}" for field, error in form.errors.items()])
+        return JsonResponse({'success': False, 'message': error_message or "Invalid data submitted."}, status=400)
+
+
+
+@login_required
+def get_parcel_tracking_history(request, parcel_pk):
+    """
+    Fetches the full tracking log for a parcel to display in a modal.
+    """
+    parcel = get_object_or_404(
+        Parcel.objects.prefetch_related('tracking_logs'),
+        pk=parcel_pk
+    )
+    # The tracking logs are already ordered by timestamp due to the model's Meta ordering
+    return render(request, 'operation/partials/_parcel_tracking_history_modal.html', {'parcel': parcel})
+
+# @login_required
+# def manual_trigger_tracking_update(request, parcel_pk):
+#     """
+#     A simple view to manually trigger the tracking update task for a given parcel.
+#     This is for testing and debugging purposes.
+#     """
+#     from .tasks import update_parcel_tracking_status
+
+#     # We call the function directly, bypassing the Celery .delay() method.
+#     result_message = update_parcel_tracking_status(parcel_pk)
+
+#     return HttpResponse(f"Tracking update task executed for Parcel ID {parcel_pk}.<br>Result: {result_message}<br><br><a href='/operation/list/?tab=parcels_details'>Go back to Parcels List</a>")
+
+@require_POST
+@login_required
+def trace_selected_parcels(request):
+    """
+    Handles the 'Trace Selected' button click for bulk manual tracking updates.
+    Loops through selected parcels and calls the tracking service for each one.
+    """
+    try:
+        data = json.loads(request.body)
+        parcel_ids = data.get('parcel_ids', [])
+        logger.debug(f"[TraceParcels] Received request to trace parcel IDs: {parcel_ids}")
+
+        if not parcel_ids:
+            return JsonResponse({'success': False, 'message': 'No parcels selected.'}, status=400)
+
+        parcels_to_trace = Parcel.objects.filter(id__in=parcel_ids)
+        success_count = 0
+        error_count = 0
+        status_updates = []
+
+        for parcel in parcels_to_trace:
+            try:
+                # Call the centralized service function for each parcel
+                success, message = update_parcel_tracking_from_api(parcel)
+                if success:
+                    success_count += 1
+                    # Optional: Log the specific message for each parcel
+                    logger.info(f"Tracking update for Parcel {parcel.id}: {message}")
+                    if "Status updated" in message:
+                        status_updates.append(parcel.parcel_code_system)
+                else:
+                    error_count += 1
+                    logger.warning(f"Tracking update failed for Parcel {parcel.id}: {message}")
+
+            except Exception as e:
+                # Catch any unexpected errors during the service call for a single parcel
+                logger.error(f"[TraceParcels] Unexpected error processing parcel {parcel.id}: {e}", exc_info=True)
+                error_count += 1
+
+        # --- Construct a final summary message for the user ---
+        final_message = f"Tracking update complete. Success: {success_count}, Failed: {error_count}."
+        if status_updates:
+            final_message += f" Status changed for: {', '.join(status_updates)}."
+
+        return JsonResponse({'success': True, 'message': final_message})
+
+    except json.JSONDecodeError:
+        logger.error("[TraceParcels] Invalid JSON in request body.")
+        return JsonResponse({'success': False, 'message': 'Invalid JSON in request body.'}, status=400)
+    except Exception as e:
+        logger.error(f"[TraceParcels] Critical error in view: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'message': 'A critical server error occurred.'}, status=500)
+
+@login_required
+def print_selected_parcels(request):
+    parcel_ids_str = request.GET.get('ids', '')
+    if not parcel_ids_str:
+        return HttpResponse("No parcel IDs provided.", status=400)
+
+    parcel_ids = [int(id) for id in parcel_ids_str.split(',') if id.isdigit()]
+
+    parcels = Parcel.objects.filter(id__in=parcel_ids).select_related(
+        'order__customer', 'courier_company', 'packaging_type'
+    ).prefetch_related(
+        'items_in_parcel__order_item__product'
+    )
+
+    if not parcels:
+        return HttpResponse("No valid parcels found for the given IDs.", status=404)
+
+    # Summary Data Calculation
+    total_parcels = parcels.count()
+    cold_chain_count = parcels.filter(order__is_cold_chain=True).count()
+    ambient_count = total_parcels - cold_chain_count
+
+    courier_counts = parcels.values('courier_company__name').annotate(count=Count('courier_company__name')).order_by('-count')
+
+    product_quantities = {}
+    for parcel in parcels:
+        for item in parcel.items_in_parcel.all():
+            product_name = item.order_item.product.name
+            quantity = item.quantity_shipped_in_this_parcel
+            if product_name in product_quantities:
+                product_quantities[product_name] += quantity
+            else:
+                product_quantities[product_name] = quantity
+
+    sorted_product_quantities = sorted(product_quantities.items(), key=lambda x: x[1], reverse=True)
+
+
+    context = {
+        'parcels': parcels,
+        'summary': {
+            'total_parcels': total_parcels,
+            'cold_chain_count': cold_chain_count,
+            'ambient_count': ambient_count,
+            'courier_counts': courier_counts,
+            'product_quantities': sorted_product_quantities,
+        }
+    }
+    return render(request, 'operation/printable_parcels.html', context)

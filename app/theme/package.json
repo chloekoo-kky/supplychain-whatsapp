@@ -1,15 +1,20 @@
 {
-    "name": "theme",
-    "version": "1.0.0",
-    "scripts": {
-      "build": "npx tailwindcss -i ./src/input.css -o ./static/css/styles.css --minify"
-    },
-    "devDependencies": {
-      "autoprefixer": "^10.4.14",
-      "postcss": "^8.4.21",
-      "tailwindcss": "^3.3.0"
-    },
-    "dependencies": {
-      "daisyui": "^3.3.1"
-    }
+  "name": "theme",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tailwindcss -i ./src/input.css -o ./static/css/base.css --watch",
+    "build:prod": "tailwindcss -i ./src/input.css -o ./static/css/base.css --minify"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "tailwindcss": "^3.4.1"
+  },
+  "dependencies": {
+    "daisyui": "^4.10.1",
+    "htmx.org": "^1.9.11"
   }
+}

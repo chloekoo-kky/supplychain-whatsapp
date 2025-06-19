@@ -1,0 +1,70 @@
+{# app/operation/templates/operation/partials/_airway_bill_modal_content.html #}
+
+{# UPDATED: Title is now more generic #}
+<h3 class="font-bold text-xl mb-4">Air Waybill Details</h3>
+
+<div class="grid grid-cols-1 md:grid-cols-5 gap-3 text-sm">
+
+
+    <div class="md:col-span-2">
+        <h4 class="font-semibold text-md mb-2 border-b">Recipient (To)</h4>
+        {% if parcel.order.customer %}
+        <div class="space-y-1">
+            <p><strong>Name:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.customer_name }}</span></p>
+            <p><strong>Parcel Code:</strong> <span class="copyable font-bold text-md" title="Click to copy">{{ parcel.parcel_code_system }}</span></p>
+            <p><strong>Company:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.company_name|default:"N/A" }}</span></p>
+            <p><strong>Address Line1:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.address_line1 }}</span></p>
+            <p><strong>Address City:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.city }}</span></p>
+            <p><strong>Address State:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.state }}</span></p>
+            <p><strong>Address ZipCode:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.zip_code }}</span></p>
+            <p><strong>Address Country:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.country }}</span></p>
+
+            <p><strong>Phone:</strong> <span class="copyable" title="Click to copy">{{ parcel.order.customer.phone_number }}</span></p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="md:col-span-3">
+        <h4 class="font-semibold text-md mb-2 border-b">Parcel Details</h4>
+        <div class="space-y-1">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                <p><strong>Courier:</strong> <br><span class="copyable" title="Click to copy">{{ parcel.courier_company.name|default:"N/A" }}</span></p>
+                <p><strong>Weight(kg):</strong> <br><span class="copyable" title="Click to copy">{{ parcel.weight|default:"N/A" }}</span></p>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    <p><strong>Length(cm):</strong><span class="copyable" title="Click to copy"><br>{{ parcel.length|floatformat:0 }}</span></p>
+                    <p><strong>Width(cm):</strong><span class="copyable" title="Click to copy"><br>{{ parcel.width|floatformat:0 }}</span></p>
+                    <p><strong>Height(cm):</strong><span class="copyable" title="Click to copy"><br>{{ parcel.height|floatformat:0 }}</span></p>
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-2">
+
+                <p class="md:col-span-3"><strong>Customs Desc:</strong> <br><span class="copyable" title="Click to copy">{{ parcel.customs_declaration.description|default:"N/A" }}</span></p>
+
+                    <p><strong>HS CODE:</strong> <br><span class="copyable" title="Click to copy">{{ parcel.customs_declaration.hs_code|default:"N/A" }}</span></p>
+                    <p><strong>D.Value(USD):</strong> <br><span class="copyable" title="Click to copy">{{ parcel.declared_value|default:"N/A" }} </span></p>
+                    <p><strong>D.Value(MYR):</strong> <br><span class="copyable" title="Click to copy">{{ parcel.declared_value_myr|default:"N/A" }} </span></p>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<div class="divider"></div>
+
+<form id="airway-bill-form" action="{% url 'operation:save_airway_bill' parcel.pk %}" method="POST">
+    {% csrf_token %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+            <label class="label"><span class="label-text font-semibold">{{ form.tracking_number.label }}</span></label>
+            {{ form.tracking_number }}
+        </div>
+        <div>
+            <label class="label"><span class="label-text font-semibold">{{ form.estimated_cost.label }}</span></label>
+            {{ form.estimated_cost }}
+        </div>
+    </div>
+    <div class="modal-action mt-6">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('airway-bill-modal-toggle').checked=false;">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Air Waybill</button>
+    </div>
+</form>

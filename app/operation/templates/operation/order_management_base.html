@@ -192,6 +192,33 @@
 {# --- END: New Modal --- #}
 
 
+{# --- START: New Modal for Air Waybill --- #}
+<input type="checkbox" id="airway-bill-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog">
+    <div class="modal-box max-w-4xl">
+        <label for="airway-bill-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
+        <div id="airway-bill-modal-content">
+            <p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>
+        </div>
+    </div>
+    <label class="modal-backdrop" for="airway-bill-modal-toggle">Close</label>
+</div>
+{# --- END: New Modal --- #}
+
+{# --- START: New Modal for Tracking History --- #}
+<input type="checkbox" id="tracking-history-modal-toggle" class="modal-toggle" />
+<div class="modal" role="dialog">
+    <div class="modal-box max-w-3xl">
+        <label for="tracking-history-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
+        <div id="tracking-history-modal-content">
+            <p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>
+        </div>
+    </div>
+    <label class="modal-backdrop" for="tracking-history-modal-toggle">Close</label>
+</div>
+{# --- END: New Modal --- #}
+
+
 {% endblock %}
 
 {% block extra_js %}
@@ -210,23 +237,18 @@
     } catch (e) {
         console.error("Error parsing courier companies JSON:", e);
     }
-    // console.log("Initialized courierCompaniesGlobal:", courierCompaniesGlobal); // Optional: for debugging
 
-    console.log(`[Global JS Init] DEFAULT_CUSTOMER_ORDERS_TAB: '${DEFAULT_CUSTOMER_ORDERS_TAB}'`);
-    console.log(`[Global JS Init] DEFAULT_PARCELS_TAB: '${DEFAULT_PARCELS_TAB}'`);
-    console.log(`[Global JS Init] currentBaseUrl: '${currentBaseUrl}'`);
-
-    document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function() {
     const tabContainer = document.getElementById('operation-tab-content');
     const mainPageTabs = document.querySelectorAll('.tabs a.tab');
     const ORDER_MGMT_TAB_SPECIFIC_PARAMS = {
         [DEFAULT_CUSTOMER_ORDERS_TAB]: ['warehouse', 'status', 'q', 'page'],
-        [DEFAULT_PARCELS_TAB]: ['parcel_warehouse', 'parcel_courier', 'parcel_q', 'page', 'fetch_parcel_list_only'] // Added fetch_parcel_list_only
+        [DEFAULT_PARCELS_TAB]: ['parcel_warehouse', 'parcel_courier', 'parcel_status', 'parcel_q', 'page']
     };
     const DEFAULT_ORDER_MGMT_TAB = DEFAULT_CUSTOMER_ORDERS_TAB;
 
     let currentCustomerOrderFilters = { page: '1' };
-    let currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_q: '' };
+    let currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_status: '', parcel_q: '' };
     let isFetchingCustomerOrders = false;
     let isFetchingParcels = false;
 
@@ -239,16 +261,45 @@
         debounced.cancel = () => { clearTimeout(timeout); };
         return debounced;
     }
-
+    // --- Utility Functions ---
     function getCsrfToken() {
         if (CSRF_TOKEN) return CSRF_TOKEN;
         const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
         if (csrfInput) {
-            console.warn("getCsrfToken: Had to re-query DOM for CSRF token.");
             return csrfInput.value;
         }
         console.error("getCsrfToken: CSRF Token is null and input field not found in DOM!");
         return "";
+    }
+    function showSuccessToast(message) {
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                toast: true,
+                icon: 'success',
+                title: message,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+        } else {
+            alert(message);
+        }
+    }
+    function showErrorToast(message) {
+        if (typeof Swal !== 'undefined') {
+            Swal.fire({
+                toast: true,
+                icon: 'error',
+                title: message,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 3000,
+                timerProgressBar: true
+            });
+        } else {
+            alert(message);
+        }
     }
 
     function displayCourierDashboard(dailyCounts, availableCouriers) {
@@ -263,36 +314,27 @@
             console.error("Main courier input field (#id_parcel-courier_id) not found.");
         }
 
-        // Clear any previous buttons or messages
         dashboardList.innerHTML = '';
 
-        // Ensure inputs are valid to prevent errors
         const recommendations = dailyCounts || {};
         const allCouriers = Array.isArray(availableCouriers) ? availableCouriers : [];
 
-        // Match the daily counts with the full courier details (including ID)
         const couriersWithDetails = Object.entries(recommendations)
             .map(([courierName, count]) => {
-                // Find the full details for the courier from the provided list
                 const companyDetails = allCouriers.find(c => c.name === courierName);
-
-                // Only include couriers that were found and have an ID
                 if (companyDetails && companyDetails.id) {
                     return { id: companyDetails.id, name: courierName, count: count };
                 }
-                // If a courier name from the counts isn't in the main list, ignore it.
                 return null;
             })
-            .filter(Boolean); // This removes any null entries from the list
+            .filter(Boolean);
 
-        // Sort couriers alphabetically for a consistent display
         couriersWithDetails.sort((a, b) => a.name.localeCompare(b.name));
 
-        // --- Display Logic ---
         if (couriersWithDetails.length === 0) {
             const noItemsMessage = document.createElement('li');
             noItemsMessage.className = 'text-xs text-gray-500 italic';
-            noItemsMessage.textContent = 'No courier counts for today.'; // This message will now appear correctly
+            noItemsMessage.textContent = 'No courier counts for today.';
             dashboardList.appendChild(noItemsMessage);
         } else {
             couriersWithDetails.forEach(courierItem => {
@@ -302,19 +344,14 @@
                 button.className = 'btn btn-lg btn-square bg-gray-200 gap-1 flex-col';
                 button.innerHTML = `<span class="text-sm">${courierItem.name}</span><span class="text-md">${courierItem.count}</span>`;
 
-                // --- Interactive Click Handling ---
                 button.addEventListener('click', function() {
-                    // Update the main form's hidden input with the selected courier ID
                     if (mainCourierInput) {
                         mainCourierInput.value = courierItem.id;
                     }
-
-                    // Visually highlight the selected button for better UX
                     dashboardList.querySelectorAll('button').forEach(btn => {
                         btn.classList.remove('btn-primary', 'text-white');
                         btn.classList.add('bg-gray-200');
                     });
-
                     this.classList.add('btn-primary', 'text-white');
                     this.classList.remove('bg-gray-200');
                 });
@@ -326,11 +363,7 @@
     }
 
 
-    function getCurrentTabNameFromUrl() {
-        const urlParams = new URLSearchParams(window.location.search);
-        return urlParams.get('tab') || DEFAULT_ORDER_MGMT_TAB;
-    }
-
+    // --- State Management Functions ---
     function saveTabFiltersToSession(tabName, filterState) {
         const paramsForStorage = new URLSearchParams();
         const allowedParams = ORDER_MGMT_TAB_SPECIFIC_PARAMS[tabName] || [];
@@ -343,7 +376,6 @@
         const paramsString = paramsForStorage.toString();
         sessionStorage.setItem(`tabFilters_${tabName}`, paramsString);
     }
-
     function loadTabFiltersFromSession(tabName) {
         const storedParamsString = sessionStorage.getItem(`tabFilters_${tabName}`);
         const params = new URLSearchParams(storedParamsString || '');
@@ -351,6 +383,10 @@
             params.set('page', '1');
         }
         return params;
+    }
+    function getCurrentTabNameFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get('tab') || DEFAULT_ORDER_MGMT_TAB;
     }
 
     function clearTabFiltersFromSession(tabName) {
@@ -564,7 +600,6 @@
                 const packagingOptionsContainer = document.getElementById('packaging-options-container');
 
                 if (!packModalToggle || !packFormsetContainer || !packModalTitle || !packModalCustomer || !packForm || !orderPkHiddenInput || !dailyCourierCountsDisplay || !courierCountsList || !courierSelectionButtonsDiv || !hiddenCourierInput || !hiddenPackagingInput || !packagingOptionsContainer) {
-                    console.error("DEBUG: One or more modal elements could not be found. Please check all element IDs.");
                     return;
                 }
 
@@ -834,6 +869,17 @@
             btn.classList.toggle('text-white', btn.dataset.value === activeCourier);
             btn.classList.toggle('btn-outline', btn.dataset.value !== activeCourier);
         });
+
+        // --- START: FIX ---
+        // This new block ensures the status filter buttons are correctly highlighted.
+        const activeStatus = currentParcelFilters.parcel_status || "";
+        parcelFilterPanel.querySelectorAll('.parcel-status-filter-btn').forEach(btn => {
+            btn.classList.toggle('btn-active', btn.dataset.value === activeStatus);
+            // Assuming 'btn-active' is your highlight class. Adjust if necessary.
+            // If you use other classes like 'btn-neutral' or 'text-white' for active state, add them here too.
+        });
+        // --- END: FIX ---
+
         const searchInput = parcelFilterPanel.querySelector('.parcel-dynamic-search-input');
         if (searchInput && searchInput.value !== (currentParcelFilters.parcel_q || "")) searchInput.value = currentParcelFilters.parcel_q || "";
 
@@ -843,13 +889,17 @@
 
     function loadInitialParcelFilters(urlParams) {
         const sessionFilters = loadTabFiltersFromSession(DEFAULT_PARCELS_TAB);
-        currentParcelFilters.parcel_warehouse = urlParams.get('parcel_warehouse') || sessionFilters.get('parcel_warehouse') || "";
-        currentParcelFilters.parcel_courier = urlParams.get('parcel_courier') || sessionFilters.get('parcel_courier') || "";
-        currentParcelFilters.parcel_q = urlParams.get('parcel_q') || sessionFilters.get('parcel_q') || "";
-        currentParcelFilters.page = urlParams.get('page') || sessionFilters.get('page') || '1';
-        // 'fetch_parcel_list_only' is not loaded from URL/session, it's for specific fetch calls
+        currentParcelFilters = {
+            parcel_warehouse: urlParams.get('parcel_warehouse') || sessionFilters.get('parcel_warehouse') || "",
+            parcel_courier: urlParams.get('parcel_courier') || sessionFilters.get('parcel_courier') || "",
+            parcel_status: urlParams.get('parcel_status') || sessionFilters.get('parcel_status') || "",
+            parcel_q: urlParams.get('parcel_q') || sessionFilters.get('parcel_q') || "",
+            page: urlParams.get('page') || sessionFilters.get('page') || '1',
+            total_parcels_count: currentParcelFilters.total_parcels_count
+        };
         updateParcelFiltersUI();
     }
+
 
     function applyParcelFilters(resetPage = true, caller="unknown_parcel_caller") {
         if (isFetchingParcels) return; isFetchingParcels = true;
@@ -859,9 +909,13 @@
         params.set('tab', DEFAULT_PARCELS_TAB);
         if (currentParcelFilters.parcel_warehouse) params.set('parcel_warehouse', currentParcelFilters.parcel_warehouse);
         if (currentParcelFilters.parcel_courier) params.set('parcel_courier', currentParcelFilters.parcel_courier);
+        if (currentParcelFilters.parcel_status) {
+            params.set('parcel_status', currentParcelFilters.parcel_status);
+        }
         if (currentParcelFilters.parcel_q) params.set('parcel_q', currentParcelFilters.parcel_q);
         params.set('page', currentParcelFilters.page);
-        params.set('fetch_parcel_list_only', 'true'); // Crucial: Fetch only the list content
+        params.set('fetch_parcel_list_only', 'true');
+
         const fetchUrl = `${currentBaseUrl}?${params.toString()}`;
 
         const parcelTableContainer = document.getElementById('parcels-table-container');
@@ -869,12 +923,12 @@
         else { isFetchingParcels = false; return; }
 
         const paramsForHistory = new URLSearchParams(params);
-        paramsForHistory.delete('fetch_parcel_list_only'); // Don't put helper param in URL history
+        paramsForHistory.delete('fetch_parcel_list_only');
         if (paramsForHistory.get('page') === '1') paramsForHistory.delete('page');
         const historyUrl = `${currentBaseUrl}?${paramsForHistory.toString()}`;
 
         history.pushState({path: historyUrl, tab: DEFAULT_PARCELS_TAB}, '', historyUrl);
-        saveTabFiltersToSession(DEFAULT_PARCELS_TAB, currentParcelFilters); // Save all current filters (excluding fetch_parcel_list_only)
+        saveTabFiltersToSession(DEFAULT_PARCELS_TAB, currentParcelFilters);
 
         fetch(fetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'HX-Request': 'true' }})
             .then(response => {
@@ -885,21 +939,19 @@
             })
             .then(html => {
                 if (parcelTableContainer) {
-                    parcelTableContainer.innerHTML = html; // This HTML is now only _parcels_list_content.html
+                    parcelTableContainer.innerHTML = html;
                     bindParcelPaginationButtons();
                     initializeViewEditParcelModalButtons();
+                    initializeAirwayBillModal();
+                    initializeTrackingHistoryModal();
+                    initializeBatchTraceFunctionality();
                 }
-                // `loadInitialParcelFilters` updates currentParcelFilters based on URL/session, which might not be what we want here.
-                // We only need to update the UI to reflect potentially new counts.
                 updateParcelFiltersUI();
             })
             .catch(error => { if (parcelTableContainer) parcelTableContainer.innerHTML = '<p class="text-red-500">Error loading parcels.</p>';})
             .finally(() => { isFetchingParcels = false; });
     }
     const debouncedApplyParcelFilters = debounce(applyParcelFilters, 400);
-
-
-    // Removed the `bindParcelFilterControls` function. Event delegation is now used.
 
     function bindParcelPaginationButtons() {
         const currentTabContent = document.getElementById('operation-tab-content');
@@ -950,7 +1002,6 @@
         const modalTitle = document.getElementById('view-edit-parcel-modal-title');
 
         if (!modalContentArea || !modalToggle || !modalTitle) {
-            console.error("Modal elements not found");
             return;
         }
 
@@ -1018,11 +1069,7 @@
                             const myrValue = usdValue * 4.3;
                             myrInput.value = myrValue.toFixed(2);
                         };
-
-                        // Listen for changes to the USD input
                         usdInput.addEventListener('input', updateMyrValue);
-
-                        // Run once on load to set the initial value
                         updateMyrValue();
                     }
 
@@ -1047,8 +1094,6 @@
                             });
                             calculateAndDisplayDimWeight();
                         }
-                    } else {
-                        console.error("Could not find form elements after loading HTML.");
                     }
                 } else {
                     modalContentArea.innerHTML = `<p class="text-red-500 text-center p-4">Error: ${data.message || 'Could not load details.'}</p>`;
@@ -1059,9 +1104,6 @@
                 modalContentArea.innerHTML = `<p class="text-red-500 text-center p-4">Error fetching details: ${error.message}</p>`;
             });
     }
-
-
-
 
     function handleParcelCustomsFormSubmit(event, parcelPk) {
         event.preventDefault();
@@ -1150,6 +1192,235 @@
         });
     }
 
+    function initializeAirwayBillModal() {
+        const tabContent = document.getElementById('operation-tab-content');
+        const modalToggle = document.getElementById('airway-bill-modal-toggle');
+        const modalContent = document.getElementById('airway-bill-modal-content');
+        const modalContainer = modalToggle ? modalToggle.nextElementSibling : null;
+
+        if (!tabContent || !modalToggle || !modalContent || !modalContainer) {
+            return;
+        }
+
+        const handleAirwayBillFormSubmit = (event) => {
+            event.preventDefault();
+            const form = event.target;
+            const formData = new FormData(form);
+            const saveBtn = form.querySelector('button[type="submit"]');
+            if(saveBtn) saveBtn.classList.add('loading');
+
+            fetch(form.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccessToast(data.message || 'Details saved!');
+                    if (modalToggle) {
+                        modalToggle.checked = false;
+                    }
+                    if (typeof applyParcelFilters === "function") {
+                        applyParcelFilters(false);
+                    }
+                } else {
+                    showErrorToast(data.message || 'An unknown error occurred.');
+                }
+            })
+            .catch(error => {
+                console.error('Error submitting Air Waybill form:', error);
+                showErrorToast('A critical error occurred.');
+            })
+            .finally(() => {
+                if (saveBtn) saveBtn.classList.remove('loading');
+            });
+        };
+
+        const openModalHandler = (event) => {
+            const button = event.target.closest('.airway-bill-btn');
+            if (!button) return;
+
+            event.preventDefault();
+            const parcelPk = button.dataset.parcelPk;
+
+            modalContent.innerHTML = '<p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>';
+            modalToggle.checked = true;
+
+            fetch(`/operation/parcel/${parcelPk}/get-airway-bill-details/`)
+                .then(response => response.ok ? response.text() : Promise.reject('Failed to load details.'))
+                .then(html => {
+                    modalContent.innerHTML = html;
+                    const form = modalContent.querySelector('#airway-bill-form');
+                    if (form) {
+                        form.addEventListener('submit', handleAirwayBillFormSubmit);
+                    }
+                })
+                .catch(error => {
+                    modalContent.innerHTML = `<p class="text-red-500 text-center py-8">${error}</p>`;
+                });
+        };
+
+        const copyClickHandler = (event) => {
+            const target = event.target;
+            if (target.classList.contains('copyable')) {
+                 const textToCopy = target.textContent;
+                 navigator.clipboard.writeText(textToCopy);
+                 const originalText = target.innerHTML;
+                 target.innerHTML = 'Copied!';
+                 target.classList.add('text-success', 'font-bold');
+                 setTimeout(() => {
+                     target.innerHTML = originalText;
+                     target.classList.remove('text-success', 'font-bold');
+                 }, 1000);
+            }
+        };
+
+        if (!tabContent.dataset.awbListenerAttached) {
+            tabContent.addEventListener('click', openModalHandler);
+            tabContent.dataset.awbListenerAttached = 'true';
+        }
+
+        if(modalContainer && !modalContainer.dataset.awbCopyListener) {
+            modalContainer.addEventListener('click', copyClickHandler);
+            modalContainer.dataset.awbCopyListener = 'true';
+        }
+    }
+
+    function initializeTrackingHistoryModal() {
+        const tabContent = document.getElementById('operation-tab-content');
+        if (!tabContent) return;
+
+        if (tabContent.dataset.trackingListenerAttached) return;
+
+        tabContent.addEventListener('click', function(event) {
+            const button = event.target.closest('.show-tracking-history-btn');
+            if (!button) return;
+
+            event.preventDefault();
+            const parcelPk = button.dataset.parcelPk;
+            const modalToggle = document.getElementById('tracking-history-modal-toggle');
+            const modalContent = document.getElementById('tracking-history-modal-content');
+
+            if (!parcelPk || !modalToggle || !modalContent) return;
+
+            modalContent.innerHTML = '<p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>';
+            modalToggle.checked = true;
+
+            fetch(`/operation/parcel/${parcelPk}/get-tracking-history/`)
+                .then(response => response.ok ? response.text() : Promise.reject('Failed to load history.'))
+                .then(html => {
+                    modalContent.innerHTML = html;
+                })
+                .catch(error => {
+                    modalContent.innerHTML = `<p class="text-red-500 text-center py-8">${error}</p>`;
+                });
+        });
+        tabContent.dataset.trackingListenerAttached = 'true';
+    }
+
+    function initializeBatchTraceFunctionality() {
+        console.log("[Debug] Initializing batch trace and print functionality...");
+        const tabContent = document.getElementById('operation-tab-content');
+        if (!tabContent) return;
+
+        const traceBtn = document.getElementById('trace-selected-parcels-btn');
+        const printBtn = document.getElementById('print-selected-parcels-btn');
+        const selectedCountSpanTrace = document.getElementById('selected-parcels-count');
+        const selectedCountSpanPrint = document.getElementById('selected-parcels-count-print');
+        const selectAllCheckbox = document.getElementById('select-all-parcels');
+
+        const updateButtonsState = () => {
+            // Improvement: Scope the query to the container that is definitely present.
+            const parcelTableContainer = document.getElementById('parcels-table-container');
+            if (!parcelTableContainer) return;
+
+            const selectedCheckboxes = parcelTableContainer.querySelectorAll('.parcel-select-checkbox:checked');
+            const count = selectedCheckboxes.length;
+
+            if (selectedCountSpanTrace) selectedCountSpanTrace.textContent = count;
+            if (selectedCountSpanPrint) selectedCountSpanPrint.textContent = count;
+            if (traceBtn) traceBtn.disabled = count === 0;
+            if (printBtn) printBtn.disabled = count === 0;
+        };
+
+        // Improvement: Attach the checkbox change listener only once to the persistent tabContent element.
+        if (!tabContent.dataset.checkboxListenerAttached) {
+            tabContent.dataset.checkboxListenerAttached = 'true'; // Set a flag to prevent re-attaching
+            tabContent.addEventListener('change', (event) => {
+                if (event.target.matches('.parcel-select-checkbox, #select-all-parcels')) {
+                    if (event.target.matches('#select-all-parcels')) {
+                        const isChecked = event.target.checked;
+                        // Ensure we only affect checkboxes within the current table
+                        const currentTable = document.getElementById('parcels-table-container');
+                        if(currentTable) {
+                            currentTable.querySelectorAll('.parcel-select-checkbox').forEach(cb => {
+                                cb.checked = isChecked;
+                            });
+                        }
+                    }
+                    updateButtonsState();
+                }
+            });
+        }
+
+        // --- The rest of the function remains for attaching button-specific logic ---
+
+        if (printBtn && !printBtn.dataset.listenerAttached) {
+            printBtn.dataset.listenerAttached = 'true';
+            printBtn.addEventListener('click', () => {
+                const selectedIds = Array.from(document.querySelectorAll('.parcel-select-checkbox:checked')).map(cb => cb.value);
+                if (selectedIds.length === 0) {
+                    showErrorToast('No parcels selected.');
+                    return;
+                }
+                const url = `{% url 'operation:print_selected_parcels' %}?ids=${selectedIds.join(',')}`;
+                window.open(url, '_blank');
+            });
+        }
+
+        if (traceBtn && !traceBtn.dataset.listenerAttached) {
+            traceBtn.dataset.listenerAttached = 'true';
+            traceBtn.addEventListener('click', () => {
+                const selectedIds = Array.from(document.querySelectorAll('.parcel-select-checkbox:checked')).map(cb => cb.value);
+                if (selectedIds.length === 0) {
+                    showErrorToast('No parcels selected.');
+                    return;
+                }
+                traceBtn.classList.add('loading');
+                fetch("{% url 'operation:trace_selected_parcels' %}", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+                    body: JSON.stringify({ parcel_ids: selectedIds })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showSuccessToast(data.message);
+                        setTimeout(() => applyParcelFilters(false, "Trace Success Refresh"), 2000);
+                    } else {
+                        showErrorToast(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error tracing parcels:', error);
+                    showErrorToast('A network error occurred.');
+                })
+                .finally(() => {
+                    traceBtn.classList.remove('loading');
+                    // Uncheck all boxes and update button state
+                    document.querySelectorAll('.parcel-select-checkbox:checked').forEach(cb => { cb.checked = false; });
+                    if (selectAllCheckbox) selectAllCheckbox.checked = false;
+                    updateButtonsState();
+                });
+            });
+        }
+
+        // Call this at the end to set the correct initial state when the table (re)loads.
+        updateButtonsState();
+    }
+
+
     function highlightActiveTab(activeTabName) {
         mainPageTabs.forEach(tabLink => {
             const tabLinkName = tabLink.dataset.tab;
@@ -1174,21 +1445,17 @@
             if (!button) return;
 
             event.preventDefault();
-
-            // --- START: Corrected JavaScript Logic ---
-            const url = button.dataset.url; // <-- Get the correct URL from the link
+            const url = button.dataset.url;
             const modalToggle = document.getElementById('customer-shipments-modal-toggle');
             const modalContent = document.getElementById('customer-shipments-modal-content');
 
             if (!url || !modalToggle || !modalContent) {
-                console.error('Modal element or data-url attribute not found.');
                 return;
             }
 
             modalContent.innerHTML = '<p class="text-center py-8"><span class="loading loading-dots loading-lg"></span></p>';
             modalToggle.checked = true;
 
-            // Fetch the content from the correct URL
             fetch(url)
                 .then(response => {
                     if (!response.ok) throw new Error('Failed to load shipment history.');
@@ -1199,20 +1466,14 @@
                 })
                 .catch(error => {
                     modalContent.innerHTML = `<p class="text-red-500 text-center py-8">${error.message}</p>`;
-                    console.error('Error fetching customer shipments modal:', error);
                 });
-            // --- END: Corrected JavaScript Logic ---
         });
         tabContent.dataset.customerShipmentsListenerAttached = 'true';
     }
 
-
-
-
-    function loadTabContent(url, isTabClick = false, isInitialLoad = false) { /* ... same as before (main logic) ... */
+    function loadTabContent(url, isTabClick = false, isInitialLoad = false) {
         const urlObj = new URL(url, window.location.origin); const tabName = urlObj.searchParams.get('tab') || DEFAULT_ORDER_MGMT_TAB;
         if (tabContainer) tabContainer.innerHTML = '<div class="text-center py-20"><span class="loading loading-ball loading-lg"></span></div>'; else return;
-        // For loadTabContent, we ensure 'fetch_parcel_list_only' is NOT sent, so server returns full parcels_table.html
         urlObj.searchParams.delete('fetch_parcel_list_only');
         const finalFetchUrl = urlObj.toString();
 
@@ -1225,22 +1486,22 @@
                 if (tabContainer) tabContainer.innerHTML = html; highlightActiveTab(tabName);
                 if (isTabClick || isInitialLoad) history.pushState({path: finalFetchUrl, tab: tabName}, '', finalFetchUrl);
                 if (tabName === DEFAULT_CUSTOMER_ORDERS_TAB) { if(totalCO!==null)currentCustomerOrderFilters.total_orders_count=totalCO; const lmc=document.getElementById('load-more-customer-orders-container'); if(lmc)lmc.style.display=(hxT==='loadMoreCustomerOrdersAvailable')?'':'none'; loadInitialCustomerOrderFilters(urlObj.searchParams); bindCustomerOrderFilterControls(); initLoadMoreCustomerOrders(); }
-                else if (tabName === DEFAULT_PARCELS_TAB) { if(totalP!==null)currentParcelFilters.total_parcels_count=totalP; loadInitialParcelFilters(urlObj.searchParams); /* bindParcelFilterControls() removed - handled by delegation */ bindParcelPaginationButtons(); initializeViewEditParcelModalButtons(); }
+                else if (tabName === DEFAULT_PARCELS_TAB) { if(totalP!==null)currentParcelFilters.total_parcels_count=totalP; loadInitialParcelFilters(urlObj.searchParams); bindParcelPaginationButtons(); initializeViewEditParcelModalButtons();initializeAirwayBillModal(); initializeTrackingHistoryModal(); initializeBatchTraceFunctionality(); }
                 initializePackOrderButtons(); initializeEditOrderButtons(); initializeCustomerShipmentsModal();
                 if(isInitialLoad) saveTabFiltersToSession(tabName, tabName===DEFAULT_CUSTOMER_ORDERS_TAB ? currentCustomerOrderFilters : currentParcelFilters);
             }).catch(error => { if (tabContainer) tabContainer.innerHTML = `<p class="text-red-500">Error loading ${tabName}: ${error.message}</p>`;});
     }
 
-    // Event delegation for Parcel Filters (attached ONCE to tabContainer)
-    if (tabContainer && !tabContainer.dataset.parcelFilterDelegationAttached) { /* ... same as before ... */
+    if (tabContainer && !tabContainer.dataset.parcelFilterDelegationAttached) {
         tabContainer.addEventListener('click', function(event) {
             const target = event.target.closest('button');
             if (!target || !target.closest('.parcel-filters') || getCurrentTabNameFromUrl() !== DEFAULT_PARCELS_TAB) return;
             let filtersChanged = false;
             if (target.classList.contains('parcel-warehouse-filter-btn')) { currentParcelFilters.parcel_warehouse = target.dataset.value; filtersChanged = true; }
             else if (target.classList.contains('parcel-courier-filter-btn')) { currentParcelFilters.parcel_courier = target.dataset.value; filtersChanged = true; }
+            else if (target.classList.contains('parcel-status-filter-btn')) { currentParcelFilters.parcel_status = target.dataset.value; filtersChanged = true; }
             else if (target.classList.contains('parcel-reset-filters-btn')) {
-                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_q: '' };
+                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_status: '', parcel_q: '' };
                 const searchInput = tabContainer.querySelector('.parcel-filters .parcel-dynamic-search-input');
                 if (searchInput) searchInput.value = ""; filtersChanged = true; sessionStorage.removeItem(`tabFilters_${DEFAULT_PARCELS_TAB}`);
             }
@@ -1255,7 +1516,7 @@
         tabContainer.dataset.parcelFilterDelegationAttached = 'true';
     }
 
-    mainPageTabs.forEach(tab => { /* ... same as before, ensuring fetch_parcel_list_only is removed from URL for full tab loads ... */
+    mainPageTabs.forEach(tab => {
         if (tab.dataset.tabListenerAttached === 'true') return;
         tab.addEventListener("click", function (e) {
             e.preventDefault(); const targetTabName = this.dataset.tab; const currentActiveTab = getCurrentTabNameFromUrl();
@@ -1268,21 +1529,20 @@
             const paramsForTarget = loadTabFiltersFromSession(targetTabName);
             paramsForTarget.set("tab", targetTabName);
             if((ORDER_MGMT_TAB_SPECIFIC_PARAMS[targetTabName]||[]).includes('page')&&!paramsForTarget.has('page'))paramsForTarget.set('page','1');
-            paramsForTarget.delete('fetch_parcel_list_only'); // Ensure full tab load
+            paramsForTarget.delete('fetch_parcel_list_only');
             loadTabContent(`${currentBaseUrl}?${paramsForTarget.toString()}`, true);
         });
         tab.dataset.tabListenerAttached = 'true';
     });
 
-    window.onpopstate = function(event) { /* ... same as before, ensuring fetch_parcel_list_only is removed ... */
+    window.onpopstate = function(event) {
         let poppedUrl = (event.state && event.state.path) ? event.state.path : `${currentBaseUrl}?tab=${DEFAULT_ORDER_MGMT_TAB}`;
         const urlParams = new URLSearchParams(poppedUrl.split('?')[1] || '');
         urlParams.delete('fetch_parcel_list_only');
         loadTabContent(`${currentBaseUrl}?${urlParams.toString()}`, false);
     };
 
-    // Initial page load logic: Ensure 'fetch_parcel_list_only' is not part of the initial URL.
-    const initialUrlParamsCleaned = new URLSearchParams(window.location.search); /* ... rest of initial load logic same as before, ensuring fetch_parcel_list_only is removed ... */
+    const initialUrlParamsCleaned = new URLSearchParams(window.location.search);
     initialUrlParamsCleaned.delete('fetch_parcel_list_only');
     let initialTab = initialUrlParamsCleaned.get('tab') || DEFAULT_ORDER_MGMT_TAB;
     if (window.location.pathname.endsWith('/order_management_base/') && !initialUrlParamsCleaned.has('tab') && window.location.search.length <=1 ) {
@@ -1459,5 +1719,6 @@
     }
 
 });
+
 </script>
 {% endblock %}

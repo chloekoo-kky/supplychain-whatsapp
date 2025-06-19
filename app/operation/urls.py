@@ -37,4 +37,13 @@ urlpatterns = [
     path('packaging/edit/<int:pk>/', views.edit_packaging_type, name='edit_packaging_type'),
 
     path('customer/<int:customer_pk>/get-shipment-history/', views.get_customer_shipment_history, name='get_customer_shipment_history'),
+
+    path('parcel/<int:parcel_pk>/get-airway-bill-details/', views.get_airway_bill_details, name='get_airway_bill_details'),
+    path('parcel/<int:parcel_pk>/save-airway-bill/', views.save_airway_bill, name='save_airway_bill'),
+    path('parcel/<int:parcel_pk>/get-tracking-history/', views.get_parcel_tracking_history, name='get_parcel_tracking_history'),
+
+    path('parcels/trace-selected/', views.trace_selected_parcels, name='trace_selected_parcels'),
+
+    path('parcels/print-selected/', views.print_selected_parcels, name='print_selected_parcels'),
+
 ]

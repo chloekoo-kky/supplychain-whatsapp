@@ -7,6 +7,7 @@ import uuid
 import random
 import string
 import logging
+from decimal import Decimal
 
 from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
 from warehouse.models import Warehouse, WarehouseProduct
@@ -58,11 +59,7 @@ class Order(models.Model):
         ('NEW_ORDER', 'New'),
         ('PARTIALLY_SHIPPED', 'Partial'),
         ('FULLY_SHIPPED', 'Shipped'), # This means all items are packed and in parcels
-        ('DELIVERED', 'Delivered'),
-        ('DELIVERY_FAILED', 'Failed'),
-        ('RETURNED_COURIER', 'Returned by Courier'),
         ('ADJUSTED_TO_CLOSE', 'Adjusted to Close'),
-        ('INVOICE_ISSUED', 'Billed (Completed)')
     ]
 
     items_removed_log = models.JSONField(
@@ -289,10 +286,25 @@ class Parcel(models.Model):
         help_text="The selected customs declaration for this parcel."
     )
     declared_value = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text="Total declared value for this parcel for customs.")
+    declared_value_myr = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name="Declared Value (MYR)",
+        help_text="Automatically calculated declared value in MYR based on the USD value."
+    )
     length = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Length (cm)")
     width = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Width (cm)")
     height = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Height (cm)")
     dimensional_weight_kg = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, verbose_name="Dimensional Weight (kg)")
+    estimated_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Estimated shipping cost for this parcel."
+    )
 
 
     class Meta:
@@ -302,6 +314,33 @@ class Parcel(models.Model):
 
     def __str__(self):
         return f"Parcel {self.parcel_code_system} ({self.get_status_display()}) for Order {self.order.erp_order_id}"
+
+    @property
+    def simplified_tracking_status(self):
+        """
+        Returns a simplified status string based on the latest tracking log
+        and the time since the parcel was shipped.
+        """
+        if not self.tracking_number:
+            return ""
+
+        latest_log = self.tracking_logs.first()
+
+        if not latest_log:
+            return "Awaiting Tracking Update"
+
+        # Rule 1: If the latest status description contains "Delivered"
+        if 'delivered' in latest_log.status_description.lower():
+            return "Delivered"
+
+        # Rule 3: If status is "In Transit" for more than 20 days
+        if self.shipped_at:
+            days_in_transit = (timezone.now() - self.shipped_at).days
+            if days_in_transit > 20:
+                return "Failed"
+
+        # Rule 2: If none of the above, it's "In Transit"
+        return "In Transit"
 
     def get_packaging_type_display(self):
         if self.packaging_type:
@@ -385,6 +424,14 @@ class Parcel(models.Model):
                         logger.info(f"OI {order_item.id} returned_qty: {original_oi_returned_qty} -> {order_item.quantity_returned_to_stock}, shipped_qty reduced, status -> ITEM_RETURNED_RESTOCKED")
                     else:
                         logger.warning(f"ParcelItem {item_in_parcel.id} for Parcel {self.id} has no batch or zero quantity, skipping stock return.")
+
+        if self.declared_value is not None:
+            conversion_rate = Decimal('4.3')
+            myr_value = self.declared_value * conversion_rate
+            # Round to 2 decimal places for currency
+            self.declared_value_myr = myr_value.quantize(Decimal('0.01'))
+        else:
+            self.declared_value_myr = None
 
         super().save(*args, **kwargs)
 
@@ -579,3 +626,29 @@ class PackagingTypeMaterialComponent(models.Model):
         pm_name = self.packaging_material.name if hasattr(self, 'packaging_material') and self.packaging_material else "N/A"
         pt_name = self.packaging_type.name if hasattr(self, 'packaging_type') and self.packaging_type else "N/A"
         return f"{self.quantity} x {pm_name} for {pt_name}"
+
+
+class ParcelTrackingLog(models.Model):
+    """
+    Stores a single tracking event from a courier for a specific parcel.
+    """
+    parcel = models.ForeignKey('operation.Parcel', on_delete=models.CASCADE, related_name='tracking_logs')
+    timestamp = models.DateTimeField(help_text="The date and time of the tracking event.")
+    status_description = models.CharField(max_length=255, help_text="The description of the event, e.g., 'Departed from Facility'.")
+    location = models.CharField(max_length=255, blank=True, null=True, help_text="The location where the event occurred.")
+
+    # A unique identifier provided by the courier for this specific event to prevent duplicates.
+    event_id = models.CharField(max_length=100, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        # Ensure we don't save the exact same event for the same parcel twice
+        unique_together = ('parcel', 'event_id')
+        verbose_name = "Parcel Tracking Log"
+        verbose_name_plural = "Parcel Tracking Logs"
+
+    def __str__(self):
+        return f"{self.parcel.parcel_code_system} @ {self.timestamp}: {self.status_description}"
+

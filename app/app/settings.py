@@ -29,6 +29,11 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True' # Get from env, default
 ALLOWED_HOSTS_STRING = os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1')
 ALLOWED_HOSTS = ALLOWED_HOSTS_STRING.split(',') if ALLOWED_HOSTS_STRING else []
 
+DHL_API_KEY = 'yPSKPEdHg05gvwJAXvfPzJVsZaz6Iek2'
+FEDEX_API_KEY = 'l79352a03c319a4df2b0d073a531e0de34'
+FEDEX_SECRET_KEY = '60dfa50b83cc43b1930b1a48b6d6c470'
+UPS_CLIENT_ID = os.environ.get('UPS_CLIENT_ID', 'YOUR_UPS_CLIENT_ID')
+UPS_CLIENT_SECRET = os.environ.get('UPS_CLIENT_SECRET', 'YOUR_UPS_CLIENT_SECRET')
 
 # Application definition
 

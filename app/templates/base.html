@@ -7,14 +7,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{% block title %}Chima Gun{% endblock %}</title>
+
     <script src="https://cdn.tailwindcss.com"></script>
+
     <link
       href="https://cdn.jsdelivr.net/npm/daisyui@latest/dist/full.css"
       rel="stylesheet"
       type="text/css"
     />
+
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+
     <link id="theme-css" rel="stylesheet" href="{% static 'css/base.css' %}">
+
+
     <style>
       /* Additional styles if needed */
       .user-info {
@@ -32,7 +38,9 @@
         margin-top: 0.5rem;
       }
     </style>
+
   </head>
+
   <body class="bg-gray-50 text-gray-900">
     {% csrf_token %}
     <div class="navbar bg-base-100 shadow-sm sticky top-0 z-50 mb-4">
@@ -57,11 +65,13 @@
                 📦 PO
             </a>
 
+            {% if user.is_superuser %}
             <a href="{% url 'customers:customer_list' %}"
               class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
                       {% if request.resolver_match.app_name == 'customers' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
                 Customers
             </a>
+            {% endif %}
         </div>
         {% endif %}
       </div>
@@ -103,6 +113,8 @@
               {% endif %}
               {% if user.is_superuser %}
               <li><a href="{% url 'admin:index' %}" target="_blank">Django Admin</a></li>
+              <li><a href="{% url 'customers:customer_list' %}">Customers</a></li>
+
               {% endif %}
               <li class="menu-title"><span></span></li>
               <li><a href="{% url 'logout' %}">Logout</a></li>
@@ -149,6 +161,21 @@
       {% endblock %}
     </main>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <!-- <script>
+      document.addEventListener('DOMContentLoaded', function() {
+          // Automatically hide messages after 5 seconds
+          const alerts = document.querySelectorAll('.alert');
+          if (alerts.length > 0) {
+              setTimeout(() => {
+                  alerts.forEach(alert => {
+                      // You can add a fade-out effect here if you like
+                      alert.style.display = 'none';
+                  });
+              }, 5000);
+          }
+      });
+  </script> -->
 
     <footer class="footer footer-center p-4 bg-base-100 text-base-content border-t">
       <aside>

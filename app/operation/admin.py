@@ -210,6 +210,7 @@ class ParcelAdmin(admin.ModelAdmin):
         'parcel_code_system', # Changed display name consistency
         'courier_company',
         'tracking_number',
+        'status',
         'shipped_at_formatted',
         'created_at_formatted',
         'item_in_parcel_count',

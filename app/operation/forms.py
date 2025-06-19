@@ -176,7 +176,7 @@ class ParcelCustomsDetailForm(forms.ModelForm):
     customs_declaration = forms.ModelChoiceField(
         queryset=CustomsDeclaration.objects.none(),
         widget=forms.RadioSelect,
-        required=True,
+        required=False,
         empty_label=None,
         label="Choose a Customs Description for this Parcel"
     )
@@ -429,3 +429,27 @@ PackagingTypeMaterialComponentFormSet = inlineformset_factory(
         'quantity': NumberInput(attrs={'class': 'input input-bordered w-full', 'min': '0.01', 'step': '0.01'}), # Added min and step for quantity
     }
 )
+
+class AirwayBillForm(forms.ModelForm):
+    """
+    A specific form for capturing the Tracking ID and Estimated Cost
+    in the Air Waybill modal.
+    """
+    class Meta:
+        model = Parcel
+        fields = ['tracking_number', 'estimated_cost']
+        widgets = {
+            'tracking_number': forms.TextInput(attrs={
+                'class': 'input input-bordered w-full',
+                'placeholder': 'Enter tracking number'
+            }),
+            'estimated_cost': forms.NumberInput(attrs={
+                'class': 'input input-bordered w-full',
+                'placeholder': 'e.g., 25.50',
+                'step': '0.01'
+            }),
+        }
+        labels = {
+            'tracking_number': 'Tracking ID',
+            'estimated_cost': 'Estimated Cost (MYR)',
+        }

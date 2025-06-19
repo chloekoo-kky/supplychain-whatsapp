@@ -1,0 +1,27 @@
+
+<h3 class="font-bold text-xl mb-4">Tracking History: {{ parcel.parcel_code_system }}</h3>
+<p class="text-sm text-gray-500 mb-4">Tracking #: {{ parcel.tracking_number }}</p>
+
+<div class="max-h-[60vh] overflow-y-auto">
+    <ul class="timeline timeline-snap-icon max-md:timeline-compact timeline-vertical">
+        {% for log in parcel.tracking_logs.all %}
+        <li>
+            <div class="timeline-middle">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 text-primary"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg>
+            </div>
+            <div class="timeline-end timeline-box">
+                <time class="font-mono italic text-xs">{{ log.timestamp|date:"Y-m-d H:i" }}</time>
+                <div class="text-md font-bold">{{ log.status_description }}</div>
+                {{ log.location }}
+            </div>
+            {% if not forloop.last %}<hr/>{% endif %}
+        </li>
+        {% empty %}
+        <li>
+             <div class="timeline-end timeline-box">
+                No tracking history found. Updates may be pending.
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</div>

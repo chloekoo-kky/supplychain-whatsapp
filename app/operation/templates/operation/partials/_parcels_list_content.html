@@ -5,11 +5,14 @@
     <table class="min-w-full table-auto main-parcel-table table-sm">
         <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal">
             <tr>
+                <th class="py-2 px-2 text-center">
+                    <input type="checkbox" class="checkbox checkbox-sm" id="select-all-parcels" />
+                </th>
                 <th class="py-2 px-4 text-left">P.Code/Created</th>
                 <th class="py-2 px-4 text-left">LWA ID</th>
                 <th class="py-2 px-4 text-left">Customer/Location</th>
                 <th class="py-2 px-4 text-left">Items in Parcel</th>
-                <th class="py-2 px-4 text-left">Courier/Picked Up</th>
+                <th class="py-2 px-4 text-left">Courier/Created</th>
                 <th class="py-2 px-4 text-left">Tracking</th>
                 <th class="py-2 px-4 text-left">Actions</th>
             </tr>
@@ -17,8 +20,10 @@
         <tbody id="parcels-list-tbody">
             {% for parcel in parcels %}
                 <tr class="parcel-row border-b border-gray-200 hover:bg-gray-50" data-parcel-id="{{ parcel.pk }}">
+                    <td class="py-2 px-2 text-center align-middle">
+                        <input type="checkbox" class="checkbox checkbox-sm parcel-select-checkbox" value="{{ parcel.pk }}" />
+                    </td>
                     <td class="py-2 px-4 text-left align-top">
-                        <span class="font-semibold text-black">{{ parcel.parcel_code_system|default:"N/A" }}</span>
 
                         {# START: Icon replacement #}
                         {% if parcel.packaging_type.environment_type == 'COLD' %}
@@ -35,12 +40,12 @@
                             </span>
                         {% endif %}
                         {# END: Icon replacement #}
-
+                        <span class="font-semibold text-black">{{ parcel.parcel_code_system|default:"N/A" }}</span>
                         <br><small class="text-gray-500">{{ parcel.created_at|date:"d/m/y H:i" }}</small>
                     </td>
                     <td class="py-2 px-4 text-left align-top">
                         {{ parcel.order.erp_order_id|default:"N/A" }}
-                        <br><small class="text-gray-500">WH: {{ parcel.order.warehouse.name|default:"-"}}</small>
+                        <br><small class="text-gray-500"> {{ parcel.order.warehouse.name|default:"-"}}</small>
                     </td>
                     <td class="py-2 px-4 text-left align-top">
                         {{ parcel.order.customer.customer_name|default:"N/A" }}
@@ -61,7 +66,7 @@
                                         {% else %}
                                             <span class="text-gray-400 font-medium">[NoLoc]</span>
                                         {% endif %}
-                                        {{ p_item.order_item.product.name|default:p_item.order_item.erp_product_name|truncatechars:30 }}
+                                        {{ p_item.order_item.product.name|default:p_item.order_item.erp_product_name|truncatechars:40 }}
                                         {% if p_item.shipped_from_batch and p_item.shipped_from_batch.batch_number %}
                                             <span class="text-green-700 font-medium ml-1">[{{ p_item.shipped_from_batch.batch_number }}]</span>
                                         {% elif p_item.shipped_from_batch %}
@@ -79,9 +84,48 @@
                         <strong>{{ parcel.courier_company.name|default:"-" }}</strong>
                         <br><small class="text-gray-500">{{ parcel.shipped_at|date:"d/m/y H:i"|default:"Not Picked Up" }}</small>
                     </td>
-                    <td class="py-2 px-4 text-left align-top">{{ parcel.tracking_number|default:"-" }}</td>
+
                     <td class="py-2 px-4 text-left align-top">
-                        <button class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 mt-1  view-edit-parcel-btn" data-parcel-pk="{{ parcel.pk }}">View/Edit</button>
+                        {% if parcel.tracking_number %}
+                            <a href="#" class="font-mono link link-hover show-tracking-history-btn"
+                            data-parcel-pk="{{ parcel.pk }}">
+                                {{ parcel.tracking_number }}
+                            </a>
+
+                            {# START: Updated logic to display the new simplified status #}
+                            {% with status=parcel.simplified_tracking_status %}
+                                {% if status %}
+                                <div class="text-xs font-semibold mt-1
+                                    {% if status == 'Delivered' %}text-success
+                                    {% elif status == 'Failed' %}text-error
+                                    {% else %}text-info
+                                    {% endif %}">
+                                    {{ status }}
+                                </div>
+                                {% endif %}
+                            {% endwith %}
+                            {# END: Updated logic #}
+
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+
+
+
+
+                    <td class="py-2 px-4 text-left align-top">
+
+                        <button class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 mt-1 view-edit-parcel-btn" data-parcel-pk="{{ parcel.pk }}">View/Edit</button>
+
+                        {# START: Conditional Air Waybill Button #}
+                        {% if parcel.customs_declaration and parcel.weight and parcel.length %}
+                        <button class="btn btn-xs bg-gray-500 hover:bg-gray-700 text-gray-200 border-gray-600 mt-1 airway-bill-btn" data-parcel-pk="{{ parcel.pk }}">
+                            Air Waybill
+                        </button>
+                        {% endif %}
+                        {# END: Conditional Air Waybill Button #}
+
                     </td>
                 </tr>
             {% empty %}

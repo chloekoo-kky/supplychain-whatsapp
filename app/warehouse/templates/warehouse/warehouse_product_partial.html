@@ -1,91 +1,80 @@
+{# Sticky Filter Panel - Refactored to a 12-column grid layout #}
 <div class="sticky top-24 z-30 bg-base-100 shadow px-4 py-2 rounded mb-4">
-  <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 space-y-3 md:space-y-0 md:space-x-4">
-    <div class="flex-grow">
-      {% if user.is_superuser %}
-        <div>
-          <div class="text-sm font-medium mb-1 text-gray-600">Filter by Warehouse</div>
-          <div class="flex flex-wrap gap-2 items-center">
-            <button type="button"
-              class="btn btn-xs sm:btn-sm {% if not selected_warehouse_id %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-              data-filter="warehouse" data-value="">All</button>
-            {% for w_obj in warehouses %}
-            <button type="button"
-              class="btn btn-xs sm:btn-sm {% if selected_warehouse_id|stringformat:'s' == w_obj.id|stringformat:'s' %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-              data-filter="warehouse" data-value="{{ w_obj.id }}">
-              {{ w_obj.name }}
-            </button>
-            {% endfor %}
-          </div>
-        </div>
-      {% else %}
-        {# Non-Superuser: Display their assigned warehouse #}
-        <div>
-          <div class="text-sm font-medium mb-1 text-gray-600">Warehouse</div>
-          {% if user.warehouse %}
-            <button type="button" class="btn btn-md sm:btn-md btn-neutral text-white">
-              {{ user.warehouse.name }}
-            </button>
-            <input type="hidden" id="user-assigned-warehouse-id" value="{{ user.warehouse.id }}">
-          {% else %}
-            <button type="button" class="btn btn-xs sm:btn-sm btn-error text-white" disabled>
-              No Warehouse Assigned
-            </button>
-          {% endif %}
-        </div>
-      {% endif %}
-    </div>
+    <div class="grid grid-cols-12 gap-x-4 items-start">
+        {# --- ROW 1: Filters and Buttons --- #}
 
-    <div class="flex items-center space-x-2">
-      <label class="label">H. Lvl:</label>
-      <select id="healthy-level" class="select select-sm select-bordered w-32">
-        <option value="1.2">1.2x</option>
-        <option value="1.3">1.3x</option>
-        <option value="1.4">1.4x</option>
-        <option value="1.5" selected>1.5x</option>
-      </select>
-    </div>
-  </div>
+        {# Total Products Count - 2 columns #}
+        <div class="col-span-12 md:col-span-2">
+            <h2 class="text-lg font-semibold text-gray-700">
+                Total:
+                <br><span class="font-normal text-gray-500">
+                    ({{ products.count|default:0 }} products)
+                </span>
+            </h2>
+        </div>
 
-  <div class="flex flex-col md:flex-row justify-between md:items-center mb-4 space-y-3 md:space-y-0">
-      <div class="flex-grow">
-          <div class="text-sm font-medium mb-1 text-gray-600">Filter by Supplier</div>
-          <div class="flex flex-wrap gap-2 items-center">
-              <button type="button"
-                      class="btn btn-sm {% if not selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-                      data-filter="supplier" data-value="">All</button>
-              {% for s_obj in suppliers %} {# Changed from supplier to s_obj to avoid conflict #}
-              <button type="button"
-                      class="btn btn-sm {% if s_obj.id|stringformat:'s' == selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}"
-                      data-filter="supplier" data-value="{{ s_obj.id }}">
-                  {{ s_obj.code }}
-              </button>
-              {% endfor %}
-              <div class="flex-grow md:flex-grow-0 md:w-1/3 mt-3 md:mt-0">
-                <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="flex items-center gap-x-2">  {# MODIFIED: Added gap-x-2 #}
-                    <input type="text" name="q" placeholder="Search SKU or Product Name" class="input input-sm input-bordered w-full"
-                           value="{{ query|default:'' }}" />
-                    <button type="button" class="btn btn-sm btn-outline" onclick="resetWarehouseProductFilters()">
-                        🗑 Reset
+        {# Warehouse Filters - 3 columns #}
+        <div class="col-span-12 md:col-span-3">
+            <div class="flex flex-wrap gap-1 justify-end">
+                {% if user.is_superuser %}
+                    <button type="button" class="btn btn-xs sm:btn-sm btn-outline" data-filter="warehouse" data-value="">All</button>
+                    {% for w_obj in warehouses %}
+                    <button type="button" class="btn btn-xs sm:btn-sm btn-outline" data-filter="warehouse" data-value="{{ w_obj.id }}">
+                        {{ w_obj.name }}
                     </button>
-                </form>
+                    {% endfor %}
+                {% else %}
+                    {% if user.warehouse %}
+                        <button type="button" class="btn btn-sm sm:btn-sm btn-neutral text-white">{{ user.warehouse.name }}</button>
+                        <input type="hidden" id="user-assigned-warehouse-id" value="{{ user.warehouse.id }}">
+                    {% else %}
+                        <button type="button" class="btn btn-xs sm:btn-sm btn-error text-white" disabled>No Warehouse Assigned</button>
+                    {% endif %}
+                {% endif %}
             </div>
+        </div>
+
+        {# Supplier Filters - 5 columns #}
+        <div class="col-span-12 md:col-span-5">
+            <div class="flex flex-wrap gap-2 items-center">
+                <button type="button" class="btn btn-sm btn-outline" data-filter="supplier" data-value="">All</button>
+                {% for s_obj in suppliers %}
+                <button type="button" class="btn btn-sm btn-outline" data-filter="supplier" data-value="{{ s_obj.id }}">
+                    {{ s_obj.code }}
+                </button>
+                {% endfor %}
+            </div>
+
+            <div class="col-span-12 md:col-span-3 mt-2">
+              <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="flex items-center gap-x-2">
+                  <input type="text" name="q" placeholder="Search SKU or Product Name" class="input input-sm input-bordered w-[70%]" value="{{ query|default:'' }}" />
+                  <button type="button" class="btn btn-sm btn-outline bg-gray-300" onclick="resetWarehouseProductFilters()">
+                      Reset
+                  </button>
+              </form>
           </div>
+        </div>
 
-      </div>
-
-
-      {% if user.is_superuser %}
-    <div class="flex justify-end items-center mb-4">
-        <button id="create-po-btn" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">
-            Create PO
-        </button>
+        {# Action Buttons - 2 columns #}
+        <div class="col-span-12 md:col-span-2">
+            <div class="flex flex-col items-end gap-y-2">
+                <div class="flex items-center space-x-2">
+                    <label class="label text-sm">H. Lvl:</label>
+                    <select id="healthy-level" class="select select-sm select-bordered w-32">
+                        <option value="1.2">1.2x</option>
+                        <option value="1.3">1.3x</option>
+                        <option value="1.4">1.4x</option>
+                        <option value="1.5" selected>1.5x</option>
+                    </select>
+                </div>
+                {% if user.is_superuser %}
+                    <button id="create-po-btn" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">
+                        Create PO
+                    </button>
+                {% endif %}
+            </div>
+        </div>
     </div>
-  {% endif %}
-
-  </div>
-
-
-
 </div>
 
 <div class="overflow-x-auto">

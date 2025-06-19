@@ -1,0 +1,306 @@
+{% load my_filters %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Print Parcel Cards</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@latest/dist/full.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* --- Styles for On-Screen Display --- */
+        body {
+            background-color: #f0f2f5;
+        }
+        .screen-view-container,
+        .print-area-onscreen {
+            max-width: 1280px; margin-left: auto; margin-right: auto; padding-left: 20px; padding-right: 20px;
+        }
+        .screen-view-container {
+            padding-top: 20px;
+        }
+        .printable-page {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;
+        }
+        .parcel-card {
+            border: 1px solid #ccc; background: white; padding: 20px; display: flex; flex-direction: column; overflow-wrap: break-word; word-break: break-all;
+        }
+        .parcel-card p { margin: 2px 0; font-size: 14px; flex-shrink: 0; }
+        .parcel-card ul {
+            list-style: none; padding-left: 0; margin: 5px 0; font-size: 14px; flex-grow: 1; flex-shrink: 1; overflow: hidden;
+        }
+        .truncate {
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .parcel-card .notes {
+            margin-top: auto;
+            flex-shrink: 0;
+            line-height: 1.4;
+        }
+        .summary-card { background-color: #f8f9fa; border: 2px solid #dee2e6; }
+        .line-clamp-3 {
+            overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+        }
+        .summary-columns {
+            display: flex; flex-direction: row; gap: 10px;
+        }
+        .summary-column {
+            flex: 1;
+            min-width: 0;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .summary-column ul {
+             width: 100%;
+        }
+        .summary-full-width {
+            margin-top: 10px;
+        }
+        .card-header {
+            display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;
+        }
+        .card-header .header-left .courier-name { font-size: 18px; font-weight: bold; }
+        .card-header .header-left .destination-location { font-size: 12px;}
+        .card-header .header-right { text-align: right; }
+        .card-header .header-right h3 { font-size: 15px; font-weight: bold; margin-bottom: 0; }
+        .card-header .header-right .packaging-indicator { font-size: 14px; line-height: 1; }
+        .card-header .header-right .parcel-creation-date { font-size: 12px; margin-top: 0; }
+        .item-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            border-bottom: 1px solid #f3f4f6;
+            padding: 6px 0;
+        }
+        .item-row:last-child {
+            border-bottom: none;
+        }
+        .item-name {
+            flex-grow: 1;
+            min-width: 0;
+            margin-left: 8px;
+        }
+        .item-qty {
+            flex-shrink: 0;
+            padding-left: 10px;
+            margin-right: 8px;
+        }
+        .card-divider {
+            border: 0;
+            border-top: 1px solid #e5e7eb;
+            margin: 8px 0;
+        }
+        .item-list-header {
+            display: flex;
+            justify-content: space-between;
+            background-color: #f3f4f6;
+            padding: 4px 0;
+            border-radius: 4px;
+            margin: 8px 0 0 0;
+            font-size: 12px;
+            font-weight: bold;
+            color: #374151;
+        }
+        .summary-full-width .item-row {
+            font-size: 13px;
+        }
+        .parcel-card:not(.summary-card) .item-row {
+            font-size: 14px;
+        }
+        .parcel-card:not(.summary-card) .item-name {
+            word-break: normal;
+            overflow-wrap: break-word;
+        }
+
+        /* --- Print-Specific Styles --- */
+        @media print {
+            @page {
+                size: A4 portrait; margin: 0;
+            }
+            body { margin: 0; background-color: white; }
+            .screen-view-container { display: none; }
+            .print-area-onscreen { max-width: none; margin: 0; padding: 0; }
+            .printable-page {
+                display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); width: 210mm; height: 297mm; padding: 5mm; gap: 5mm; box-sizing: border-box; page-break-after: always; margin: 0;
+            }
+            .parcel-card {
+                border: 1px dashed black; padding: 3mm; overflow: hidden;
+            }
+            .parcel-card p {
+                font-size: 8pt; line-height: 1.3;
+            }
+            .parcel-card .card-top-info {
+                line-height: 1;
+                margin: 0;
+            }
+            .parcel-card ul {
+                font-size: 8pt; line-height: 1.3; margin-top: 0; margin-bottom: 0;
+            }
+            .parcel-card .item-row {
+                border-bottom: 1px solid #e5e7eb;
+                padding: 1.5mm 0;
+            }
+            .parcel-card .item-row:last-child {
+                border-bottom: none;
+            }
+            .parcel-card .item-name {
+                margin-left: 1.5mm;
+            }
+            .parcel-card .item-qty {
+                margin-right: 1.5mm;
+            }
+            .summary-card .summary-full-width .item-row {
+                font-size: 7pt; line-height: 1.2;
+            }
+            .parcel-card:not(.summary-card) .item-row {
+                font-size: 9pt;
+            }
+            .parcel-card .destination-location {
+                font-size: 10pt; margin-top: 0;
+            }
+            .parcel-card .courier-name {
+                font-size: 12pt; font-weight: bold;
+            }
+            .parcel-card .card-header .header-right .parcel-creation-date {
+                font-size: 10pt; margin-bottom: 0;
+            }
+            .parcel-card .card-header .header-right h3 {
+                font-size: 12pt; margin-top: 0;
+            }
+            .parcel-card .card-header .header-right .packaging-indicator {
+                font-size: 12pt; font-weight: lighter; line-height: 1; margin: -1mm 0;
+            }
+            .summary-columns { gap: 2mm; }
+            .summary-column {
+                border: 1px solid #666;
+                border-radius: 2mm;
+                padding: 3mm;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                text-align: left;
+            }
+            .summary-full-width { margin-top: 2mm; font-size: 8pt;}
+            .parcel-card .card-divider {
+                border-top: 1px solid #666;
+                margin: 2mm 0;
+            }
+            .parcel-card .notes {
+                line-height: 1.3;
+                font-size: 9pt;
+            }
+            .item-list-header {
+                display: flex;
+                justify-content: space-between;
+                background-color: #7d7f85 !important;
+                color: #ffffff;
+                -webkit-print-color-adjust: exact;
+                padding: 1mm 0;
+                border-radius: 1mm;
+                margin: 2mm 0 0 0;
+                font-size: 7pt;
+                font-weight: bold;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="screen-view-container mb-2">
+        <div class="print-controls text-center">
+            <button onclick="window.print()" class="btn btn-primary">Save Packing Slips</button>
+        </div>
+    </div>
+    <div class="print-area-onscreen">
+        <div class="printable-page">
+            <div class="parcel-card summary-card">
+                <h3 class="font-bold text-center mb-2">Shipment Summary</h3>
+                <div class="summary-columns">
+                    <div class="summary-column">
+                        <p>Total: <strong>{{ summary.total_parcels }}</strong></p>
+                        <p>Cold Chain: <strong>{{ summary.cold_chain_count }}</strong></p>
+                        <p>Ambient: <strong>{{ summary.ambient_count }}</strong></p>
+                    </div>
+                    <div class="summary-column">
+                        <ul>
+                        {% for courier in summary.courier_counts %}
+                            <li class="truncate">{{ courier.courier_company__name }}: <strong>{{ courier.count }}</strong></li>
+                        {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                <div class="summary-full-width">
+                    <h4 class="font-bold">Product Quantities:</h4>
+                    <ul>
+                    {% for product, quantity in summary.product_quantities %}
+                        <li class="item-row">
+                            <span class="item-name">{{ product }}</span>
+                            <span class="item-qty"><strong>{{ quantity }}</strong></span>
+                        </li>
+                    {% endfor %}
+                    </ul>
+                </div>
+            </div>
+
+                {% for parcel in parcels %}
+                <div class="parcel-card">
+
+                    <p class="card-top-info">Order ID: {{ parcel.order.erp_order_id }}</p>
+                    <p class="card-top-info">{{ parcel.order.customer.customer_name }}</p>
+
+                    <hr class="card-divider" />
+
+                    <div class="card-header">
+                        <div class="header-left">
+                            <p class="destination-location truncate">
+                                {{ parcel.order.customer.city|default:"" }}{% if parcel.order.customer.city and parcel.order.customer.state %}, {% endif %}{{ parcel.order.customer.state|default:"" }}
+                            </p>
+                            <p class="courier-name">{{ parcel.courier_company.name|default:"N/A" }}</p>
+                        </div>
+                        <div class="header-right">
+                            <p class="parcel-creation-date">{{ parcel.created_at|date:"d M Y" }}</p>
+                            <h3>{{ parcel.parcel_code_system}}</h3>
+                            {% if parcel.packaging_type %}
+                                <p class="packaging-indicator">
+                                    {{ parcel.packaging_type.name|default:"N/A" }}
+                                </p>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="item-list-header">
+                        <span class="item-name">Items</span>
+                        <span class="item-qty">Qty</span>
+                    </div>
+
+                    <ul>
+                        {% for item in parcel.items_in_parcel.all %}
+                        <li class="item-row">
+                            <span class="item-name">
+                                {% if item.shipped_from_batch and item.shipped_from_batch.location_label %}
+                                    <span style="font-weight: bold; color: #767977; margin-right: 4px;">[{{ item.shipped_from_batch.location_label }}]</span>
+                                {% endif %}
+                                {{ item.order_item.product.name }}
+                                {% if item.shipped_from_batch and item.shipped_from_batch.batch_number %}
+                                    <span style="font-weight: bold; color: #767977; margin-left: 4px;">[{{ item.shipped_from_batch.batch_number }}]</span>
+                                {% endif %}
+                            </span>
+                            <span class="item-qty">x <strong>{{ item.quantity_shipped_in_this_parcel }}</strong></span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <p class="notes line-clamp-3"><strong>Notes:</strong> {{ parcel.notes|default:"-" }}</p>
+                </div>
+
+                {% with total_items=forloop.counter|add:1 %}
+                    {% if total_items|divisibleby:9 and not forloop.last %}
+                        </div><div class="printable-page">
+                    {% endif %}
+                {% endwith %}
+                {% endfor %}
+        </div>
+    </div>
+</body>
+</html>
