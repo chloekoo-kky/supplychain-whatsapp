@@ -65,19 +65,8 @@ class WarehouseProduct(models.Model):
 
     @property
     def pending_arrival(self):
-        incoming = PurchaseOrderItem.objects.select_related('purchase_order').filter(
-            item=self,
-            purchase_order__status__in=['DRAFT', 'WAITING_INVOICE', 'PAYMENT_MADE', 'PARTIALLY_DELIVERED']
-        ).exclude(purchase_order__status='DELIVERED').aggregate(total_pending=Sum('quantity'))
-
-        already_received = PurchaseOrderItem.objects.filter(
-            item=self,
-            purchase_order__status__in=['DRAFT', 'WAITING_INVOICE', 'PAYMENT_MADE', 'PARTIALLY_DELIVERED']
-        ).aggregate(total_received=Sum('received_quantity'))
-
-        pending_qty = (incoming['total_pending'] or 0) - (already_received['total_received'] or 0)
-        return max(0, pending_qty)
-
+        """Calculates the total quantity of this product from active POs."""
+        return sum(item.balance_quantity for item in self.incoming_po_items)
 
     @property
     def incoming_po_items(self):
@@ -91,119 +80,69 @@ class WarehouseProduct(models.Model):
         aggregation = self.batches.aggregate(total=Sum('quantity'))
         return aggregation['total'] or 0
 
-# ... (PurchaseOrder, PurchaseOrderItem, etc. models remain the same) ...
-# Ensure PurchaseOrderItem is defined or imported if used by pending_arrival
 class PurchaseOrder(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
-        ('WAITING_INVOICE', 'Waiting for Invoice'),
+        ('WAITING_INVOICE', 'Waiting Invoice'),
         ('PAYMENT_MADE', 'Payment Made'),
         ('PARTIALLY_DELIVERED', 'Partially Delivered'),
         ('DELIVERED', 'Delivered'),
         ('CANCELLED', 'Cancelled'),
     ]
-    supplier = models.ForeignKey('inventory.Supplier', on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='DRAFT')
-    notes = models.TextField(blank=True, null=True)
-    last_updated_date = models.DateTimeField(auto_now=True)
+
+    id = models.CharField(max_length=50, primary_key=True, unique=True, editable=False)
+
+
+    supplier = models.ForeignKey('inventory.Supplier', on_delete=models.PROTECT)
+    status = models.CharField(max_length=50, choices=STATUS_CHOICES, default='DRAFT')
     eta = models.DateField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    draft_date = models.DateTimeField(null=True, blank=True)
-    waiting_invoice_date = models.DateTimeField(null=True, blank=True)
-    payment_made_date = models.DateTimeField(null=True, blank=True)
-    partially_delivered_date = models.DateTimeField(null=True, blank=True)
-    delivered_date = models.DateTimeField(null=True, blank=True)
-    cancelled_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated_date = models.DateTimeField(auto_now=True)
 
-    def set_status_date(self, status_code):
-        field_map = {
-            'DRAFT': 'draft_date',
-            'WAITING_INVOICE': 'waiting_invoice_date',
-            'PAYMENT_MADE': 'payment_made_date',
-            'PARTIALLY_DELIVERED': 'partially_delivered_date',
-            'DELIVERED': 'delivered_date',
-            'CANCELLED': 'cancelled_date',
-        }
-        ordered_statuses = ['DRAFT', 'WAITING_INVOICE', 'PAYMENT_MADE', 'PARTIALLY_DELIVERED', 'DELIVERED'] # Exclude CANCELLED from auto-backfill logic path
+    # 2. Override the save() method to generate the custom ID
+    def save(self, *args, **kwargs):
+        # Only generate a new ID if this is a new PO (it has no ID yet).
+        if not self.id:
+            # Use a database transaction to prevent race conditions.
+            with transaction.atomic():
+                # Get the sequence object, creating it if it doesn't exist.
+                # The select_for_update() locks the row until this transaction is complete.
+                sequence_obj, created = PurchaseOrderSequence.objects.select_for_update().get_or_create(pk=1)
 
-        try:
-            target_index = ordered_statuses.index(status_code)
-            for i in range(target_index + 1):
-                code_to_set = ordered_statuses[i]
-                field_name = field_map.get(code_to_set)
-                if field_name and getattr(self, field_name) is None:
-                    setattr(self, field_name, timezone.now())
-        except ValueError: # Handle cases like 'CANCELLED' not in ordered_statuses for backfill
-            field_name = field_map.get(status_code)
-            if field_name and getattr(self, field_name) is None:
-                 setattr(self, field_name, timezone.now())
+                # Increment and save the new last number
+                new_number = sequence_obj.last_number + 1
+                sequence_obj.last_number = new_number
+                sequence_obj.save()
 
-        # Specifically for PARTIALLY_DELIVERED, always update its timestamp if it's the current status
-        if status_code == 'PARTIALLY_DELIVERED':
-            self.partially_delivered_date = timezone.now()
+            # Format the new ID (e.g., 'MBA' + '001')
+            supplier_code = self.supplier.code.upper()
+            padded_number = str(new_number).zfill(3) # Zero-pads the number to 3 digits
+            self.id = f"{supplier_code}{padded_number}"
+
+        super().save(*args, **kwargs) # Call the original save method
 
 
     def __str__(self):
-        return f"PO#{self.id} - {self.supplier.name} - {self.status}"
+        return f"PO {self.id} - {self.supplier.name}"
 
     @property
     def total_amount(self):
         return sum(item.total_price for item in self.items.all())
 
     @property
-    def total_ordered_quantity(self):
-        return self.items.aggregate(total=Sum('quantity'))['total'] or 0
+    def is_receivable(self):
+        """Returns True if the PO is in a state where items can be received."""
+        return self.status in ['PAYMENT_MADE', 'PARTIALLY_DELIVERED']
 
     @property
-    def total_received_quantity(self):
-        return self.items.aggregate(total=Sum('received_quantity'))['total'] or 0
-
-    def update_received_quantities_and_status(self):
-        if not self.items.exists():
-            if self.status not in ['DRAFT', 'CANCELLED']:
-                self.status = 'DRAFT'
-                self.save()
-            return
-
-        all_items_fully_received = not self.items.filter(received_quantity__lt=F('quantity')).exists()
-        any_item_received_at_all = self.items.filter(received_quantity__gt=0).exists()
-        new_status = self.status
-
-        if self.status == 'CANCELLED':
-            pass
-        elif all_items_fully_received:
-            new_status = 'DELIVERED'
-        elif any_item_received_at_all:
-            new_status = 'PARTIALLY_DELIVERED'
-        else:
-            if self.status in ['PARTIALLY_DELIVERED', 'DELIVERED']:
-                new_status = 'PAYMENT_MADE'
-        if new_status != self.status:
-            self.status = new_status
-            self.save()
-
     def is_fully_received(self):
-        if not self.items.exists():
-            return False
-        return not self.items.filter(received_quantity__lt=models.F('quantity')).exists()
-
-    def save(self, *args, **kwargs):
-        is_new = self._state.adding
-        old_status = None
-        if not is_new:
-            try:
-                old_status = PurchaseOrder.objects.get(pk=self.pk).status
-            except PurchaseOrder.DoesNotExist:
-                pass
-        if is_new and self.status == 'DRAFT' and not self.draft_date:
-            self.draft_date = timezone.now()
-        if old_status != self.status:
-            self.set_status_date(self.status)
-        super().save(*args, **kwargs)
+        """Returns True if all items on this PO have been fully received."""
+        # This checks if the balance quantity is zero for every single item on the PO.
+        return all(item.balance_quantity == 0 for item in self.items.all())
 
 class PurchaseOrderItem(models.Model):
-    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='items')
-    item = models.ForeignKey(WarehouseProduct, on_delete=models.CASCADE)
+    purchase_order = models.ForeignKey(PurchaseOrder, related_name='items', on_delete=models.CASCADE)
+    item = models.ForeignKey(WarehouseProduct, on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
     received_quantity = models.PositiveIntegerField(default=0)
@@ -216,22 +155,26 @@ class PurchaseOrderItem(models.Model):
     def balance_quantity(self):
         return self.quantity - self.received_quantity
 
-    def __str__(self):
-        return f"{self.item.product.name} x {self.quantity} (Received: {self.received_quantity}) for PO#{self.purchase_order.id}"
-
-class PurchaseOrderReceiptLog(models.Model):
-    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='receipt_logs')
-    receipt_date = models.DateTimeField(default=timezone.now)
+class PurchaseOrderStatusLog(models.Model):
+    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name='status_logs')
+    status = models.CharField(max_length=50, choices=PurchaseOrder.STATUS_CHOICES)
+    timestamp = models.DateTimeField(default=timezone.now)
+    user = models.ForeignKey('core.User', on_delete=models.SET_NULL, null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['timestamp']
+
     def __str__(self):
-        return f"Receipt for PO#{self.purchase_order.id} on {self.receipt_date.strftime('%Y-%m-%d %H:%M')}"
+        return f'{self.purchase_order.id}: {self.get_status_display()} at {self.timestamp}'
+
 
 class PurchaseOrderReceiptItem(models.Model):
-    receipt_log = models.ForeignKey(PurchaseOrderReceiptLog, on_delete=models.CASCADE, related_name='received_items')
-    po_item = models.ForeignKey(PurchaseOrderItem, on_delete=models.CASCADE, related_name='receipt_entries')
+    # CORRECTED: This now correctly links to the new status log model
+    status_log = models.ForeignKey(PurchaseOrderStatusLog, on_delete=models.CASCADE, related_name='received_items', null=True)
+    po_item = models.ForeignKey(PurchaseOrderItem, on_delete=models.CASCADE)
     quantity_received_this_time = models.PositiveIntegerField()
-    def __str__(self):
-        return f"{self.quantity_received_this_time} of {self.po_item.item.product.name} for PO#{self.receipt_log.purchase_order.id}"
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
 
+
+class PurchaseOrderSequence(models.Model):
+    last_number = models.PositiveIntegerField(default=0)

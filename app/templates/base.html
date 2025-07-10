@@ -1,5 +1,5 @@
 {% load static %}
-{% load i18n %} {# It's good practice to load i18n if you might use it #}
+{% load i18n %}
 
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
@@ -41,23 +41,23 @@
 
   </head>
 
-  <body class="bg-gray-50 text-gray-900">
+  <body class="bg-gray-50 text-gray-900 pb-20 md:pb-0">
     {% csrf_token %}
-    <div class="navbar bg-base-100 shadow-sm sticky top-0 z-50 mb-4">
+    <div class="navbar bg-base-100 shadow-sm sticky top-0 z-50 mb-4 hidden md:flex">
       <div class="flex-1 flex items-center space-x-4 px-4 max-w-7xl mx-auto w-full">
-        <a href="/" class="btn btn-ghost text-xl normal-case">🧾 Chima Gun</a> {# Added normal-case to prevent all caps #}
+        <a href="/" class="btn btn-ghost text-xl normal-case">🚚 Chima Gun</a>
 
-        {% if user.is_authenticated %} {# Show navigation links only if authenticated #}
+        {% if user.is_authenticated %}
         <div class="flex space-x-2">
             <a href="{% url 'inventory:inventory_batch_list_view' %}"
                class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
                       {% if request.resolver_match.url_name == 'inventory_batch_list_view' and request.resolver_match.app_name == 'inventory' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
-               📋 Stock Now
+               📦 Stock Now
             </a>
             <a href="{% url 'operation:order_list' %}"
                class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
                       {% if request.resolver_match.url_name == 'order_list' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
-                🚚 Operations
+                📦 Operations
             </a>
             <a href="{% url 'warehouse:warehouse_management' %}"
                class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
@@ -66,11 +66,23 @@
             </a>
 
             {% if user.is_superuser %}
-            <a href="{% url 'customers:customer_list' %}"
-              class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
-                      {% if request.resolver_match.app_name == 'customers' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
-                Customers
+            <a href="{% url 'operation:courier_invoice_list' %}"
+            class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
+                      {% if request.resolver_match.url_name == 'courier_invoice_list' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
+              Invoices
             </a>
+            <a href="{% url 'operation:invoice_item_report' %}"
+            class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
+                      {% if request.resolver_match.url_name == 'invoice_item_report' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
+              Invoice Items
+            </a>
+
+            <a href="{% url 'operation:generate_report' %}"
+            class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
+                      {% if request.resolver_match.url_name == 'generate_report' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
+              Reports
+            </a>
+
             {% endif %}
         </div>
         {% endif %}
@@ -78,7 +90,6 @@
 
       {# User Authentication Section - Top Right #}
       <div class="flex-none px-6 items-end">
-        <div class="flex items-end"></div>
         {% if user.is_authenticated %}
         <div class="flex items-center space-x-3">
           <div class="user-info text-sm text-gray-600 mr-2 flex flex-col items-end">
@@ -90,38 +101,10 @@
                 <span class="badge badge-primary badge-sm mt-0.5">Admin</span>
               {% endif %}
             </div>
-
-          </div>{# NEW ADMIN DROPDOWN #}
-          <div class="dropdown dropdown-end">
-            <label tabindex="0" class="btn btn-neutral btn-sm m-0">
-              Admin
-            </label>
-            <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52 z-[1]">
-              {% if not user.is_superuser and user.warehouse %}
-              <li><a href="{% url 'inventory:stock_take_operator' %}">Start Stock Take</a></li>
-              <li><a href="{% url 'operation:manage_customs_declarations' %}">Customs Declarations</a></li> {# <-- ADD THIS LINE #}
-              <li><a href="{% url 'operation:packaging_management' %}">Packaging Management</a></li> {# <-- ADD THIS LINE #}
-
-              {% endif %}
-              {% if user.is_superuser %}
-              <li><a href="{% url 'inventory:stock_take_session_list' %}">Batch Stock Take</a></li>
-              <li><a href="{% url 'inventory:erp_stock_check_list' %}">LWA Stock Checks</a></li>
-
-              <li class="menu-title"><span></span></li>
-
-
-              {% endif %}
-              {% if user.is_superuser %}
-              <li><a href="{% url 'admin:index' %}" target="_blank">Django Admin</a></li>
-              <li><a href="{% url 'customers:customer_list' %}">Customers</a></li>
-
-              {% endif %}
-              <li class="menu-title"><span></span></li>
-              <li><a href="{% url 'logout' %}">Logout</a></li>
-            </ul>
           </div>
-      </div>
-      {% else %}
+          <!-- MODIFICATION: Admin dropdown is removed from here -->
+        </div>
+        {% else %}
           <a href="{% url 'login' %}" class="btn btn-sm btn-primary">Login</a>
         {% endif %}
       </div>
@@ -133,14 +116,13 @@
         {% for message in messages %}
           <div class="alert
             {% if message.tags == 'success' %}
-              bg-green-100 border border-green-300 text-green-700  {# Lighter green for success #}
+              bg-green-100 border border-green-300 text-green-700
             {% elif message.tags %}
-              alert-{{ message.tags }} {# DaisyUI default for error, warning, etc. #}
+              alert-{{ message.tags }}
             {% else %}
-              alert-info {# DaisyUI default for info or untagged messages #}
+              alert-info
             {% endif %}
             shadow-lg">
-            {# MODIFIED: Added flex, items-center, and gap-2 to this div #}
             <div class="flex items-center gap-2">
               {% if message.tags == 'success' %}
                 <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -148,7 +130,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               {% elif message.tags == 'warning' %}
                 <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              {% else %} {# info or untagged #}
+              {% else %}
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-info flex-shrink-0 w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
               {% endif %}
               <span>{{ message }}</span>
@@ -162,24 +144,65 @@
     </main>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
-    <!-- <script>
-      document.addEventListener('DOMContentLoaded', function() {
-          // Automatically hide messages after 5 seconds
-          const alerts = document.querySelectorAll('.alert');
-          if (alerts.length > 0) {
-              setTimeout(() => {
-                  alerts.forEach(alert => {
-                      // You can add a fade-out effect here if you like
-                      alert.style.display = 'none';
-                  });
-              }, 5000);
-          }
-      });
-  </script> -->
+    <!-- MODIFICATION: Bottom Mobile Navigation -->
+    {% if user.is_authenticated %}
+    <div class="btm-nav md:hidden">
+        <a href="{% url 'inventory:inventory_batch_list_view' %}" class="{% if request.resolver_match.url_name == 'inventory_batch_list_view' and request.resolver_match.app_name == 'inventory' %}active{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4M4 7s0 0 0 0" /></svg>
+            <span class="btm-nav-label">Stock</span>
+        </a>
+        <a href="{% url 'operation:order_list' %}" class="{% if request.resolver_match.url_name == 'order_list' and request.resolver_match.app_name == 'operation' %}active{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+            <span class="btm-nav-label">Ops</span>
+        </a>
+        <a href="{% url 'warehouse:warehouse_management' %}" class="{% if request.resolver_match.url_name == 'warehouse_management' and request.resolver_match.app_name == 'warehouse' %}active{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" /></svg>
+            <span class="btm-nav-label">PO</span>
+        </a>
+        <a href="{% url 'logout' %}">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+            <span class="btm-nav-label">Logout</span>
+        </a>
+    </div>
+    {% endif %}
 
-    <footer class="footer footer-center p-4 bg-base-100 text-base-content border-t">
+    <!-- MODIFICATION: Floating Admin Menu Button -->
+    {% if user.is_authenticated %}
+    <div class="fixed bottom-6 right-6 z-50 dropdown dropdown-top dropdown-end">
+        <label tabindex="0" class="btn btn-primary btn-circle shadow-lg">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        </label>
+        <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-52 mb-2">
+            {% if not user.is_superuser and user.warehouse %}
+            <li><a href="{% url 'inventory:stock_take_operator' %}">Stock Take</a></li>
+            <li><a href="{% url 'operation:courier_invoice_list' %}">Courier Invoices</a></li>
+            <li class="menu-title"><span></span></li>
+            <li><a href="{% url 'operation:manage_customs_declarations' %}">Customs Declarations Management</a></li>
+            <li><a href="{% url 'operation:packaging_management' %}">Packaging Management</a></li>
+            {% endif %}
+            {% if user.is_superuser %}
+            <li><a href="{% url 'inventory:stock_take_session_list' %}">Batch Stock Take</a></li>
+            <li><a href="{% url 'inventory:erp_stock_check_list' %}">LWA Stock Take</a></li>
+            <li class="menu-title"><span></span></li>
+            {% endif %}
+            {% if user.is_superuser %}
+            <li><a href="{% url 'admin:index' %}" target="_blank">Django Admin</a></li>
+            <li><a href="{% url 'customers:customer_list' %}">Customers</a></li>
+            <li><a href="{% url 'operation:generate_report' %}">Generate Report</a></li>
+
+            {% endif %}
+            <li class="menu-title"><span></span></li>
+            <li><a href="{% url 'logout' %}">Logout</a></li>
+        </ul>
+    </div>
+    {% endif %}
+
+    <footer class="footer footer-center p-4 bg-base-100 text-base-content border-t hidden md:flex">
       <aside>
-        <p>© {% now "Y" %} Management System</p> {# Use Django's now tag for current year #}
+        <p>© {% now "Y" %} Management System</p>
       </aside>
     </footer>
 

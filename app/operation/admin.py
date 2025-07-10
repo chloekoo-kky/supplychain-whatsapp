@@ -2,7 +2,17 @@
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
-from .models import Order, OrderItem, Parcel, ParcelItem, CustomsDeclaration, CourierCompany, PackagingType, PackagingTypeMaterialComponent
+from .models import (Order,
+                     OrderItem,
+                     Parcel,
+                     ParcelItem,
+                     CustomsDeclaration,
+                     CourierCompany,
+                     PackagingType,
+                     PackagingTypeMaterialComponent,
+                     CourierInvoice,
+                     CourierInvoiceItem
+                     )
 from inventory.models import PackagingMaterial
 # Inlines allow editing related models on the same page
 
@@ -211,6 +221,7 @@ class ParcelAdmin(admin.ModelAdmin):
         'courier_company',
         'tracking_number',
         'status',
+        'estimated_cost',
         'shipped_at_formatted',
         'created_at_formatted',
         'item_in_parcel_count',
@@ -392,5 +403,61 @@ class PackagingTypeAdmin(admin.ModelAdmin):
     )
     inlines = [PackagingTypeMaterialComponentInline]
 
+class CourierInvoiceItemInline(admin.TabularInline):
+    """
+    Shows a read-only view of items that were processed from a specific invoice.
+    """
+    model = CourierInvoiceItem
+    extra = 0
+    # Make this view read-only since the global admin view is the place for edits.
+    readonly_fields = ('tracking_number', 'actual_cost', 'scale_weight', 'vol_weight', 'billed_weight', 'is_billed_to_customer')
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
+@admin.register(CourierInvoice)
+class CourierInvoiceAdmin(admin.ModelAdmin):
+    list_display = ('invoice_number', 'courier_company', 'invoice_date', 'invoice_amount', 'payment_date')
+    inlines = [CourierInvoiceItemInline]
+    list_filter = ('courier_company', 'invoice_date', 'payment_date')
+    search_fields = ('invoice_number',)
+    readonly_fields = ('uploaded_at', 'uploaded_by', 'invoice_amount')
+
+
+# --- NEW ADMIN VIEW FOR COURIER INVOICE ITEMS ---
+@admin.register(CourierInvoiceItem)
+class CourierInvoiceItemAdmin(admin.ModelAdmin):
+    """
+    A dedicated admin view for managing all courier invoice items globally.
+    This is the primary place to search, filter, and edit individual shipment costs.
+    """
+    list_display = (
+        'tracking_number',
+        'actual_cost',
+        'billed_weight',
+        'is_billed_to_customer',
+        'courier_invoice', # Shows the most recent invoice associated
+        'parcel',
+    )
+    search_fields = (
+        'tracking_number',
+        'courier_invoice__invoice_number',
+        'parcel__order__customer__name',
+    )
+    list_filter = (
+        'is_billed_to_customer',
+        'courier_invoice__courier_company',
+    )
+    list_select_related = (
+        'courier_invoice',
+        'courier_invoice__courier_company',
+        'parcel',
+    )
+    # The fields are editable by default, but you could make them read-only
+    # to enforce that all data comes only from invoice uploads.
+    # readonly_fields = ('actual_cost', 'scale_weight', 'vol_weight', 'billed_weight')
+
+    # You can also add raw_id_fields for easier linking of parcels
+    raw_id_fields = ('parcel',)

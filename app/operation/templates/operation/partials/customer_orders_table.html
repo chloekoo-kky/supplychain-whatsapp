@@ -1,25 +1,23 @@
-{% comment %} app/operation/templates/operation/partials/customer_orders_table.html {% endcomment %}
 {% load i18n %}
 {% load humanize %}
 
 {# Sticky Filter Panel for Customer Orders - Changed items-center to items-start for top alignment #}
-<div class="operations-filter-panel md:w-full shrink-0 sticky top-24 h-fit bg-base-200 shadow px-4 py-2 rounded-lg z-20 mb-4">
+<div class="operations-filter-panel sticky top-8 md:top-24 bg-base-200 shadow px-4 py-2 rounded-lg z-40 mb-4">
 
-    <div class="grid grid-cols-12 gap-x-6 items-start">
-        <div class="col-span-12 md:col-span-2">
-            <h2 class="text-lg font-semibold text-gray-700">
-                Total:
-                <br><span class="font-normal text-gray-500 customer-order-count">
-                    {% if orders.paginator %}({{ orders.paginator.count }} orders)
-                    {% else %}({{ total_orders_count|default:0 }} orders){% endif %}
+    <div class="grid grid-cols-12 gap-2">
+
+        <div class="col-span-12 md:col-span-1 items-start">
+            <h2 class="text-xl font-semibold text-gray-900 mb-2">
+                <span class="font-normal customer-order-count">
+                    {% if orders.paginator %}{{ orders.paginator.count }} orders
+                    {% else %}{{ total_orders_count|default:0 }} orders{% endif %}
                 </span>
             </h2>
         </div>
 
-        <div class="col-span-12 md:col-span-3">
-            <div class="flex flex-wrap gap-1 justify-end">
+        <div class="col-span-12 md:col-span-2 mb-2 md:mr-4">
+            <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch" id="warehouse-filter-container">
                 {% if request.user.is_superuser %}
-                    <button type="button" class="btn btn-sm sm:btn-sm warehouse-filter-btn btn-outline" data-value="">All WH</button>
                     {% for wh in warehouses %}
                     <button type="button" class="btn btn-sm sm:btn-sm warehouse-filter-btn btn-outline" data-value="{{ wh.pk }}">
                         {{ wh.name }}
@@ -39,24 +37,21 @@
             </div>
         </div>
 
-        <div class="col-span-12 md:col-span-5">
-            <div class="flex flex-col gap-2">
-                <div class="flex flex-wrap gap-1">
-                    <button type="button" class="btn btn-sm status-filter-btn btn-outline" data-value="">All</button>
-                    {% for code, display_name in status_choices %}
-                    <button type="button" class="btn btn-sm status-filter-btn btn-outline" data-value="{{ code }}">{{ display_name }}</button>
-                    {% endfor %}
-                </div>
-                <div class="flex items-center gap-2">
-                    <input type="text" name="q" value="{{ query|default:'' }}" placeholder="Search Orders..."
-                        class="input input-bordered input-sm w-full dynamic-search-input">
-                    <button type="button" class="btn btn-sm btn-outline bg-gray-300 reset-filters-btn">Reset</button>
-                </div>
+        <div class="col-span-12 md:col-span-6 flex flex-col gap-2">
+            <div class="grid grid-flow-col auto-cols-fr gap-2">
+                {% for code, display_name in status_choices %}
+                <button type="button" class="btn btn-sm status-filter-btn btn-outline" data-value="{{ code }}">{{ display_name }}</button>
+                {% endfor %}
+            </div>
+            <div class="flex items-center gap-2">
+                <input type="text" name="q" value="{{ query|default:'' }}" placeholder="Search Orders..."
+                        class="input input-bordered input-sm w-[80%] dynamic-search-input">
+                <button type="button" class="btn btn-sm btn-outline bg-gray-300 w-[20%] reset-filters-btn">Reset</button>
             </div>
         </div>
 
-        <div class="col-span-12 md:col-span-2 flex items-center justify-end">
-             <label for="import-orders-modal-toggle" class="btn btn-sm md:btn-md btn-primary">Import Orders</label>
+        <div class="col-span-12 md:col-span-3 flex md:justify-end items-end md:ml-5 py-2">
+            <label for="import-orders-modal-toggle" class="btn btn-sm bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full md:btn-md">Import Orders</label>
         </div>
     </div>
 </div>

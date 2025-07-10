@@ -7,7 +7,8 @@
 
 {% block content %}
     {# Tabs Navigation #}
-    <div class="shrink-0 mb-2 sticky top-[4rem] h-fit bg-base-100 rounded shadow z-10">
+    <!-- MODIFICATION: Changed 'sticky top-[4rem]' to 'sticky top-0 md:top-16' for responsive positioning -->
+    <div class="shrink-0 mb-2 sticky top-1 md:top-16 h-fit bg-base-100 rounded shadow z-10">
         <div class="tabs max-w-7xl mx-auto">
         <a class="tab tab-lifted text-lg transition
            {% if active_tab == DEFAULT_CUSTOMER_ORDERS_TAB %}tab-active bg-blue-500 text-white{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}"
@@ -108,7 +109,7 @@
                     <label class="label"><span class="label-text font-semibold">Select Packaging</span></label>
 
                     <div id="packaging-options-container" class="flex flex-wrap gap-2 mt-1">
-                        </div>
+                    </div>
 
                     <input type="hidden" name="parcel-packaging_type" id="id_parcel-packaging_type">
                 </div>
@@ -218,11 +219,12 @@
 </div>
 {# --- END: New Modal --- #}
 
-
 {% endblock %}
 
 {% block extra_js %}
 <script>
+    // All of the previous JavaScript for this page remains the same.
+    // The change is purely in the HTML classes for the sticky tabs.
     const CSRF_TOKEN_INPUT = document.querySelector('input[name="csrfmiddlewaretoken"]');
     const CSRF_TOKEN = CSRF_TOKEN_INPUT ? CSRF_TOKEN_INPUT.value : '';
     const DEFAULT_CUSTOMER_ORDERS_TAB = "{{ DEFAULT_CUSTOMER_ORDERS_TAB|escapejs }}";
@@ -344,18 +346,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 button.className = 'btn btn-lg btn-square bg-gray-200 gap-1 flex-col';
                 button.innerHTML = `<span class="text-sm">${courierItem.name}</span><span class="text-md">${courierItem.count}</span>`;
 
-                button.addEventListener('click', function() {
-                    if (mainCourierInput) {
-                        mainCourierInput.value = courierItem.id;
-                    }
-                    dashboardList.querySelectorAll('button').forEach(btn => {
-                        btn.classList.remove('btn-primary', 'text-white');
-                        btn.classList.add('bg-gray-200');
-                    });
-                    this.classList.add('btn-primary', 'text-white');
-                    this.classList.remove('bg-gray-200');
-                });
-
                 listItem.appendChild(button);
                 dashboardList.appendChild(listItem);
             });
@@ -423,7 +413,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         const orderCountSpan = filterPanel.querySelector('.customer-order-count');
          if (orderCountSpan && currentCustomerOrderFilters.total_orders_count !== undefined) {
-            orderCountSpan.textContent = `(${currentCustomerOrderFilters.total_orders_count} orders)`;
+            orderCountSpan.textContent = `${currentCustomerOrderFilters.total_orders_count} orders`;
         }
     }
 
@@ -713,17 +703,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (packagingBtn) {
                 e.preventDefault();
-                const selectedPackagingId = packagingBtn.dataset.packagingId;
+                const selectedPackaging = packagingBtn.dataset.packagingId;
                 const hiddenPackagingInput = document.getElementById('id_parcel-packaging_type');
-                if (hiddenPackagingInput) {
-                    hiddenPackagingInput.value = selectedPackagingId;
-                }
+                if (hiddenPackagingInput) hiddenPackagingInput.value = selectedPackaging;
+
                 const packagingOptionsContainer = packagingBtn.closest('#packaging-options-container');
                 if(packagingOptionsContainer) {
                     packagingOptionsContainer.querySelectorAll('.packaging-btn').forEach(btn => {
-                        btn.classList.toggle('btn-active', btn === packagingBtn);
-                        btn.classList.toggle('btn-neutral', btn === packagingBtn);
-                        btn.classList.toggle('btn-outline', btn !== packagingBtn);
+                        const isActive = btn === packagingBtn && selectedPackaging !== "";
+                        btn.classList.toggle('btn-active', isActive);
+                        btn.classList.toggle('btn-neutral', isActive);
+                        btn.classList.toggle('btn-outline', !isActive);
                     });
                 }
             }
@@ -884,7 +874,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (searchInput && searchInput.value !== (currentParcelFilters.parcel_q || "")) searchInput.value = currentParcelFilters.parcel_q || "";
 
         const parcelCountSpan = parcelFilterPanel.querySelector('.parcel-count-display');
-        if (parcelCountSpan && currentParcelFilters.total_parcels_count !== undefined) parcelCountSpan.textContent = `(${currentParcelFilters.total_parcels_count} parcels)`;
+        if (parcelCountSpan && currentParcelFilters.total_parcels_count !== undefined) parcelCountSpan.textContent = `${currentParcelFilters.total_parcels_count} parcels`;
     }
 
     function loadInitialParcelFilters(urlParams) {
@@ -894,6 +884,8 @@ document.addEventListener('DOMContentLoaded', function() {
             parcel_courier: urlParams.get('parcel_courier') || sessionFilters.get('parcel_courier') || "",
             parcel_status: urlParams.get('parcel_status') || sessionFilters.get('parcel_status') || "",
             parcel_q: urlParams.get('parcel_q') || sessionFilters.get('parcel_q') || "",
+            parcel_start_date: urlParams.get('parcel_start_date') || sessionFilters.get('parcel_start_date') || "", // NEW
+            parcel_end_date: urlParams.get('parcel_end_date') || sessionFilters.get('parcel_end_date') || "",     // NEW
             page: urlParams.get('page') || sessionFilters.get('page') || '1',
             total_parcels_count: currentParcelFilters.total_parcels_count
         };
@@ -913,6 +905,9 @@ document.addEventListener('DOMContentLoaded', function() {
             params.set('parcel_status', currentParcelFilters.parcel_status);
         }
         if (currentParcelFilters.parcel_q) params.set('parcel_q', currentParcelFilters.parcel_q);
+        if (currentParcelFilters.parcel_start_date) params.set('parcel_start_date', currentParcelFilters.parcel_start_date); // NEW
+        if (currentParcelFilters.parcel_end_date) params.set('parcel_end_date', currentParcelFilters.parcel_end_date);       // NEW
+
         params.set('page', currentParcelFilters.page);
         params.set('fetch_parcel_list_only', 'true');
 
@@ -1161,12 +1156,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (data.errors.item_formset && Array.isArray(data.errors.item_formset)) {
                          data.errors.item_formset.forEach((form_err_json, idx) => {
                              if(form_err_json){
-                                try {
-                                    const err = JSON.parse(form_err_json);
-                                    for(const field in err){
-                                        errorsHtml += `<li><strong>Item ${idx+1} - ${field.replace(/_/g, " ")}:</strong> ${err[field].join(', ')}</li>`;
-                                    }
-                                } catch(e){ errorsHtml += `<li>Item ${idx+1} had errors (could not parse details).</li>`;}
+                                 try {
+                                     const err = JSON.parse(form_err_json);
+                                     for(const field in err){
+                                         errorsHtml += `<li><strong>Item ${idx+1} - ${field.replace(/_/g, " ")}:</strong> ${err[field].join(', ')}</li>`;
+                                     }
+                                 } catch(e){ errorsHtml += `<li>Item ${idx+1} had errors (could not parse details).</li>`;}
                              }
                          });
                     }
@@ -1320,105 +1315,125 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function initializeBatchTraceFunctionality() {
-        console.log("[Debug] Initializing batch trace and print functionality...");
-        const tabContent = document.getElementById('operation-tab-content');
-        if (!tabContent) return;
+    const tabContent = document.getElementById('operation-tab-content');
+    if (!tabContent) {
+        return; // Exit if the main container isn't found
+    }
 
+    // This function now gets fresh references to all elements every time it runs.
+    // This makes it robust and avoids issues with parts of the page being reloaded.
+    const updateButtonsState = () => {
+        const parcelTableContainer = document.getElementById('parcels-table-container');
+        if (!parcelTableContainer) return;
+
+        // Get fresh references to buttons and spans within the persistent filter panel
         const traceBtn = document.getElementById('trace-selected-parcels-btn');
         const printBtn = document.getElementById('print-selected-parcels-btn');
         const selectedCountSpanTrace = document.getElementById('selected-parcels-count');
         const selectedCountSpanPrint = document.getElementById('selected-parcels-count-print');
-        const selectAllCheckbox = document.getElementById('select-all-parcels');
 
-        const updateButtonsState = () => {
-            // Improvement: Scope the query to the container that is definitely present.
-            const parcelTableContainer = document.getElementById('parcels-table-container');
-            if (!parcelTableContainer) return;
+        // Find only the checkboxes that are currently visible in the table
+        const selectedCheckboxes = parcelTableContainer.querySelectorAll('.parcel-select-checkbox:checked');
+        const count = selectedCheckboxes.length;
 
-            const selectedCheckboxes = parcelTableContainer.querySelectorAll('.parcel-select-checkbox:checked');
-            const count = selectedCheckboxes.length;
+        // Update the count and button states
+        if (selectedCountSpanTrace) selectedCountSpanTrace.textContent = count;
+        if (selectedCountSpanPrint) selectedCountSpanPrint.textContent = count;
+        if (traceBtn) traceBtn.disabled = count === 0;
+        if (printBtn) printBtn.disabled = count === 0;
+        if (exportBtn) exportBtn.disabled = count === 0;
+    };
 
-            if (selectedCountSpanTrace) selectedCountSpanTrace.textContent = count;
-            if (selectedCountSpanPrint) selectedCountSpanPrint.textContent = count;
-            if (traceBtn) traceBtn.disabled = count === 0;
-            if (printBtn) printBtn.disabled = count === 0;
-        };
+    // We only need to attach this main event listener once.
+    // It will handle clicks on checkboxes even after the table is reloaded.
+    if (!tabContent.dataset.checkboxListenerAttached) {
+        tabContent.dataset.checkboxListenerAttached = 'true'; // Set a flag
+        tabContent.addEventListener('change', (event) => {
+            // Check if a select-all or individual parcel checkbox was changed
+            if (event.target.matches('.parcel-select-checkbox, #select-all-parcels')) {
 
-        // Improvement: Attach the checkbox change listener only once to the persistent tabContent element.
-        if (!tabContent.dataset.checkboxListenerAttached) {
-            tabContent.dataset.checkboxListenerAttached = 'true'; // Set a flag to prevent re-attaching
-            tabContent.addEventListener('change', (event) => {
-                if (event.target.matches('.parcel-select-checkbox, #select-all-parcels')) {
-                    if (event.target.matches('#select-all-parcels')) {
-                        const isChecked = event.target.checked;
-                        // Ensure we only affect checkboxes within the current table
-                        const currentTable = document.getElementById('parcels-table-container');
-                        if(currentTable) {
-                            currentTable.querySelectorAll('.parcel-select-checkbox').forEach(cb => {
-                                cb.checked = isChecked;
-                            });
-                        }
+                // If the "select all" checkbox was clicked, update all other checkboxes
+                if (event.target.matches('#select-all-parcels')) {
+                    const isChecked = event.target.checked;
+                    const currentTable = document.getElementById('parcels-table-container');
+                    if (currentTable) {
+                        currentTable.querySelectorAll('.parcel-select-checkbox').forEach(cb => {
+                            cb.checked = isChecked;
+                        });
                     }
-                    updateButtonsState();
                 }
-            });
-        }
-
-        // --- The rest of the function remains for attaching button-specific logic ---
-
-        if (printBtn && !printBtn.dataset.listenerAttached) {
-            printBtn.dataset.listenerAttached = 'true';
-            printBtn.addEventListener('click', () => {
-                const selectedIds = Array.from(document.querySelectorAll('.parcel-select-checkbox:checked')).map(cb => cb.value);
-                if (selectedIds.length === 0) {
-                    showErrorToast('No parcels selected.');
-                    return;
-                }
-                const url = `{% url 'operation:print_selected_parcels' %}?ids=${selectedIds.join(',')}`;
-                window.open(url, '_blank');
-            });
-        }
-
-        if (traceBtn && !traceBtn.dataset.listenerAttached) {
-            traceBtn.dataset.listenerAttached = 'true';
-            traceBtn.addEventListener('click', () => {
-                const selectedIds = Array.from(document.querySelectorAll('.parcel-select-checkbox:checked')).map(cb => cb.value);
-                if (selectedIds.length === 0) {
-                    showErrorToast('No parcels selected.');
-                    return;
-                }
-                traceBtn.classList.add('loading');
-                fetch("{% url 'operation:trace_selected_parcels' %}", {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
-                    body: JSON.stringify({ parcel_ids: selectedIds })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        showSuccessToast(data.message);
-                        setTimeout(() => applyParcelFilters(false, "Trace Success Refresh"), 2000);
-                    } else {
-                        showErrorToast(data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error tracing parcels:', error);
-                    showErrorToast('A network error occurred.');
-                })
-                .finally(() => {
-                    traceBtn.classList.remove('loading');
-                    // Uncheck all boxes and update button state
-                    document.querySelectorAll('.parcel-select-checkbox:checked').forEach(cb => { cb.checked = false; });
-                    if (selectAllCheckbox) selectAllCheckbox.checked = false;
-                    updateButtonsState();
-                });
-            });
-        }
-
-        // Call this at the end to set the correct initial state when the table (re)loads.
-        updateButtonsState();
+                // Update the button counts and states
+                updateButtonsState();
+            }
+        });
     }
+
+    // The logic for the "Print", "Trace", and "Export" buttons can remain the same
+    // as they are in a part of the page that doesn't get reloaded.
+    // We just need to make sure their event listeners are attached once.
+
+    const printBtn = document.getElementById('print-selected-parcels-btn');
+    if (printBtn && !printBtn.dataset.listenerAttached) {
+        printBtn.dataset.listenerAttached = 'true';
+        printBtn.addEventListener('click', () => {
+            const selectedIds = Array.from(document.querySelectorAll('.parcel-select-checkbox:checked')).map(cb => cb.value);
+            if (selectedIds.length === 0) return;
+            const url = `{% url 'operation:print_selected_parcels' %}?ids=${selectedIds.join(',')}`;
+            window.open(url, '_blank');
+        });
+    }
+
+    const traceBtn = document.getElementById('trace-selected-parcels-btn');
+    if (traceBtn && !traceBtn.dataset.listenerAttached) {
+        traceBtn.dataset.listenerAttached = 'true';
+        traceBtn.addEventListener('click', () => {
+            const selectedIds = Array.from(document.querySelectorAll('.parcel-select-checkbox:checked')).map(cb => cb.value);
+            if (selectedIds.length === 0) return;
+
+            const originalBtnContent = traceBtn.innerHTML;
+            traceBtn.disabled = true;
+            traceBtn.innerHTML = '<span class="loading loading-spinner loading-xs"></span>';
+            const csrfToken = document.querySelector('input[name="csrfmiddlewaretoken"]').value;
+
+            fetch("{% url 'operation:trace_selected_parcels' %}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                body: JSON.stringify({ parcel_ids: selectedIds })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccessToast(data.message);
+                    setTimeout(() => applyParcelFilters(false), 2000);
+                } else {
+                    showErrorToast(data.message);
+                }
+            })
+            .catch(error => showErrorToast('A network error occurred.'))
+            .finally(() => {
+                traceBtn.disabled = false;
+                traceBtn.innerHTML = originalBtnContent;
+                if (document.getElementById('select-all-parcels')) document.getElementById('select-all-parcels').checked = false;
+                document.querySelectorAll('.parcel-select-checkbox:checked').forEach(cb => { cb.checked = false; });
+                updateButtonsState();
+            });
+        });
+    }
+
+    const exportBtn = document.getElementById('export-excel-btn');
+    if (exportBtn && !exportBtn.dataset.listenerAttached) {
+        exportBtn.dataset.listenerAttached = 'true';
+        exportBtn.addEventListener('click', () => {
+            if (exportBtn.disabled) return;
+            document.getElementById('export-excel-modal-toggle').checked = true;
+        });
+    }
+
+    // This is the most crucial call. It resets the buttons to their correct initial state
+    // every time this function is run (which happens after every filter action).
+    updateButtonsState();
+}
+
 
 
     function highlightActiveTab(activeTabName) {
@@ -1501,16 +1516,41 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (target.classList.contains('parcel-courier-filter-btn')) { currentParcelFilters.parcel_courier = target.dataset.value; filtersChanged = true; }
             else if (target.classList.contains('parcel-status-filter-btn')) { currentParcelFilters.parcel_status = target.dataset.value; filtersChanged = true; }
             else if (target.classList.contains('parcel-reset-filters-btn')) {
-                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_status: '', parcel_q: '' };
-                const searchInput = tabContainer.querySelector('.parcel-filters .parcel-dynamic-search-input');
-                if (searchInput) searchInput.value = ""; filtersChanged = true; sessionStorage.removeItem(`tabFilters_${DEFAULT_PARCELS_TAB}`);
+                // FIX 1: Reset the complete state object, including the new date fields
+                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_status: '', parcel_q: '', parcel_start_date: '', parcel_end_date: '' };
+
+                // FIX 2: Find the filter panel correctly to clear all visible inputs
+                const filterPanel = target.closest('.parcel-filters');
+                if (filterPanel) {
+                    const searchInput = filterPanel.querySelector('.parcel-dynamic-search-input');
+                    const startDateInput = filterPanel.querySelector('input[name="parcel_start_date"]');
+                    const endDateInput = filterPanel.querySelector('input[name="parcel_end_date"]');
+
+                    if (searchInput) searchInput.value = "";
+                    if (startDateInput) startDateInput.value = "";
+                    if (endDateInput) endDateInput.value = "";
+                }
+
+                filtersChanged = true;
+                sessionStorage.removeItem(`tabFilters_${DEFAULT_PARCELS_TAB}`);
             }
+
             if (filtersChanged) applyParcelFilters(true, "Parcel Delegated Button Click");
         });
         tabContainer.addEventListener('input', function(event) {
             const searchInput = event.target.closest('.parcel-dynamic-search-input');
             if (searchInput && searchInput.closest('.parcel-filters') && getCurrentTabNameFromUrl() === DEFAULT_PARCELS_TAB) {
                 currentParcelFilters.parcel_q = searchInput.value.trim(); debouncedApplyParcelFilters(true, "Parcel Delegated Search Input");
+            }
+        });
+        tabContainer.addEventListener('change', function(event) {
+            const target = event.target;
+            if (target.matches('input[name="parcel_start_date"], input[name="parcel_end_date"]')) {
+                 if(target.closest('.parcel-filters') && getCurrentTabNameFromUrl() === DEFAULT_PARCELS_TAB){
+                     currentParcelFilters.parcel_start_date = tabContainer.querySelector('input[name="parcel_start_date"]').value;
+                     currentParcelFilters.parcel_end_date = tabContainer.querySelector('input[name="parcel_end_date"]').value;
+                     applyParcelFilters(true, 'Parcel Date Change');
+                 }
             }
         });
         tabContainer.dataset.parcelFilterDelegationAttached = 'true';

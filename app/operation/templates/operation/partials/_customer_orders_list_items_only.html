@@ -6,26 +6,30 @@
     {% for order in orders %}
         <tr class="order-row border-b border-gray-200 hover:bg-gray-50" data-order-id="{{ order.pk }}">
             <td class="py-2 px-4 text-left align-top">
-                <div class="font-semibold transition-colors duration-200">
-                        {{ order.erp_order_id }}
 
-                        {# START: Icon replacement #}
-                        {% if order.is_cold_chain %}
-                            <span title="Cold Chain">
-                                <svg class="inline-block w-3 h-3 text-black ml-1" viewBox="0 0 20 20" fill="currentColor">
-                                    <circle cx="10" cy="10" r="8" />
-                                </svg>
-                            </span>
-                        {% else %}
-                            <span title="Ambient">
-                                <svg class="inline-block w-3 h-3 text-gray-500 ml-1" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
-                                    <circle cx="10" cy="10" r="8" />
-                                </svg>
-                            </span>
-                        {% endif %}
-                        {# END: Icon replacement #}
-                        </a>
-                </div>                <div class="mt-1">
+
+                <div class="font-semibold transition-colors duration-200">
+
+                    {{ order.erp_order_id }}
+
+                </div>
+                <div class="mt-1">
+
+
+                    {% if order.is_cold_chain %}
+                    <span title="Cold Chain">
+                        <svg class="inline-block w-3 h-3 text-black ml-1" viewBox="0 0 20 20" fill="currentColor">
+                            <circle cx="10" cy="10" r="8" />
+                        </svg>
+                    </span>
+                    {% else %}
+                    <span title="Ambient">
+                        <svg class="inline-block w-3 h-3 text-gray-500 ml-1" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="10" cy="10" r="8" />
+                        </svg>
+                    </span>
+                    {% endif %}
+
                     <span class="badge badge-md
                         {% if order.status == 'NEW_ORDER' %}bg-orange-500 text-white{% comment %} Orange for New {% endcomment %}
                         {% elif order.status == 'PARTIALLY_SHIPPED' %}badge-info text-white{% comment %} Light Blue for Partial {% endcomment %}
@@ -98,7 +102,15 @@
                        Code: <strong class="text-md">{{ parcel.parcel_code_system|default:"N/A" }}</strong><br>
                        <!-- FIX: Changed parcel.courier_name to parcel.courier_company.name -->
                        Courier: {{ parcel.courier_company.name|default:"-" }}<br>
-                       Tracking: {{ parcel.tracking_number|default:"-" }}
+                       Tracking: {{ parcel.tracking_number|default:"-" }}<br>
+                       Status: <span class="badge badge-xs p-2
+                       {% if parcel.status == 'DELIVERED' %}badge-success text-white
+                       {% elif parcel.status == 'IN_TRANSIT' %}badge-info text-white
+                       {% elif parcel.status == 'DELIVERY_FAILED' %}badge-warning text-black
+                       {% else %}badge-ghost
+                       {% endif %}">
+                       {{ parcel.get_status_display }}
+                  </span>
                     </div>
                 {% empty %}
                     <span class="text-xs text-gray-400 italic">No parcels yet.</span>

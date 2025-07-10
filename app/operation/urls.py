@@ -43,7 +43,22 @@ urlpatterns = [
     path('parcel/<int:parcel_pk>/get-tracking-history/', views.get_parcel_tracking_history, name='get_parcel_tracking_history'),
 
     path('parcels/trace-selected/', views.trace_selected_parcels, name='trace_selected_parcels'),
-
     path('parcels/print-selected/', views.print_selected_parcels, name='print_selected_parcels'),
+
+    path('invoices/', views.courier_invoice_list, name='courier_invoice_list'),
+    path('invoices/<int:invoice_id>/edit/', views.edit_courier_invoice, name='edit_courier_invoice'),
+    path('billing/cost-report/', views.cost_comparison_report, name='cost_comparison_report'),
+    path('billing/parcels/', views.billed_parcels_list, name='billed_parcels_list'),
+    path('billing/generate-client-invoice/<int:parcel_id>/', views.generate_client_invoice, name='generate_client_invoice'),
+
+    path('reports/invoice-items/', views.invoice_item_report, name='invoice_item_report'),
+    path('reports/invoice-items/load-more/', views.load_more_invoice_items, name='load_more_invoice_items'),
+
+    path('invoice-item/<int:item_id>/view-parcel/', views.view_parcel_items, name='view_parcel_items'),
+    path('invoice-item/<int:item_id>/dispute/', views.get_dispute_details, name='get_dispute_details'),
+    path('invoice-item/<int:item_id>/dispute/save/', views.save_dispute_details, name='save_dispute_details'),
+
+    path('generate-report/', views.generate_report, name='generate_report'),
+
 
 ]

@@ -32,8 +32,8 @@ ALLOWED_HOSTS = ALLOWED_HOSTS_STRING.split(',') if ALLOWED_HOSTS_STRING else []
 DHL_API_KEY = 'yPSKPEdHg05gvwJAXvfPzJVsZaz6Iek2'
 FEDEX_API_KEY = 'l79352a03c319a4df2b0d073a531e0de34'
 FEDEX_SECRET_KEY = '60dfa50b83cc43b1930b1a48b6d6c470'
-UPS_CLIENT_ID = os.environ.get('UPS_CLIENT_ID', 'YOUR_UPS_CLIENT_ID')
-UPS_CLIENT_SECRET = os.environ.get('UPS_CLIENT_SECRET', 'YOUR_UPS_CLIENT_SECRET')
+UPS_CLIENT_ID = os.environ.get('UPS_CLIENT_ID', 'CwVujjTjySlMUwWfUletnfGWl4GJVCPR7y25XprPJ4BIYxfu')
+UPS_CLIENT_SECRET = os.environ.get('UPS_CLIENT_SECRET', 'luQbv3ycfdHca0VGS0GA2Zl6T8lACnYb2qfQ91l4fWjHAeHPwCKr2nR6P4tONtbn')
 
 # Application definition
 
@@ -230,7 +230,11 @@ LOGGING = {
             'level': 'DEBUG', # Set to DEBUG to see all your logger.debug messages
             'propagate': False,
         },
-        # Add other app-specific loggers if needed
+        'warehouse': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
     },
 
     'root': { # Catch-all for other loggers, including those from third-party libraries

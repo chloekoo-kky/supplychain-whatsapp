@@ -5,53 +5,72 @@
 {% block page_title %}{{ page_title|default:"Inventory List" }}{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4">
-    {# Sticky Header Bar #}
-    <div class="sticky top-16 bg-base-100 py-3 px-0 md:px-4 mb-4 z-40 shadow-sm rounded -mx-4 md:mx-0">
-        <div class="container mx-auto px-4 md:px-0">
-            <div class="flex flex-col sm:flex-row justify-between items-center mb-2">
-                <h1 class="text-3xl font-bold text-gray-800 flex-grow mr-4 mb-2 sm:mb-0">{{ page_title|default:"Inventory List" }}</h1>
-                <div class="flex items-center space-x-2 flex-shrink-0">
-                    {# Existing Filter Buttons #}
-                    <button id="toggle-expiry-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Expiry Filter (≤ 6 Months)">
-                        <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Exp&nbsp;≤6m</span>
-                    </button>
-                    <button id="toggle-unbatched-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Unbatched Quantity Filter">
-                        <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">Unbatched</span>
-                    </button>
-                    <button id="toggle-newly-received-filter" class="btn btn-sm md:btn-md btn-outline" title="Toggle Newly Received (within 14 days) Filter">
-                        <span class="text-xs md:text-sm whitespace-normal text-center leading-tight">New Receipts</span>
-                    </button>
-                </div>
-            </div>
 
-            <div class="flex flex-col md:flex-row justify-between items-center mt-2 mb-2 space-y-2 md:space-y-0 md:space-x-4">
-                <div class="flex-grow w-full md:w-auto">
-                    <input type="text" id="inventory-search-input" placeholder="Search SKU or Product Name..." class="input input-bordered input-sm w-full md:max-w-md lg:max-w-lg">
-                </div>
-                <div class="flex-shrink-0 space-x-2">
-                    <label for="manage-default-picks-modal-toggle" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">Manage Default Picks</label>
-                    <label for="manage-secondary-picks-modal-toggle" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">Manage Secondary Picks</label>
-                </div>
+{# Sticky Header Bar #}
+<div class="sticky top-0 md:top-16 bg-base-200 py-3 px-4 mb-4 z-40 shadow-sm rounded-lg" id="sticky-filter-header">
+    <!-- Grid layout for the entire filter panel -->
+    <div class="grid grid-cols-12 gap-4 items-center">
+
+        <!-- Warehouse Filters Column -->
+        {% if warehouses %}
+        <div class="col-span-12 md:col-span-2 md:mr-4">
+            <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch" id="warehouse-filter-container">
+                {% for warehouse in warehouses %}
+                    <button class="btn btn-sm btn-outline warehouse-filter-btn" data-warehouse-id="{{ warehouse.pk }}">
+                        <span class="text-sm whitespace-normal text-center leading-tight">{{ warehouse.name }}</span>
+                    </button>
+                {% endfor %}
             </div>
         </div>
-    </div>
+        {% endif %}
 
-    {% if warehouse_products %}
-        <div class="overflow-x-auto bg-white shadow-md rounded-lg">
+        <!-- Main Filters & Search Column -->
+        <div class="col-span-12 {% if warehouses %}md:col-span-7{% else %}md:col-span-9{% endif %} flex flex-col gap-2">
+            <!-- Row 1: Filter Buttons -->
+            <div class="grid grid-flow-col auto-cols-fr gap-2">
+                <button id="toggle-expiry-filter" class="btn btn-sm btn-outline" title="Toggle Expiry Filter (≤ 6 Months)">
+                    <span class="text-sm whitespace-normal text-center leading-tight">Exp&nbsp;≤6m</span>
+                </button>
+                <button id="toggle-unbatched-filter" class="btn btn-sm btn-outline" title="Toggle Unbatched Quantity Filter">
+                    <span class="text-sm whitespace-normal text-center leading-tight">Unbatched</span>
+                </button>
+                <button id="toggle-newly-received-filter" class="btn btn-sm btn-outline" title="Toggle Newly Received (within 14 days) Filter">
+                    <span class="text-sm whitespace-normal text-center leading-tight">New Receipts</span>
+                </button>
+            </div>
+            <!-- Row 2: Search Bar -->
+            <div class="flex items-center gap-2 w-full">
+                <input type="text" id="inventory-search-input" placeholder="Search SKU or Product Name..." class="input input-bordered input-sm w-full flex-grow">
+                <button id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300 flex-shrink-0">
+                    Reset
+                </button>
+            </div>
+        </div>
+
+        <!-- Manage Picks Column -->
+        <div class="col-span-12 md:col-span-3 flex md:justify-end items-end self-stretch md:ml-5">
+            <label for="manage-default-picks-modal-toggle" class="btn btn-sm bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full md:btn-md">Manage Default Picks</label>
+        </div>
+
+    </div>
+</div>
+
+{% if warehouse_products %}
+    <div id="table-container" class="overflow-y-auto bg-white shadow-md rounded-lg">
+        <div class="overflow-x-auto">
             <table class="min-w-full table-auto main-inventory-table">
-                <thead class="bg-gray-100 text-gray-700 uppercase text-sm leading-normal">
+                <thead class="sticky top-0 bg-gray-100 text-gray-700 uppercase text-sm leading-normal z-10">
                     <tr>
                         <th class="py-3 px-6 text-left">SKU</th>
                         <th class="py-3 px-6 text-left">Product Name</th>
-                        <th class="py-3 px-6 text-left w-[120px]">Warehouse</th>
+                        <th class="py-3 px-6 text-left">Warehouse</th>
                         <th class="py-3 px-6 text-right">Total Stock</th>
                         <th class="py-3 px-6 text-center">Batch Details & Unbatched</th>
                     </tr>
                 </thead>
                 <tbody class="text-gray-600 text-sm">
                     {% for wp in warehouse_products %}
-                        <tr class="warehouse-product-row border-b border-gray-200 hover:bg-gray-50" data-wp-id="{{ wp.pk }}">
+                        <tr class="warehouse-product-row border-b border-gray-200 hover:bg-gray-50" data-wp-id="{{ wp.pk }}" data-warehouse-id="{{ wp.warehouse.pk }}">
                             <td class="py-3 px-6 text-left align-top product-sku">{{ wp.product.sku }}</td>
                             <td class="py-3 px-6 text-left align-top product-name">{{ wp.product.name }}</td>
                             <td class="py-3 px-6 text-left align-top">{{ wp.warehouse.name }}</td>
@@ -66,13 +85,17 @@
                                                 <th class="px-2 py-1 text-left">Location</th>
                                                 <th class="px-2 py-1 text-left">Expiry Date</th>
                                                 <th class="px-2 py-1 text-right">Qty</th>
+                                                {% if user.is_superuser %}
                                                 <th class="px-2 py-1 text-right">Cost</th>
+                                                {% endif %}
                                                 <th class="px-2 py-1 text-left">Received</th>
+                                                <th class="px-2 py-1 text-center">Edit</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                         {% for batch_item in wp.processed_batches %}
-                                            <tr class="batch-item-row border-t border-gray-200 hover:bg-gray-50"
+                                            <tr class="batch-item-row border-t border-gray-200 hover:bg-gray-50 {% if batch_item.quantity == 0 %}hidden zero-quantity-batch{% endif %}"
+                                                data-quantity="{{ batch_item.quantity }}"
                                                 data-expiry-date="{{ batch_item.expiry_date|date:'Y-m-d'|default:'' }}"
                                                 data-received-date="{{ batch_item.date_received|date:'Y-m-d'|default:'' }}"
                                                 data-batch-pk="{{ batch_item.pk }}">
@@ -80,10 +103,6 @@
                                                     {% if batch_item.pick_priority == 0 %}
                                                         <span class="inline-flex items-center" title="Default Pick Location">
                                                             <svg class="w-3.5 h-3.5 text-blue-600" viewBox="0 0 20 20" fill="currentColor"> <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /> </svg>
-                                                        </span>
-                                                    {% elif batch_item.pick_priority == 1 %}
-                                                         <span class="inline-flex items-center" title="Secondary Pick Location">
-                                                            <svg class="w-3.5 h-3.5 text-orange-500" viewBox="0 0 20 20" fill="currentColor"> <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /> </svg>
                                                         </span>
                                                     {% else %}
                                                         <span class="inline-block w-3.5 h-3.5"></span>
@@ -100,12 +119,24 @@
                                                     {% endif %}
                                                 </td>
                                                 <td class="px-2 py-1 quantity-cell text-right">{{ batch_item.quantity }}</td>
+                                                {% if user.is_superuser %}
                                                 <td class="px-2 py-1 cost-price-cell text-right">{{ batch_item.cost_price|floatformat:2|default:"-" }}</td>
+                                                {% endif %}
                                                 <td class="px-2 py-1 date-received-cell">{{ batch_item.date_received|date:"d/m/Y"|default:"-" }}</td>
+                                                <td class="px-2 py-1 text-center">
+                                                    <label for="edit-batch-modal-toggle-{{ batch_item.pk }}" class="btn btn-xs btn-ghost text-blue-600 hover:text-blue-800" title="Edit Batch">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.5L14.732 3.732z" /></svg>
+                                                    </label>
+                                                </td>
                                             </tr>
                                         {% endfor %}
                                         </tbody>
                                     </table>
+                                    <div class="zero-quantity-toggle-container text-right" style="display: none;">
+                                        <button class="btn btn-xs btn-link normal-case font-normal text-blue-600 hover:text-blue-800 toggle-zero-batches-btn" type="button">
+                                            Show hidden zero-quantity batches
+                                        </button>
+                                    </div>
                                 {% else %}
                                     <p class="text-xs text-gray-500 italic py-2 no-batches-message">No batch details recorded for this item.</p>
                                 {% endif %}
@@ -136,13 +167,13 @@
                 </tbody>
             </table>
         </div>
-    {% else %}
-        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mt-6 rounded-md" role="alert">
-            <p class="font-bold">No Warehouse Products Found</p>
-            <p>There are currently no warehouse product stock aggregates to display. Products might need to be added to warehouses first, or ensure data exists.</p>
-        </div>
-    {% endif %}
-</div>
+    </div>
+{% else %}
+    <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mt-6 rounded-md" role="alert">
+        <p class="font-bold">No Warehouse Products Found</p>
+        <p>There are currently no warehouse product stock aggregates to display. Products might need to be added to warehouses first, or ensure data exists.</p>
+    </div>
+{% endif %}
 
 {# Modals: Add Batch, Edit Batch (partials) #}
 {% include "inventory/partials/add_batch_modal.html" with add_batch_form=add_batch_form %}
@@ -153,7 +184,7 @@
 <div id="manage-default-picks-modal" class="modal" role="dialog">
   <div class="modal-box w-11/12 max-w-4xl">
     <label for="manage-default-picks-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
-    <h3 class="font-bold text-xl mb-4">Manage Default Pick Locations (Priority 0)</h3>
+    <h3 class="font-bold text-xl mb-4">Manage Default Pick Locations</h3>
 
     <form id="default-picks-form" method="POST" action="{% url 'inventory:update_default_pick_items' %}">
         {% csrf_token %}
@@ -206,632 +237,718 @@
     </tr>
 </template>
 
-<input type="checkbox" id="manage-secondary-picks-modal-toggle" class="modal-toggle" />
-<div id="manage-secondary-picks-modal" class="modal" role="dialog">
-  <div class="modal-box w-11/12 max-w-4xl">
-    <label for="manage-secondary-picks-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
-    <h3 class="font-bold text-xl mb-4">Manage Secondary Pick Locations (Priority 1)</h3>
-    <form id="secondary-picks-form" method="POST" action="{% url 'inventory:update_secondary_pick_items' %}">
-        {% csrf_token %}
-        {{ secondary_pick_formset.management_form }}
-        <div class="overflow-x-auto max-h-[60vh] overflow-y-auto mb-4 pr-1 pb-20 secondary-picks-scroll-container pick-locations-scroll-container">
-            <table class="table w-full table-compact secondary-picks-table pick-locations-table" id="secondary-picks-table">
-                <thead>
-                    <tr>
-                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-2/6">Location (Search & Select)</th>
-                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-2/6">Product</th>
-                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-1/6">Batch No.</th>
-                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-1/6">Expiry</th>
-                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-1/12 text-right">Qty</th>
-                        <th class="sticky top-0 z-10 bg-base-100 py-2 px-2 align-middle w-auto px-1 text-center">Remove</th>
-                    </tr>
-                </thead>
-                <tbody id="secondary-picks-formset-body"></tbody>
-            </table>
-        </div>
-        <button type="button" id="add-secondary-pick-row-btn" class="btn btn-sm btn-outline btn-accent mb-4">Add Location</button>
-        <div class="modal-action mt-6">
-          <label for="manage-secondary-picks-modal-toggle" class="btn btn-ghost">Cancel</label>
-          <button type="submit" class="btn btn-primary">Save Secondary Picks</button>
-        </div>
-    </form>
-  </div>
-  <label class="modal-backdrop" for="manage-secondary-picks-modal-toggle">Close</label>
-</div>
-
-<template id="secondary-pick-item-form-template">
-    <tr class="pick-formset-row mb-2 secondary-pick-formset-row" data-pick-type="secondary" data-row-index="{form_idx}" data-is-existing="false">
-        <td style="display:none;">
-            <input type="hidden" name="{form_prefix}-{form_idx}-id" id="id_{form_prefix}-{form_idx}-id">
-            <input type="hidden" name="{form_prefix}-{form_idx}-inventory_batch_item_id" id="id_{form_prefix}-{form_idx}-inventory_batch_item_id" class="selected-batch-id">
-            <input type="hidden" name="{form_prefix}-{form_idx}-warehouse_product_id" id="id_{form_prefix}-{form_idx}-warehouse_product_id" class="selected-wp-id">
-            <input type="hidden" name="{form_prefix}-{form_idx}-pick_priority_value" value="1" class="pick-priority-value-input">
-            <input type="checkbox" name="{form_prefix}-{form_idx}-DELETE" id="id_{form_prefix}-{form_idx}-DELETE" class="delete-checkbox">
-        </td>
-        <td class="py-1 px-1 align-middle relative">
-            <input type="text" name="{form_prefix}-{form_idx}-location_label_search" class="input input-sm input-bordered w-full location-search-input" placeholder="Type Location Label" id="id_{form_prefix}-{form_idx}-location_label_search">
-            <div class="location-suggestions hidden bg-white border border-gray-300 shadow-lg rounded mt-1 absolute z-50 w-[600px] max-h-40 overflow-y-auto"></div>
-        </td>
-        <td class="py-1 px-1 align-middle product-name-display text-xs"></td>
-        <td class="py-1 px-1 align-middle batch-number-display text-xs"></td>
-        <td class="py-1 px-1 align-middle expiry-date-display text-xs"></td>
-        <td class="py-1 px-1 align-middle quantity-display text-xs text-right"></td>
-        <td class="py-1 px-1 align-middle text-center action-cell">
-            <button type="button" class="btn btn-xs btn-ghost text-error remove-pick-row" title="Remove this row/secondary pick">&times;</button>
-        </td>
-    </tr>
-</template>
-
 {% endblock %}
 
 {% block extra_js %}
 <script>
-function getCsrfToken() {
-    const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
-    return csrfInput ? csrfInput.value : '';
-}
-function debounce(func, delay) {
-    let timeout;
-    const debounced = function(...args) {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => func.apply(this, args), delay);
-    };
-    debounced.cancel = () => { clearTimeout(timeout); };
-    return debounced;
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    const userWarehouseId = "{{ request.user.warehouse.pk|default:'' }}";
-    const defaultPickFormsetPrefixJS = "{{ default_pick_formset_prefix|escapejs }}";
-    const secondaryPickFormsetPrefixJS = "{{ secondary_pick_formset_prefix|escapejs }}";
-
-    const addBatchForm = document.getElementById('add-batch-form');
-    if (addBatchForm) {
-        addBatchForm.addEventListener('submit', function(event) {
-            event.preventDefault();
-            const formData = new FormData(addBatchForm);
-            const saveBtn = addBatchForm.querySelector('button[type="submit"]');
-            const originalBtnText = saveBtn.innerHTML;
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Adding...';
-            fetch(addBatchForm.action, {
-                method: 'POST', body: formData,
-                headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch added!', position: 'top-end', showConfirmButton: false, timer: 2000});
-                    else alert(data.message || 'Batch added successfully!');
-                    document.getElementById('add-batch-modal-toggle').checked = false;
-                    addBatchForm.reset(); window.location.reload();
-                } else {
-                    let errorMsg = 'Could not add batch. ' + (data.message || '');
-                    if (data.errors && typeof data.errors === 'object') { errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; '); }
-                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Adding Batch', text: errorMsg });
-                    else alert(errorMsg);
-                }
-            })
-            .catch(error => {
-                console.error('Error submitting add batch form:', error);
-                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.'}); else alert('Network error.');
-            })
-            .finally(() => {
-                 const submitBtn = addBatchForm.querySelector('button[type="submit"]');
-                 if(submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalBtnText || 'Add Batch'; }
-            });
-        });
+    // All previous JS logic for filters, modals, etc. is included here.
+    // The new table height adjustment logic is also included.
+    function getCsrfToken() {
+        const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+        return csrfInput ? csrfInput.value : '';
     }
-    document.body.addEventListener('submit', function(event) {
-        const editForm = event.target.closest('form.edit-batch-form');
-        if (editForm) {
-            event.preventDefault();
-            const formData = new FormData(editForm);
-            const saveBtn = editForm.querySelector('button[type="submit"]');
-            const originalBtnText = saveBtn.innerHTML;
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...';
-            fetch(editForm.action, {
-                method: 'POST', body: formData,
-                headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch updated!', position: 'top-end', showConfirmButton: false, timer: 2000});
-                    else alert(data.message || 'Batch updated successfully!');
-                    const modalToggle = document.getElementById(`edit-batch-modal-toggle-${data.batch_item.pk}`);
-                    if (modalToggle) modalToggle.checked = false; window.location.reload();
-                } else {
-                    let errorMsg = data.message || 'Could not update batch. ';
-                     if (data.errors && typeof data.errors === 'object') { errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; '); }
-                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Updating Batch', text: errorMsg }); else alert(errorMsg);
-                }
-            })
-            .catch(error => {
-                console.error('Error submitting edit batch form:', error);
-                if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.' }); else alert('Network error.');
-            })
-            .finally(() => { if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; } });
-        }
-    });
+    function debounce(func, delay) {
+        let timeout;
+        const debounced = function(...args) {
+            clearTimeout(timeout);
+            timeout = setTimeout(() => func.apply(this, args), delay);
+        };
+        debounced.cancel = () => { clearTimeout(timeout); };
+        return debounced;
+    }
 
-    function setupPickLocationModal(modalType) {
-        const modalToggleId = `manage-${modalType}-picks-modal-toggle`;
-        const formsetId = `${modalType}-picks-formset-body`;
-        const addRowBtnId = `add-${modalType}-pick-row-btn`;
-        const formId = `${modalType}-picks-form`;
-        const itemTemplateId = `${modalType}-pick-item-form-template`;
-        const formsetPrefix = modalType === 'default' ? defaultPickFormsetPrefixJS : secondaryPickFormsetPrefixJS;
-        const getItemsUrl = modalType === 'default' ? "{% url 'inventory:get_default_pick_items' %}" : "{% url 'inventory:get_secondary_pick_items' %}";
-        const targetPriority = modalType === 'default' ? 0 : 1;
+    document.addEventListener('DOMContentLoaded', function() {
+        const userWarehouseId = "{{ request.user.warehouse.pk|default:'' }}";
+        const defaultPickFormsetPrefixJS = "{{ default_pick_formset_prefix|escapejs }}";
 
-        const modalToggle = document.getElementById(modalToggleId);
-        const formsetBody = document.getElementById(formsetId);
-        const addRowBtn = document.getElementById(addRowBtnId);
-        const pickForm = document.getElementById(formId);
-        const itemTemplateEl = document.getElementById(itemTemplateId);
+        // --- Dynamic Table Height Adjustment ---
+        const stickyHeader = document.getElementById('sticky-filter-header');
+        const tableContainer = document.getElementById('table-container');
 
-        if (!modalToggle || !formsetBody || !addRowBtn || !pickForm || !itemTemplateEl) {
-            console.warn(`Elements for "${modalType}" picks modal not fully found.`); return { createRowElement: () => null };
-        }
-
-        function createRowElement(item, index, isExisting = false) {
-            if (!itemTemplateEl || !itemTemplateEl.content) { console.error(`CRITICAL: ${modalType}PickItemTemplateEl or .content not found!`); return null; }
-            const clonedContent = itemTemplateEl.content.cloneNode(true);
-            const newRow = clonedContent.querySelector(`tr.pick-formset-row`);
-            if (!newRow) { console.error(`Failed to find TR in cloned ${modalType} template.`); return null; }
-            newRow.dataset.rowIndex = index; newRow.dataset.isExisting = String(isExisting); newRow.dataset.pickType = modalType;
-            newRow.querySelectorAll('input[type="hidden"], input[type="checkbox"], input[type="text"]').forEach(input => {
-                if (input.name) { input.name = input.name.replace(/{form_prefix}/g, formsetPrefix).replace(/{form_idx}/g, index); }
-                if (input.id) { input.id = input.id.replace(/{form_prefix}/g, formsetPrefix).replace(/{form_idx}/g, index); }
-            });
-            const priorityInput = newRow.querySelector('.pick-priority-value-input');
-            if (priorityInput) priorityInput.value = targetPriority;
-            const locationSearchInput = newRow.querySelector('input.location-search-input');
-            const removeButton = newRow.querySelector('.remove-pick-row');
-            if (item) {
-                const idField = newRow.querySelector('input[name$="-id"]');
-                const itemIdField = newRow.querySelector('input[name$="-inventory_batch_item_id"]');
-                const wpIdField = newRow.querySelector('input[name$="-warehouse_product_id"]');
-                if (idField) idField.value = item.form_id || item.id || '';
-                if (itemIdField) itemIdField.value = item.id;
-                if (wpIdField) wpIdField.value = item.warehouse_product_id;
-                if (locationSearchInput) {
-                    locationSearchInput.value = item.location_label || '';
-                    if (isExisting) {
-                        locationSearchInput.disabled = true; locationSearchInput.classList.add('input-disabled', 'bg-gray-100', 'cursor-not-allowed');
-                        locationSearchInput.placeholder = `Existing ${modalType} Location`;
-                    }
-                }
-                newRow.querySelector('.product-name-display').textContent = item.product_name || 'N/A';
-                newRow.querySelector('.batch-number-display').textContent = item.batch_number || 'N/A';
-                newRow.querySelector('.expiry-date-display').textContent = item.expiry_date ? new Date(item.expiry_date + 'T00:00:00').toLocaleDateString('en-CA') : 'N/A';
-                newRow.querySelector('.quantity-display').textContent = item.quantity !== null ? item.quantity : 'N/A';
-                newRow.classList.remove('new-row');
-            } else { if (locationSearchInput) locationSearchInput.disabled = false; newRow.classList.add('new-row'); }
-            if (removeButton) {
-                if (isExisting) {
-                    removeButton.title = `Remove this as a ${modalType} pick location`; removeButton.innerHTML = '&times;';
-                    removeButton.classList.add('text-error'); removeButton.dataset.action = "mark-delete";
-                } else {
-                    removeButton.title = `Remove this newly added row`; removeButton.innerHTML = '&times;';
-                    removeButton.dataset.action = "remove-dom";
-                }
+        function adjustTableHeight() {
+            if (!stickyHeader || !tableContainer) {
+                return;
             }
-            setupLocationSearchLogic(newRow, modalType); return newRow;
+            const headerRect = stickyHeader.getBoundingClientRect();
+            const spaceAboveTable = headerRect.bottom;
+            const bottomNav = document.querySelector('.btm-nav');
+            let spaceBelowTable = 16; // 1rem default bottom padding
+            if (bottomNav && window.getComputedStyle(bottomNav).display !== 'none') {
+                spaceBelowTable = bottomNav.offsetHeight + 16;
+            }
+            const availableHeight = window.innerHeight - spaceAboveTable - spaceBelowTable;
+            tableContainer.style.height = `${Math.max(availableHeight, 200)}px`;
         }
 
-        formsetBody.addEventListener('click', function(event) {
-            const removeButton = event.target.closest('.remove-pick-row');
-            if (removeButton) {
-                const rowToRemove = removeButton.closest('tr.pick-formset-row');
-                if (rowToRemove) {
-                    const isExistingRow = rowToRemove.dataset.isExisting === "true";
-                    if (isExistingRow) {
-                        const deleteCheckbox = rowToRemove.querySelector('input[type="checkbox"][name$="-DELETE"]');
-                        if (deleteCheckbox) {
-                            deleteCheckbox.checked = !deleteCheckbox.checked;
-                            if (deleteCheckbox.checked) {
-                                rowToRemove.style.opacity = '0.5'; rowToRemove.style.textDecoration = 'line-through';
-                                removeButton.innerHTML = 'UNDO'; removeButton.classList.remove('text-error'); removeButton.classList.add('text-warning');
-                                removeButton.title = `Undo removal of this ${modalType} pick`;
-                            } else {
-                                rowToRemove.style.opacity = '1'; rowToRemove.style.textDecoration = 'none';
-                                removeButton.innerHTML = '&times;'; removeButton.classList.remove('text-warning'); removeButton.classList.add('text-error');
-                                removeButton.title = `Remove this as a ${modalType} pick location`;
-                            }
+        // Initial and responsive adjustments
+        adjustTableHeight();
+        window.addEventListener('resize', debounce(adjustTableHeight, 150));
+        const resizeObserver = new ResizeObserver(debounce(adjustTableHeight, 150));
+        if (stickyHeader) {
+            resizeObserver.observe(stickyHeader);
+        }
+
+        // All other JavaScript for modals, form submissions, and filtering follows...
+        // (The rest of the JS is identical to the previous full version)
+
+        const addBatchForm = document.getElementById('add-batch-form');
+        if (addBatchForm) {
+            addBatchForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                const formData = new FormData(addBatchForm);
+                const saveBtn = addBatchForm.querySelector('button[type="submit"]');
+                const originalBtnText = saveBtn.innerHTML;
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Adding...';
+                fetch(addBatchForm.action, {
+                    method: 'POST', body: formData,
+                    headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch added!', position: 'top-end', showConfirmButton: false, timer: 2000});
+                        else alert(data.message || 'Batch added successfully!');
+                        document.getElementById('add-batch-modal-toggle').checked = false;
+                        addBatchForm.reset(); window.location.reload();
+                    } else {
+                        let errorMsg = 'Could not add batch. ' + (data.message || '');
+                        if (data.errors && typeof data.errors === 'object') { errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; '); }
+                        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Adding Batch', text: errorMsg });
+                        else alert(errorMsg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error submitting add batch form:', error);
+                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.'}); else alert('Network error.');
+                })
+                .finally(() => {
+                     const submitBtn = addBatchForm.querySelector('button[type="submit"]');
+                     if(submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = originalBtnText || 'Add Batch'; }
+                });
+            });
+        }
+
+        document.body.addEventListener('submit', function(event) {
+            const editForm = event.target.closest('form.edit-batch-form');
+            if (editForm) {
+                event.preventDefault();
+                const formData = new FormData(editForm);
+                const saveBtn = editForm.querySelector('button[type="submit"]');
+                const originalBtnText = saveBtn.innerHTML;
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...';
+                fetch(editForm.action, {
+                    method: 'POST', body: formData,
+                    headers: { 'X-CSRFToken': formData.get('csrfmiddlewaretoken'), 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        if (typeof Swal !== 'undefined') Swal.fire({toast: true, icon: 'success', title: data.message || 'Batch updated!', position: 'top-end', showConfirmButton: false, timer: 2000});
+                        else alert(data.message || 'Batch updated successfully!');
+                        const modalToggle = document.getElementById(`edit-batch-modal-toggle-${data.batch_item.pk}`);
+                        if (modalToggle) modalToggle.checked = false; window.location.reload();
+                    } else {
+                        let errorMsg = data.message || 'Could not update batch. ';
+                         if (data.errors && typeof data.errors === 'object') { errorMsg += Object.entries(data.errors).map(([field, err]) => `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}: ${err}`).join('; '); }
+                        if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Error Updating Batch', text: errorMsg }); else alert(errorMsg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error submitting edit batch form:', error);
+                    if (typeof Swal !== 'undefined') Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not submit form.' }); else alert('Network error.');
+                })
+                .finally(() => { if (saveBtn){ saveBtn.disabled = false; saveBtn.innerHTML = originalBtnText; } });
+            }
+        });
+
+        function setupPickLocationModal() {
+            const modalToggleId = 'manage-default-picks-modal-toggle';
+            const formsetId = 'default-picks-formset-body';
+            const addRowBtnId = 'add-default-pick-row-btn';
+            const formId = 'default-picks-form';
+            const itemTemplateId = 'default-pick-item-form-template';
+            const formsetPrefix = defaultPickFormsetPrefixJS;
+            const getItemsUrl = "{% url 'inventory:get_default_pick_items' %}";
+            const targetPriority = 0;
+
+            const modalToggle = document.getElementById(modalToggleId);
+            const formsetBody = document.getElementById(formsetId);
+            const addRowBtn = document.getElementById(addRowBtnId);
+            const pickForm = document.getElementById(formId);
+            const itemTemplateEl = document.getElementById(itemTemplateId);
+
+
+            if (!modalToggle || !formsetBody || !addRowBtn || !pickForm || !itemTemplateEl) {
+            console.warn(`Elements for "default" picks modal not fully found.`);
+            return { createRowElement: () => null };
+            }
+
+
+            function createRowElement(item, index, isExisting = false) {
+                if (!itemTemplateEl || !itemTemplateEl.content) { console.error(`CRITICAL: defaultPickItemTemplateEl or .content not found!`); return null; }
+                const clonedContent = itemTemplateEl.content.cloneNode(true);
+                const newRow = clonedContent.querySelector(`tr.pick-formset-row`);
+                if (!newRow) { console.error(`Failed to find TR in cloned default template.`); return null; }
+                newRow.dataset.rowIndex = index; newRow.dataset.isExisting = String(isExisting); newRow.dataset.pickType = 'default';
+                newRow.querySelectorAll('input[type="hidden"], input[type="checkbox"], input[type="text"]').forEach(input => {
+                    if (input.name) { input.name = input.name.replace(/{form_prefix}/g, formsetPrefix).replace(/{form_idx}/g, index); }
+                    if (input.id) { input.id = input.id.replace(/{form_prefix}/g, formsetPrefix).replace(/{form_idx}/g, index); }
+                });
+                const priorityInput = newRow.querySelector('.pick-priority-value-input');
+                if (priorityInput) priorityInput.value = targetPriority;
+                const locationSearchInput = newRow.querySelector('input.location-search-input');
+                const removeButton = newRow.querySelector('.remove-pick-row');
+                if (item) {
+                    const idField = newRow.querySelector('input[name$="-id"]');
+                    const itemIdField = newRow.querySelector('input[name$="-inventory_batch_item_id"]');
+                    const wpIdField = newRow.querySelector('input[name$="-warehouse_product_id"]');
+                    if (idField) idField.value = item.form_id || item.id || '';
+                    if (itemIdField) itemIdField.value = item.id;
+                    if (wpIdField) wpIdField.value = item.warehouse_product_id;
+                    if (locationSearchInput) {
+                        locationSearchInput.value = item.location_label || '';
+                        if (isExisting) {
+                            locationSearchInput.disabled = true; locationSearchInput.classList.add('input-disabled', 'bg-gray-100', 'cursor-not-allowed');
+                            locationSearchInput.placeholder = `Existing default Location`;
                         }
-                    } else { rowToRemove.remove(); }
-                }
-            }
-        });
-
-        pickForm.addEventListener('submit', function(event) {
-            event.preventDefault(); const formData = new FormData(pickForm);
-            formsetBody.querySelectorAll('tr.pick-formset-row').forEach(row => {
-                const deleteCheckbox = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
-                if (deleteCheckbox && deleteCheckbox.checked) { formData.set(deleteCheckbox.name, 'on'); }
-                else if (deleteCheckbox && !deleteCheckbox.checked && formData.has(deleteCheckbox.name)) { formData.delete(deleteCheckbox.name); }
-            });
-            const saveBtn = pickForm.querySelector('button[type="submit"]');
-            if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('loading'); saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...'; }
-            fetch(pickForm.action, {
-                method: 'POST', body: formData,
-                headers: { 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'}
-            })
-            .then(response => { if (!response.ok) { return response.text().then(text => { throw new Error(`Server: ${response.status}: ${text.substring(0,200)}`); }); } return response.json(); })
-            .then(data => {
-                if (data.success) {
-                    if (typeof Swal !== 'undefined') Swal.fire({toast:true,icon:'success',title:data.message||`${modalType.charAt(0).toUpperCase() + modalType.slice(1)} picks updated!`,position:'top-end',showConfirmButton:false,timer:2000});
-                    else alert(data.message||`${modalType.charAt(0).toUpperCase() + modalType.slice(1)} picks updated!`);
-                    if(modalToggle) modalToggle.checked=false; window.location.reload();
-                } else {
-                    let errorMsg = data.message || `Could not update ${modalType} picks.`;
-                    if(data.errors || data.formset_errors){ errorMsg += " Check form. Details in console."; console.error(`${modalType} FS errors:`,data.formset_errors); console.error(`${modalType} Form errors:`,data.errors); }
-                    if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Update Failed',text:errorMsg}); else alert(errorMsg);
-                }
-            })
-            .catch(error => {
-                console.error(`Error submitting ${modalType} picks form:`,error);
-                let displayError = 'Could not submit form. Network/server issue.';
-                if(error.message && error.message.includes("Server:")){displayError=error.message;}
-                if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Submission Error',text:displayError}); else alert(displayError);
-            })
-            .finally(() => { if(saveBtn){ saveBtn.disabled=false; saveBtn.classList.remove('loading'); saveBtn.innerHTML = `Save ${modalType.charAt(0).toUpperCase() + modalType.slice(1)} Picks`; } });
-        });
-
-        async function loadCurrentPicks() {
-            if (!formsetBody) return;
-            formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4"><span class="loading loading-dots loading-md"></span> Loading ${modalType} picks...</td></tr>`;
-            try {
-                const response = await fetch(getItemsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
-                if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-                const data = await response.json(); formsetBody.innerHTML = '';
-                const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`);
-                const initialFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-INITIAL_FORMS"]`);
-                let currentNumberOfRows = 0;
-                const itemsToLoad = modalType === 'default' ? data.default_picks : data.secondary_picks;
-                if (data.success && itemsToLoad) {
-                    itemsToLoad.forEach((item, index) => {
-                        const row = createRowElement(item, index, true); if (row) formsetBody.appendChild(row); currentNumberOfRows++;
-                    });
-                } else { formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Error: ${data.message || `Could not load ${modalType} picks.`}</td></tr>`; }
-                if (currentNumberOfRows === 0) { addEmptyRowForPickType(modalType); }
-                if (totalFormsInput) totalFormsInput.value = formsetBody.querySelectorAll('tr.pick-formset-row').length;
-                if (initialFormsInput) initialFormsInput.value = itemsToLoad ? itemsToLoad.length : 0;
-            } catch (error) {
-                console.error(`Error loading ${modalType} picks:`, error);
-                formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Failed to load. ${error.message}</td></tr>`;
-            }
-        }
-        modalToggle.addEventListener('change', function() {
-            if (this.checked) { loadCurrentPicks(); }
-            else { if(formsetBody) formsetBody.innerHTML = ''; const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`); if (totalFormsInput) totalFormsInput.value = 0; }
-        });
-        addRowBtn.addEventListener('click', () => addEmptyRowForPickType(modalType));
-        return { createRowElement };
-    }
-
-    function addEmptyRowForPickType(modalType) {
-        const formsetId = `${modalType}-picks-formset-body`;
-        const formId = `${modalType}-picks-form`;
-        const formsetPrefix = modalType === 'default' ? defaultPickFormsetPrefixJS : secondaryPickFormsetPrefixJS;
-        const formsetBody = document.getElementById(formsetId);
-        const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`);
-        if (!totalFormsInput || !formsetBody) { console.error(`Elements for ${modalType} not found!`); return; }
-        const currentTotalForms = parseInt(totalFormsInput.value);
-        const modalSetup = modalType === 'default' ? defaultModalSetup : secondaryModalSetup;
-        const newRow = modalSetup.createRowElement(null, currentTotalForms, false);
-        if (newRow) {
-            formsetBody.appendChild(newRow); totalFormsInput.value = currentTotalForms + 1;
-            const newSearchInput = newRow.querySelector('.location-search-input');
-            if (newSearchInput) newSearchInput.focus();
-        } else { console.error(`Failed to create new ${modalType} pick row.`); }
-    }
-
-    function setupLocationSearchLogic(rowElement, pickType) {
-        const searchInput = rowElement.querySelector(`.location-search-input`);
-        const suggestionsDiv = rowElement.querySelector('.location-suggestions');
-        const batchItemIdInput = rowElement.querySelector(`input[name$="-inventory_batch_item_id"]`);
-        const wpIdInput = rowElement.querySelector(`input[name$="-warehouse_product_id"]`);
-        const productNameDisplay = rowElement.querySelector('.product-name-display');
-        const batchNumberDisplay = rowElement.querySelector('.batch-number-display');
-        const expiryDateDisplay = rowElement.querySelector('.expiry-date-display');
-        const quantityDisplay = rowElement.querySelector('.quantity-display');
-
-        if (!searchInput || !suggestionsDiv || !batchItemIdInput || !wpIdInput || !productNameDisplay || !batchNumberDisplay || !expiryDateDisplay || !quantityDisplay) {
-            console.warn(`setupLocationSearchLogic (${pickType}): Missing elements for row:`, rowElement.dataset.rowIndex); return;
-        }
-        if (rowElement.dataset.isExisting === "true" && searchInput.disabled) { return; }
-
-        const fetchLocationSuggestions = debounce(async function(term) {
-            if (term.length < 1) { suggestionsDiv.innerHTML = ''; suggestionsDiv.classList.add('hidden'); return; }
-            try {
-                let searchUrl = `{% url 'inventory:search_batch_by_location' %}?location_label=${encodeURIComponent(term)}`;
-                if (userWarehouseId) { searchUrl += `&warehouse_id=${userWarehouseId}`; }
-                const response = await fetch(searchUrl);
-                if (!response.ok) throw new Error('Network error.');
-                const batches = await response.json(); suggestionsDiv.innerHTML = '';
-                if (batches.length > 0) {
-                    batches.forEach(batch => {
-                        const div = document.createElement('div');
-                        div.innerHTML = `<strong>${batch.location_label||'N/A'}</strong> - ${batch.product_name} (<strong>SKU</strong>:${batch.product_sku}) <small class="text-gray-600 text-base"><strong>B</strong>:${batch.batch_number||'N/A'} | <strong>E</strong>:${batch.expiry_date ? new Date(batch.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : 'N/A'} | <strong>Q</strong>:${batch.quantity} | <strong>P</strong>:${batch.current_pick_priority === 0 ? 'Def' : (batch.current_pick_priority === 1 ? 'Sec' : '-')}</small>`;
-                        div.className = 'p-2 hover:bg-gray-100 cursor-pointer text-md border-b';
-                        Object.keys(batch).forEach(key => { div.dataset[key] = batch[key]; });
-                        div.addEventListener('click', function() {
-                            const selectedBatchCurrentPriorityStr = this.dataset.current_pick_priority;
-                            let selectedBatchCurrentPriority = null;
-                            if (selectedBatchCurrentPriorityStr === "0") selectedBatchCurrentPriority = 0;
-                            else if (selectedBatchCurrentPriorityStr === "1") selectedBatchCurrentPriority = 1;
-
-                            if (!checkAndHandleDuplicatePick(this.dataset.warehouse_product_id, this.dataset.id, selectedBatchCurrentPriority, rowElement, pickType)) {
-                                suggestionsDiv.classList.add('hidden'); return;
-                            }
-                            searchInput.value = this.dataset.location_label || '';
-                            batchItemIdInput.value = this.dataset.id; wpIdInput.value = this.dataset.warehouse_product_id;
-                            productNameDisplay.textContent = this.dataset.product_name; batchNumberDisplay.textContent = this.dataset.batch_number || '';
-                            expiryDateDisplay.textContent = this.dataset.expiry_date ? new Date(this.dataset.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : '';
-                            quantityDisplay.textContent = this.dataset.quantity;
-                            suggestionsDiv.innerHTML = ''; suggestionsDiv.classList.add('hidden');
-                        });
-                        suggestionsDiv.appendChild(div);
-                    });
-                    suggestionsDiv.classList.remove('hidden');
-                } else { suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-gray-500">No matches.</div>'; suggestionsDiv.classList.remove('hidden'); }
-            } catch (error) { console.error('Location suggestions error:', error); suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-red-500">Error.</div>'; suggestionsDiv.classList.remove('hidden');}
-        }, 300);
-        searchInput.addEventListener('input', function() { fetchLocationSuggestions(this.value); if (this.value.trim()==='') { batchItemIdInput.value=''; wpIdInput.value=''; productNameDisplay.textContent=''; batchNumberDisplay.textContent=''; expiryDateDisplay.textContent=''; quantityDisplay.textContent='';}});
-        document.addEventListener('click', (event) => { if (suggestionsDiv && !searchInput.contains(event.target) && !suggestionsDiv.contains(event.target)) { suggestionsDiv.classList.add('hidden'); } });
-    }
-
-    function checkAndHandleDuplicatePick(selectedWarehouseProductId, currentBatchItemIdStr, currentBatchItemPriority, currentRowElement, pickType) {
-        const formsetBody = document.getElementById(`${pickType}-picks-formset-body`);
-        if (!formsetBody) return true;
-        const currentBatchItemId = parseInt(currentBatchItemIdStr); // Ensure it's a number for comparison
-
-        const conflictingPriority = pickType === 'default' ? 1 : 0;
-        const conflictingPriorityName = pickType === 'default' ? 'Secondary' : 'Default';
-
-        if (currentBatchItemPriority === conflictingPriority) {
-            const selectedProductName = currentRowElement.querySelector('.product-name-display').textContent || `Product for WP ID ${selectedWarehouseProductId}`;
-            const selectedLocationLabel = currentRowElement.querySelector('.location-search-input').value || 'the selected location';
-            alert(`🚫 Conflict: Batch at "${selectedLocationLabel}" for product "${selectedProductName}" is already a ${conflictingPriorityName} Pick. An item cannot be both Default and Secondary at the same time.`);
-            const searchInputCurrent = currentRowElement.querySelector('.location-search-input');
-            const batchIdInputCurrent = currentRowElement.querySelector('input[name$="-inventory_batch_item_id"]');
-            const wpIdInputCurrent = currentRowElement.querySelector('input[name$="-warehouse_product_id"]');
-            if (searchInputCurrent) searchInputCurrent.value = ''; if (batchIdInputCurrent) batchIdInputCurrent.value = ''; if (wpIdInputCurrent) wpIdInputCurrent.value = '';
-            currentRowElement.querySelector('.product-name-display').textContent = ''; currentRowElement.querySelector('.batch-number-display').textContent = '';
-            currentRowElement.querySelector('.expiry-date-display').textContent = ''; currentRowElement.querySelector('.quantity-display').textContent = '';
-            return false;
-        }
-
-        const rows = formsetBody.querySelectorAll('tr.pick-formset-row');
-        for (let row of rows) {
-            if (row === currentRowElement) continue;
-            const isExistingDesignatedRow = row.dataset.isExisting === "true";
-            const wpIdInput = row.querySelector('input[name$="-warehouse_product_id"]');
-            const deleteCheckbox = row.querySelector('input[name$="-DELETE"]');
-            const otherBatchItemId = parseInt(row.querySelector('input[name$="-inventory_batch_item_id"]').value);
-
-            if (wpIdInput && wpIdInput.value === selectedWarehouseProductId &&
-                isExistingDesignatedRow && deleteCheckbox && !deleteCheckbox.checked &&
-                otherBatchItemId !== currentBatchItemId ) {
-                const productName = row.querySelector('.product-name-display').textContent || 'this product';
-                const existingLocation = row.querySelector('input[name$="-location_label_search"]').value || 'its current location';
-                if (confirm(`Product "${productName}" already has a ${pickType} pick set at "${existingLocation}". Replace it? The other will be marked for removal.`)) {
-                    deleteCheckbox.checked = true; row.style.opacity = '0.5'; row.style.textDecoration = 'line-through';
-                    const oldRemoveBtn = row.querySelector('.remove-pick-row');
-                    if (oldRemoveBtn) { oldRemoveBtn.innerHTML = '🔄'; oldRemoveBtn.title = `This ${pickType} pick is being replaced.`; oldRemoveBtn.classList.remove('text-gray-400', 'text-error'); oldRemoveBtn.classList.add('text-orange-500');}
-                    return true;
-                } else {
-                    const searchInputCurrent = currentRowElement.querySelector('.location-search-input'); if (searchInputCurrent) searchInputCurrent.value = '';
-                    const batchIdInputCurrent = currentRowElement.querySelector('input[name$="-inventory_batch_item_id"]'); if (batchIdInputCurrent) batchIdInputCurrent.value = '';
-                    const wpIdInputCurrent = currentRowElement.querySelector('input[name$="-warehouse_product_id"]'); if (wpIdInputCurrent) wpIdInputCurrent.value = '';
-                    currentRowElement.querySelector('.product-name-display').textContent = ''; currentRowElement.querySelector('.batch-number-display').textContent = '';
-                    currentRowElement.querySelector('.expiry-date-display').textContent = ''; currentRowElement.querySelector('.quantity-display').textContent = '';
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    const defaultModalSetup = setupPickLocationModal('default');
-    const secondaryModalSetup = setupPickLocationModal('secondary');
-
-    // --- Main Page Search and Filter Logic ---
-    const toggleExpiryFilterButton = document.getElementById('toggle-expiry-filter');
-    const toggleUnbatchedFilterButton = document.getElementById('toggle-unbatched-filter');
-    const toggleNewlyReceivedFilterButton = document.getElementById('toggle-newly-received-filter');
-    const searchInput = document.getElementById('inventory-search-input');
-    const mainTableBody = document.querySelector('.main-inventory-table tbody');
-    let originalWPRowsOrder = [];
-
-    if (mainTableBody) {
-        originalWPRowsOrder = Array.from(mainTableBody.querySelectorAll('tr.warehouse-product-row'));
-    }
-
-    let isExpiryFilterActive = false;
-    let isUnbatchedFilterActive = false;
-    let isNewlyReceivedFilterActive = false;
-    let currentSearchTerm = "";
-
-    const currentDate = new Date();
-    const todayUTC = new Date(Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), currentDate.getUTCDate()));
-    const sixMonthsFromNowUTC = new Date(todayUTC);
-    sixMonthsFromNowUTC.setUTCMonth(todayUTC.getUTCMonth() + 6);
-    const fourteenDaysAgoUTC = new Date(todayUTC);
-    fourteenDaysAgoUTC.setUTCDate(todayUTC.getUTCDate() - 14);
-
-    function updateButtonStyles(button, isActive) {
-        if (!button) return;
-        const textSpan = button.querySelector('span');
-        if (isActive) {
-            button.classList.add('btn-active', 'btn-neutral');
-            button.classList.remove('btn-outline');
-            if (textSpan) textSpan.classList.add('text-white');
-        } else {
-            button.classList.remove('btn-active', 'btn-neutral');
-            button.classList.add('btn-outline');
-            if (textSpan) textSpan.classList.remove('text-white');
-        }
-    }
-
-    function applyDisplayFilters() {
-        if (!mainTableBody) return;
-        const searchTerm = currentSearchTerm.toLowerCase().trim();
-        mainTableBody.innerHTML = '';
-        let rowsToDisplayAndPotentiallySort = [];
-
-        originalWPRowsOrder.forEach(wpRow => {
-            let passesSearch = true;
-            if (searchTerm) {
-                const skuText = wpRow.querySelector('.product-sku').textContent.toLowerCase();
-                const nameText = wpRow.querySelector('.product-name').textContent.toLowerCase();
-                if (!skuText.includes(searchTerm) && !nameText.includes(searchTerm)) {
-                    passesSearch = false;
-                }
-            }
-
-            let passesUnbatched = true;
-            if (isUnbatchedFilterActive) {
-                const unbatchedInfoDiv = wpRow.querySelector('.unbatched-info');
-                const unbatchedQtyValueSpan = unbatchedInfoDiv ? unbatchedInfoDiv.querySelector('span.unbatched-qty-value') : null;
-                const isDiscrepancy = unbatchedInfoDiv ? unbatchedInfoDiv.querySelector('p.text-red-600') : false;
-                if (unbatchedQtyValueSpan && !isDiscrepancy) {
-                    if (!(parseInt(unbatchedQtyValueSpan.textContent, 10) > 0)) passesUnbatched = false;
-                } else {
-                    passesUnbatched = false;
-                }
-            }
-
-            let passesBatchDependentFilters = true;
-            let maxEligibleReceivedDateThisWp = null;
-            const batchRows = wpRow.querySelectorAll('.batch-details-cell tr.batch-item-row');
-
-            if (batchRows.length === 0) {
-                if (isExpiryFilterActive || isNewlyReceivedFilterActive) {
-                    passesBatchDependentFilters = false;
-                }
-            } else {
-                let visibleBatchesCount = 0;
-                batchRows.forEach(batchRow => {
-                    let showThisBatch = true;
-                    if (isExpiryFilterActive) {
-                        const expiryDateStr = batchRow.dataset.expiryDate;
-                        if (expiryDateStr) {
-                            const parts = expiryDateStr.split('-');
-                            const expiryDateObj = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
-                            if (isNaN(expiryDateObj.valueOf()) || !(expiryDateObj <= sixMonthsFromNowUTC && expiryDateObj >= todayUTC)) {
-                                showThisBatch = false;
-                            }
-                        } else { showThisBatch = false; }
                     }
-                    if (showThisBatch && isNewlyReceivedFilterActive) {
-                        const receivedDateStr = batchRow.dataset.receivedDate;
-                        if (receivedDateStr) {
-                            const parts = receivedDateStr.split('-');
-                            const batchReceivedDateObj = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
-                            if (isNaN(batchReceivedDateObj.valueOf()) || !(batchReceivedDateObj >= fourteenDaysAgoUTC && batchReceivedDateObj <= todayUTC)) {
-                                showThisBatch = false;
-                            } else {
-                                if (!maxEligibleReceivedDateThisWp || batchReceivedDateObj > maxEligibleReceivedDateThisWp) {
-                                    maxEligibleReceivedDateThisWp = batchReceivedDateObj;
+                    newRow.querySelector('.product-name-display').textContent = item.product_name || 'N/A';
+                    newRow.querySelector('.batch-number-display').textContent = item.batch_number || 'N/A';
+                    newRow.querySelector('.expiry-date-display').textContent = item.expiry_date ? new Date(item.expiry_date + 'T00:00:00').toLocaleDateString('en-CA') : 'N/A';
+                    newRow.querySelector('.quantity-display').textContent = item.quantity !== null ? item.quantity : 'N/A';
+                    newRow.classList.remove('new-row');
+                } else { if (locationSearchInput) locationSearchInput.disabled = false; newRow.classList.add('new-row'); }
+                if (removeButton) {
+                    if (isExisting) {
+                        removeButton.title = `Remove this as a default pick location`; removeButton.innerHTML = '&times;';
+                        removeButton.classList.add('text-error'); removeButton.dataset.action = "mark-delete";
+                    } else {
+                        removeButton.title = `Remove this newly added row`; removeButton.innerHTML = '&times;';
+                        removeButton.dataset.action = "remove-dom";
+                    }
+                }
+                setupLocationSearchLogic(newRow, 'default'); return newRow;
+            }
+
+            if (formsetBody && !formsetBody.dataset.listenerAttached) {
+            formsetBody.addEventListener('click', function(event) {
+                const removeButton = event.target.closest('.remove-pick-row');
+                if (removeButton) {
+                    const rowToRemove = removeButton.closest('tr.pick-formset-row');
+                    if (rowToRemove) {
+                        const isExistingRow = rowToRemove.dataset.isExisting === "true";
+                        if (isExistingRow) {
+                            // For existing rows, toggle the DELETE checkbox and update style
+                            const deleteCheckbox = rowToRemove.querySelector('input[type="checkbox"][name$="-DELETE"]');
+                            if (deleteCheckbox) {
+                                deleteCheckbox.checked = !deleteCheckbox.checked;
+                                if (deleteCheckbox.checked) {
+                                    rowToRemove.style.opacity = '0.5';
+                                    rowToRemove.style.textDecoration = 'line-through';
+                                    removeButton.innerHTML = 'UNDO';
+                                    removeButton.classList.remove('text-error');
+                                    removeButton.classList.add('text-warning');
+                                    removeButton.title = `Undo removal of this default pick`;
+                                } else {
+                                    rowToRemove.style.opacity = '1';
+                                    rowToRemove.style.textDecoration = 'none';
+                                    removeButton.innerHTML = '&times;';
+                                    removeButton.classList.remove('text-warning');
+                                    removeButton.classList.add('text-error');
+                                    removeButton.title = `Remove this as a default pick location`;
                                 }
                             }
-                        } else { showThisBatch = false; }
+                        } else {
+                            // For new rows, just remove them from the page
+                            rowToRemove.remove();
+                        }
                     }
-                    batchRow.style.display = showThisBatch ? '' : 'none';
-                    if (showThisBatch) visibleBatchesCount++;
-                });
-                if ((isExpiryFilterActive || isNewlyReceivedFilterActive) && visibleBatchesCount === 0) {
-                    passesBatchDependentFilters = false;
                 }
-                if (isNewlyReceivedFilterActive && !maxEligibleReceivedDateThisWp && visibleBatchesCount > 0){
-                     passesBatchDependentFilters = false;
-                }
-            }
-            const showWPRow = passesSearch && passesUnbatched && passesBatchDependentFilters;
-            if (showWPRow) {
-                wpRow.dataset.sortKey = (isNewlyReceivedFilterActive && maxEligibleReceivedDateThisWp)
-                                        ? maxEligibleReceivedDateThisWp.toISOString()
-                                        : (wpRow.querySelector('.product-name') ? wpRow.querySelector('.product-name').textContent.toLowerCase() : '');
-                rowsToDisplayAndPotentiallySort.push(wpRow);
-            }
-            const noBatchesMessageEl = wpRow.querySelector('.batch-details-cell > .no-batches-message');
-            if(noBatchesMessageEl){
-                if (!showWPRow){ noBatchesMessageEl.style.display = 'none';
-                } else {
-                    const visibleBatchRowsAfterFilters = Array.from(batchRows).filter(br => br.style.display !== 'none').length;
-                    let msg = "";
-                    if (batchRows.length === 0) msg = "No batch details recorded for this item.";
-                    else if (visibleBatchRowsAfterFilters === 0) {
-                        if(isExpiryFilterActive && isNewlyReceivedFilterActive) msg = "No batches match expiry & new receipt filters.";
-                        else if(isExpiryFilterActive) msg = "No batches match expiry filter.";
-                        else if(isNewlyReceivedFilterActive) msg = "No batches match newly received filter.";
-                        else msg = "No batches currently visible for this product.";
-                    }
-                    noBatchesMessageEl.textContent = msg;
-                    noBatchesMessageEl.style.display = msg ? '' : 'none';
-                }
-            }
-            const unbatchedInfoEl = wpRow.querySelector('.batch-details-cell > .unbatched-info');
-            if(unbatchedInfoEl){ unbatchedInfoEl.style.display = showWPRow ? '' : 'none'; }
-        });
+            });
+            formsetBody.dataset.listenerAttached = 'true';
+        }
 
-        if (isNewlyReceivedFilterActive && rowsToDisplayAndPotentiallySort.length > 0) {
-            rowsToDisplayAndPotentiallySort.sort((a, b) => {
-                const dateA = a.dataset.sortKey ? new Date(a.dataset.sortKey).getTime() : 0;
-                const dateB = b.dataset.sortKey ? new Date(b.dataset.sortKey).getTime() : 0;
-                if (dateB !== dateA) return dateB - dateA;
-                const nameA = a.querySelector('.product-name') ? a.querySelector('.product-name').textContent.toLowerCase() : '';
-                const nameB = b.querySelector('.product-name') ? b.querySelector('.product-name').textContent.toLowerCase() : '';
-                return nameA.localeCompare(nameB);
+            pickForm.addEventListener('submit', function(event) {
+                event.preventDefault(); const formData = new FormData(pickForm);
+                formsetBody.querySelectorAll('tr.pick-formset-row').forEach(row => {
+                    const deleteCheckbox = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
+                    if (deleteCheckbox && deleteCheckbox.checked) { formData.set(deleteCheckbox.name, 'on'); }
+                    else if (deleteCheckbox && !deleteCheckbox.checked && formData.has(deleteCheckbox.name)) { formData.delete(deleteCheckbox.name); }
+                });
+                const saveBtn = pickForm.querySelector('button[type="submit"]');
+                if (saveBtn) { saveBtn.disabled = true; saveBtn.classList.add('loading'); saveBtn.innerHTML = '<span class="loading loading-spinner text-sm"></span> Saving...'; }
+                fetch(pickForm.action, {
+                    method: 'POST', body: formData,
+                    headers: { 'X-CSRFToken': getCsrfToken(), 'X-Requested-With': 'XMLHttpRequest'}
+                })
+                .then(response => { if (!response.ok) { return response.text().then(text => { throw new Error(`Server: ${response.status}: ${text.substring(0,200)}`); }); } return response.json(); })
+                .then(data => {
+                    if (data.success) {
+                        if (typeof Swal !== 'undefined') Swal.fire({toast:true,icon:'success',title:data.message||`Default picks updated!`,position:'top-end',showConfirmButton:false,timer:2000});
+                        else alert(data.message||`Default picks updated!`);
+                        if(modalToggle) modalToggle.checked=false; window.location.reload();
+                    } else {
+                        let errorMsg = data.message || `Could not update default picks.`;
+                        if(data.errors || data.formset_errors){ errorMsg += " Check form. Details in console."; console.error(`Default FS errors:`,data.formset_errors); console.error(`Default Form errors:`,data.errors); }
+                        if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Update Failed',text:errorMsg}); else alert(errorMsg);
+                    }
+                })
+                .catch(error => {
+                    console.error(`Error submitting default picks form:`,error);
+                    let displayError = 'Could not submit form. Network/server issue.';
+                    if(error.message && error.message.includes("Server:")){displayError=error.message;}
+                    if(typeof Swal !=='undefined')Swal.fire({icon:'error',title:'Submission Error',text:displayError}); else alert(displayError);
+                })
+                .finally(() => { if(saveBtn){ saveBtn.disabled=false; saveBtn.classList.remove('loading'); saveBtn.innerHTML = `Save Default Picks`; } });
+            });
+
+            async function loadCurrentPicks() {
+                if (!formsetBody) return;
+                formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4"><span class="loading loading-dots loading-md"></span> Loading default picks...</td></tr>`;
+                try {
+                    const response = await fetch(getItemsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }});
+                    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+                    const data = await response.json(); formsetBody.innerHTML = '';
+                    const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`);
+                    const initialFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-INITIAL_FORMS"]`);
+                    let currentNumberOfRows = 0;
+                    const itemsToLoad = data.default_picks;
+                    if (data.success && itemsToLoad) {
+                        itemsToLoad.forEach((item, index) => {
+                            const row = createRowElement(item, index, true); if (row) formsetBody.appendChild(row); currentNumberOfRows++;
+                        });
+                    } else { formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Error: ${data.message || `Could not load default picks.`}</td></tr>`; }
+                    if (currentNumberOfRows === 0) { addEmptyRowForPickType('default'); }
+                    if (totalFormsInput) totalFormsInput.value = formsetBody.querySelectorAll('tr.pick-formset-row').length;
+                    if (initialFormsInput) initialFormsInput.value = itemsToLoad ? itemsToLoad.length : 0;
+                } catch (error) {
+                    console.error(`Error loading default picks:`, error);
+                    formsetBody.innerHTML = `<tr><td colspan="6" class="text-center py-4 text-error">Failed to load. ${error.message}</td></tr>`;
+                }
+            }
+            modalToggle.addEventListener('change', function() {
+                if (this.checked) { loadCurrentPicks(); }
+                else { if(formsetBody) formsetBody.innerHTML = ''; const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`); if (totalFormsInput) totalFormsInput.value = 0; }
+            });
+            addRowBtn.addEventListener('click', () => addEmptyRowForPickType('default'));
+            return { createRowElement };
+        }
+
+        function addEmptyRowForPickType() {
+            const formsetId = 'default-picks-formset-body';
+            const formId = 'default-picks-form';
+            const formsetPrefix = defaultPickFormsetPrefixJS;
+            const formsetBody = document.getElementById(formsetId);
+            const totalFormsInput = document.querySelector(`#${formId} input[name="${formsetPrefix}-TOTAL_FORMS"]`);
+            if (!totalFormsInput || !formsetBody) { console.error(`Elements for default picks not found!`); return; }
+            const currentTotalForms = parseInt(totalFormsInput.value, 10) || 0;
+            const newRow = defaultModalSetup.createRowElement(null, currentTotalForms, false);
+            if (newRow) {
+                formsetBody.appendChild(newRow); totalFormsInput.value = currentTotalForms + 1;
+                const newSearchInput = newRow.querySelector('.location-search-input');
+                if (newSearchInput) newSearchInput.focus();
+            } else { console.error(`Failed to create new default pick row.`); }
+        }
+
+
+        function setupLocationSearchLogic(rowElement, pickType) {
+            const searchInput = rowElement.querySelector(`.location-search-input`);
+            const suggestionsDiv = rowElement.querySelector('.location-suggestions');
+            const batchItemIdInput = rowElement.querySelector(`input[name$="-inventory_batch_item_id"]`);
+            const wpIdInput = rowElement.querySelector(`input[name$="-warehouse_product_id"]`);
+            const productNameDisplay = rowElement.querySelector('.product-name-display');
+            const batchNumberDisplay = rowElement.querySelector('.batch-number-display');
+            const expiryDateDisplay = rowElement.querySelector('.expiry-date-display');
+            const quantityDisplay = rowElement.querySelector('.quantity-display');
+
+            if (!searchInput || !suggestionsDiv || !batchItemIdInput || !wpIdInput || !productNameDisplay || !batchNumberDisplay || !expiryDateDisplay || !quantityDisplay) {
+                console.warn(`setupLocationSearchLogic (${pickType}): Missing elements for row:`, rowElement.dataset.rowIndex); return;
+            }
+            if (rowElement.dataset.isExisting === "true" && searchInput.disabled) { return; }
+
+            const fetchLocationSuggestions = debounce(async function(term) {
+                if (term.length < 1) { suggestionsDiv.innerHTML = ''; suggestionsDiv.classList.add('hidden'); return; }
+                try {
+                    let searchUrl = `{% url 'inventory:search_batch_by_location' %}?location_label=${encodeURIComponent(term)}`;
+                    if (userWarehouseId) { searchUrl += `&warehouse_id=${userWarehouseId}`; }
+                    const response = await fetch(searchUrl);
+                    if (!response.ok) throw new Error('Network error.');
+                    const batches = await response.json(); suggestionsDiv.innerHTML = '';
+                    if (batches.length > 0) {
+                        batches.forEach(batch => {
+                            const div = document.createElement('div');
+                            div.innerHTML = `<strong>${batch.location_label||'N/A'}</strong> - ${batch.product_name} (<strong>SKU</strong>:${batch.product_sku}) <small class="text-gray-600 text-base"><strong>B</strong>:${batch.batch_number||'N/A'} | <strong>E</strong>:${batch.expiry_date ? new Date(batch.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : 'N/A'} | <strong>Q</strong>:${batch.quantity} | <strong>P</strong>:${batch.current_pick_priority === 0 ? 'Def' : '-'}</small>`;
+                            div.className = 'p-2 hover:bg-gray-100 cursor-pointer text-md border-b';
+                            Object.keys(batch).forEach(key => { div.dataset[key] = batch[key]; });
+                            div.addEventListener('click', function() {
+                                const selectedBatchCurrentPriorityStr = this.dataset.current_pick_priority;
+                                let selectedBatchCurrentPriority = null;
+                                if (selectedBatchCurrentPriorityStr === "0") selectedBatchCurrentPriority = 0;
+
+                                if (!checkAndHandleDuplicatePick(this.dataset.warehouse_product_id, this.dataset.id, selectedBatchCurrentPriority, rowElement, pickType)) {
+                                    suggestionsDiv.classList.add('hidden'); return;
+                                }
+                                searchInput.value = this.dataset.location_label || '';
+                                batchItemIdInput.value = this.dataset.id; wpIdInput.value = this.dataset.warehouse_product_id;
+                                productNameDisplay.textContent = this.dataset.product_name; batchNumberDisplay.textContent = this.dataset.batch_number || '';
+                                expiryDateDisplay.textContent = this.dataset.expiry_date ? new Date(this.dataset.expiry_date+'T00:00:00').toLocaleDateString('en-CA') : '';
+                                quantityDisplay.textContent = this.dataset.quantity;
+                                suggestionsDiv.innerHTML = ''; suggestionsDiv.classList.add('hidden');
+                            });
+                            suggestionsDiv.appendChild(div);
+                        });
+                        suggestionsDiv.classList.remove('hidden');
+                    } else { suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-gray-500">No matches.</div>'; suggestionsDiv.classList.remove('hidden'); }
+                } catch (error) { console.error('Location suggestions error:', error); suggestionsDiv.innerHTML = '<div class="p-2 text-xs text-red-500">Error.</div>'; suggestionsDiv.classList.remove('hidden');}
+            }, 300);
+            searchInput.addEventListener('input', function() { fetchLocationSuggestions(this.value); if (this.value.trim()==='') { batchItemIdInput.value=''; wpIdInput.value=''; productNameDisplay.textContent=''; batchNumberDisplay.textContent=''; expiryDateDisplay.textContent=''; quantityDisplay.textContent='';}});
+            document.addEventListener('click', (event) => { if (suggestionsDiv && !searchInput.contains(event.target) && !suggestionsDiv.contains(event.target)) { suggestionsDiv.classList.add('hidden'); } });
+        }
+
+        function checkAndHandleDuplicatePick(selectedWarehouseProductId, currentBatchItemIdStr, currentBatchItemPriority, currentRowElement, pickType) {
+            const formsetBody = document.getElementById(`${pickType}-picks-formset-body`);
+            if (!formsetBody) return true;
+            const currentBatchItemId = parseInt(currentBatchItemIdStr, 10); // Ensure it's a number for comparison
+
+            // Removed the conflicting priority logic for "Secondary" picks.
+
+            const rows = formsetBody.querySelectorAll('tr.pick-formset-row');
+            for (let row of rows) {
+                if (row === currentRowElement) continue;
+                const isExistingDesignatedRow = row.dataset.isExisting === "true";
+                const wpIdInput = row.querySelector('input[name$="-warehouse_product_id"]');
+                const deleteCheckbox = row.querySelector('input[name$="-DELETE"]');
+                const otherBatchItemIdValue = row.querySelector('input[name$="-inventory_batch_item_id"]').value;
+
+                // Continue if the other batch item ID is not set
+                if (!otherBatchItemIdValue) continue;
+                const otherBatchItemId = parseInt(otherBatchItemIdValue, 10);
+
+
+                if (wpIdInput && wpIdInput.value === selectedWarehouseProductId &&
+                    isExistingDesignatedRow && deleteCheckbox && !deleteCheckbox.checked &&
+                    otherBatchItemId !== currentBatchItemId ) {
+                    const productName = row.querySelector('.product-name-display').textContent || 'this product';
+                    const existingLocation = row.querySelector('input[name$="-location_label_search"]').value || 'its current location';
+                    if (confirm(`Product "${productName}" already has a ${pickType} pick set at "${existingLocation}". Replace it? The other will be marked for removal.`)) {
+                        deleteCheckbox.checked = true; row.style.opacity = '0.5'; row.style.textDecoration = 'line-through';
+                        const oldRemoveBtn = row.querySelector('.remove-pick-row');
+                        if (oldRemoveBtn) { oldRemoveBtn.innerHTML = 'UNDO'; oldRemoveBtn.title = `This ${pickType} pick is being replaced.`; oldRemoveBtn.classList.remove('text-error'); oldRemoveBtn.classList.add('text-warning');}
+                        return true;
+                    } else {
+                        const searchInputCurrent = currentRowElement.querySelector('.location-search-input'); if (searchInputCurrent) searchInputCurrent.value = '';
+                        const batchIdInputCurrent = currentRowElement.querySelector('input[name$="-inventory_batch_item_id"]'); if (batchIdInputCurrent) batchIdInputCurrent.value = '';
+                        const wpIdInputCurrent = currentRowElement.querySelector('input[name$="-warehouse_product_id"]'); if (wpIdInputCurrent) wpIdInputCurrent.value = '';
+                        currentRowElement.querySelector('.product-name-display').textContent = ''; currentRowElement.querySelector('.batch-number-display').textContent = '';
+                        currentRowElement.querySelector('.expiry-date-display').textContent = ''; currentRowElement.querySelector('.quantity-display').textContent = '';
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // --- Main Page Search and Filter Logic ---
+        const toggleExpiryFilterButton = document.getElementById('toggle-expiry-filter');
+        const toggleUnbatchedFilterButton = document.getElementById('toggle-unbatched-filter');
+        const toggleNewlyReceivedFilterButton = document.getElementById('toggle-newly-received-filter');
+        const searchInput = document.getElementById('inventory-search-input');
+        const mainTableBody = document.querySelector('.main-inventory-table tbody');
+        let originalWPRowsOrder = [];
+        let wpDisplayState = {}; // State object to hold UI state for each product row
+
+        if (mainTableBody) {
+            originalWPRowsOrder = Array.from(mainTableBody.querySelectorAll('tr.warehouse-product-row'));
+            // Initialize state for each row and make toggle buttons visible
+            originalWPRowsOrder.forEach(wpRow => {
+                const wpId = wpRow.dataset.wpId;
+                if (wpId) {
+                    wpDisplayState[wpId] = { showZeroQty: false };
+                }
+                const zeroQuantityBatches = wpRow.querySelectorAll('.batch-item-row.zero-quantity-batch');
+                const toggleContainer = wpRow.querySelector('.zero-quantity-toggle-container');
+                if (zeroQuantityBatches.length > 0 && toggleContainer) {
+                    toggleContainer.style.display = 'block';
+                }
             });
         }
-        rowsToDisplayAndPotentiallySort.forEach(row => { mainTableBody.appendChild(row); row.style.display = ''; });
-        updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive);
-        updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive);
-        updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive);
-    }
 
-    const debouncedApplyFilters = debounce(applyDisplayFilters, 300);
+        let isExpiryFilterActive = false;
+        let isUnbatchedFilterActive = false;
+        let isNewlyReceivedFilterActive = false;
+        let currentSearchTerm = "";
+        let activeWarehouseIds = new Set();
 
-    if (searchInput) { searchInput.addEventListener('input', function() { currentSearchTerm = this.value; debouncedApplyFilters(); }); }
-    if (toggleExpiryFilterButton) { toggleExpiryFilterButton.addEventListener('click', function() { isExpiryFilterActive = !isExpiryFilterActive; applyDisplayFilters(); }); updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive); }
-    if (toggleUnbatchedFilterButton) { toggleUnbatchedFilterButton.addEventListener('click', function() { isUnbatchedFilterActive = !isUnbatchedFilterActive; applyDisplayFilters(); }); updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive); }
-    if (toggleNewlyReceivedFilterButton) { toggleNewlyReceivedFilterButton.addEventListener('click', function() { isNewlyReceivedFilterActive = !isNewlyReceivedFilterActive; applyDisplayFilters(); }); updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive); }
+        const currentDate = new Date();
+        const todayUTC = new Date(Date.UTC(currentDate.getUTCFullYear(), currentDate.getUTCMonth(), currentDate.getUTCDate()));
+        const sixMonthsFromNowUTC = new Date(todayUTC);
+        sixMonthsFromNowUTC.setUTCMonth(todayUTC.getUTCMonth() + 6);
+        const fourteenDaysAgoUTC = new Date(todayUTC);
+        fourteenDaysAgoUTC.setUTCDate(todayUTC.getUTCDate() - 14);
 
-    document.querySelectorAll('.manage-unbatched-btn').forEach(button => {
-         button.addEventListener('click', function() {
-            const wpId = this.dataset.wpId;
-            const wpName = this.dataset.wpName || "Selected Product";
-            const addBatchModalToggle = document.getElementById('add-batch-modal-toggle');
-            const currentAddBatchForm = document.getElementById('add-batch-form');
-            if (!currentAddBatchForm || !addBatchModalToggle) { console.error("Add batch modal or form not found!"); return; }
-            const warehouseProductSelectOriginal = currentAddBatchForm.elements['warehouse_product'];
-            const wpSelectContainer = document.getElementById('wp-select-container');
-            const wpDisplayContainer = document.getElementById('wp-display-container');
-            const warehouseProductDisplayText = document.getElementById('selected_wp_display_in_modal');
-            const hiddenWpIdField = currentAddBatchForm.elements['hidden_warehouse_product_id'];
-            const quantityField = currentAddBatchForm.elements['quantity'];
-            currentAddBatchForm.reset();
-            if (wpSelectContainer) wpSelectContainer.style.display = 'none';
-            if (warehouseProductSelectOriginal) { warehouseProductSelectOriginal.style.display = 'none'; warehouseProductSelectOriginal.removeAttribute('required'); }
-            if (wpDisplayContainer && warehouseProductDisplayText) { warehouseProductDisplayText.textContent = wpName; wpDisplayContainer.style.display = 'block'; }
-            if (hiddenWpIdField) { hiddenWpIdField.value = wpId; }
-            else { console.warn("Hidden WP ID field 'hidden_warehouse_product_id' not found.");}
-            const unbatchedInfoDiv = this.closest('.unbatched-info');
-            if (unbatchedInfoDiv) {
-                const unbatchedQtyValueSpan = unbatchedInfoDiv.querySelector('span.unbatched-qty-value');
-                if (unbatchedQtyValueSpan && quantityField) { quantityField.value = parseInt(unbatchedQtyValueSpan.textContent, 10); }
+        function updateButtonStyles(button, isActive) {
+            if (!button) return;
+            const textSpan = button.querySelector('span');
+            if (isActive) {
+                button.classList.add('btn-active', 'btn-neutral');
+                button.classList.remove('btn-outline');
+                if (textSpan) textSpan.classList.add('text-white');
+            } else {
+                button.classList.remove('btn-active', 'btn-neutral');
+                button.classList.add('btn-outline');
+                if (textSpan) textSpan.classList.remove('text-white');
             }
-            setTimeout(() => { if (addBatchModalToggle) addBatchModalToggle.checked = true; }, 0);
-        });
+        }
+
+        function applyDisplayFilters() {
+            if (!mainTableBody) return;
+            const searchTerm = currentSearchTerm.toLowerCase().trim();
+            mainTableBody.innerHTML = '';
+            let rowsToDisplayAndPotentiallySort = [];
+
+            originalWPRowsOrder.forEach(originalWpRow => {
+                const wpRow = originalWpRow.cloneNode(true); // **FIX: Work with a clone**
+
+                let passesSearch = true;
+                if (searchTerm) {
+                    const skuText = wpRow.querySelector('.product-sku').textContent.toLowerCase();
+                    const nameText = wpRow.querySelector('.product-name').textContent.toLowerCase();
+                    if (!skuText.includes(searchTerm) && !nameText.includes(searchTerm)) {
+                        passesSearch = false;
+                    }
+                }
+
+                const warehouseId = wpRow.dataset.warehouseId;
+                const passesWarehouseFilter = activeWarehouseIds.size === 0 || activeWarehouseIds.has(warehouseId);
+
+                let passesUnbatched = true;
+                if (isUnbatchedFilterActive) {
+                    const unbatchedInfoDiv = wpRow.querySelector('.unbatched-info');
+                    const unbatchedQtyValueSpan = unbatchedInfoDiv ? unbatchedInfoDiv.querySelector('span.unbatched-qty-value') : null;
+                    const isDiscrepancy = unbatchedInfoDiv ? unbatchedInfoDiv.querySelector('p.text-red-600') : false;
+                    if (unbatchedQtyValueSpan && !isDiscrepancy) {
+                        if (!(parseInt(unbatchedQtyValueSpan.textContent, 10) > 0)) passesUnbatched = false;
+                    } else {
+                        passesUnbatched = false;
+                    }
+                }
+
+                const wpId = wpRow.dataset.wpId;
+                const state = wpDisplayState[wpId] || { showZeroQty: false };
+                const showZeroQtyForThisRow = state.showZeroQty;
+                let passesBatchDependentFilters = true;
+                let maxEligibleReceivedDateThisWp = null;
+                const batchRows = wpRow.querySelectorAll('.batch-details-cell tr.batch-item-row');
+
+                if (batchRows.length === 0) {
+                    if (isExpiryFilterActive || isNewlyReceivedFilterActive) {
+                        passesBatchDependentFilters = false;
+                    }
+                } else {
+                    let visibleBatchesCount = 0;
+                    batchRows.forEach(batchRow => {
+                        let showThisBatch = true;
+
+                        const quantity = batchRow.dataset.quantity ? parseInt(batchRow.dataset.quantity, 10) : null;
+                        if (quantity === 0 && !showZeroQtyForThisRow) {
+                            showThisBatch = false;
+                        }
+
+                        if (showThisBatch && isExpiryFilterActive) {
+                            const expiryDateStr = batchRow.dataset.expiryDate;
+                            if (expiryDateStr) {
+                                const parts = expiryDateStr.split('-');
+                                const expiryDateObj = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+                                if (isNaN(expiryDateObj.valueOf()) || !(expiryDateObj <= sixMonthsFromNowUTC && expiryDateObj >= todayUTC)) {
+                                    showThisBatch = false;
+                                }
+                            } else { showThisBatch = false; }
+                        }
+                        if (showThisBatch && isNewlyReceivedFilterActive) {
+                            const receivedDateStr = batchRow.dataset.receivedDate;
+                            if (receivedDateStr) {
+                                const parts = receivedDateStr.split('-');
+                                const batchReceivedDateObj = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+                                if (isNaN(batchReceivedDateObj.valueOf()) || !(batchReceivedDateObj >= fourteenDaysAgoUTC && batchReceivedDateObj <= todayUTC)) {
+                                    showThisBatch = false;
+                                } else {
+                                    if (!maxEligibleReceivedDateThisWp || batchReceivedDateObj > maxEligibleReceivedDateThisWp) {
+                                        maxEligibleReceivedDateThisWp = batchReceivedDateObj;
+                                    }
+                                }
+                            } else { showThisBatch = false; }
+                        }
+
+                        if (showThisBatch) {
+                            batchRow.classList.remove('hidden');
+                        } else {
+                            batchRow.classList.add('hidden');
+                        }
+
+                        if (showThisBatch) visibleBatchesCount++;
+                    });
+                    if ((isExpiryFilterActive || isNewlyReceivedFilterActive) && visibleBatchesCount === 0) {
+                        passesBatchDependentFilters = false;
+                    }
+                    if (isNewlyReceivedFilterActive && !maxEligibleReceivedDateThisWp && visibleBatchesCount > 0){
+                         passesBatchDependentFilters = false;
+                    }
+                }
+                const showWPRow = passesSearch && passesUnbatched && passesBatchDependentFilters && passesWarehouseFilter;
+
+                if (showWPRow) {
+                    wpRow.dataset.sortKey = (isNewlyReceivedFilterActive && maxEligibleReceivedDateThisWp)
+                                            ? maxEligibleReceivedDateThisWp.toISOString()
+                                            : (wpRow.querySelector('.product-name') ? wpRow.querySelector('.product-name').textContent.toLowerCase() : '');
+
+                    const toggleBtn = wpRow.querySelector('.toggle-zero-batches-btn');
+                    if (toggleBtn) {
+                        const zeroQuantityBatches = wpRow.querySelectorAll('.batch-item-row.zero-quantity-batch');
+                        if (showZeroQtyForThisRow) {
+                            toggleBtn.textContent = `Hide ${zeroQuantityBatches.length} zero-quantity batch(es)`;
+                        } else {
+                            toggleBtn.textContent = `Show ${zeroQuantityBatches.length} hidden zero-quantity batch(es)`;
+                        }
+                    }
+
+                    rowsToDisplayAndPotentiallySort.push(wpRow);
+                }
+                const noBatchesMessageEl = wpRow.querySelector('.batch-details-cell > .no-batches-message');
+                if(noBatchesMessageEl){
+                    if (!showWPRow){ noBatchesMessageEl.style.display = 'none';
+                    } else {
+                        const visibleBatchRowsAfterFilters = Array.from(batchRows).filter(br => !br.classList.contains('hidden')).length;
+                        let msg = "";
+                        if (batchRows.length === 0) msg = "No batch details recorded for this item.";
+                        else if (visibleBatchRowsAfterFilters === 0) {
+                            if(isExpiryFilterActive && isNewlyReceivedFilterActive) msg = "No batches match expiry & new receipt filters.";
+                            else if(isExpiryFilterActive) msg = "No batches match expiry filter.";
+                            else if(isNewlyReceivedFilterActive) msg = "No batches match newly received filter.";
+                            else msg = "No batches currently visible for this product.";
+                        }
+                        noBatchesMessageEl.textContent = msg;
+                        noBatchesMessageEl.style.display = msg ? '' : 'none';
+                    }
+                }
+                const unbatchedInfoEl = wpRow.querySelector('.batch-details-cell > .unbatched-info');
+                if(unbatchedInfoEl){ unbatchedInfoEl.style.display = showWPRow ? '' : 'none'; }
+            });
+
+            if (isNewlyReceivedFilterActive && rowsToDisplayAndPotentiallySort.length > 0) {
+                rowsToDisplayAndPotentiallySort.sort((a, b) => {
+                    const dateA = a.dataset.sortKey ? new Date(a.dataset.sortKey).getTime() : 0;
+                    const dateB = b.dataset.sortKey ? new Date(b.dataset.sortKey).getTime() : 0;
+                    if (dateB !== dateA) return dateB - dateA;
+                    const nameA = a.querySelector('.product-name') ? a.querySelector('.product-name').textContent.toLowerCase() : '';
+                    const nameB = b.querySelector('.product-name') ? b.querySelector('.product-name').textContent.toLowerCase() : '';
+                    return nameA.localeCompare(nameB);
+                });
+            }
+            rowsToDisplayAndPotentiallySort.forEach(row => { mainTableBody.appendChild(row); row.style.display = ''; });
+
+            updateButtonStyles(toggleExpiryFilterButton, isExpiryFilterActive);
+            updateButtonStyles(toggleUnbatchedFilterButton, isUnbatchedFilterActive);
+            updateButtonStyles(toggleNewlyReceivedFilterButton, isNewlyReceivedFilterActive);
+            document.querySelectorAll('.warehouse-filter-btn').forEach(button => {
+                updateButtonStyles(button, activeWarehouseIds.has(button.dataset.warehouseId));
+            });
+        }
+
+        const debouncedApplyFilters = debounce(applyDisplayFilters, 300);
+
+        if (searchInput) { searchInput.addEventListener('input', function() { currentSearchTerm = this.value; debouncedApplyFilters(); }); }
+        if (toggleExpiryFilterButton) { toggleExpiryFilterButton.addEventListener('click', function() { isExpiryFilterActive = !isExpiryFilterActive; applyDisplayFilters(); }); }
+        if (toggleUnbatchedFilterButton) { toggleUnbatchedFilterButton.addEventListener('click', function() { isUnbatchedFilterActive = !isUnbatchedFilterActive; applyDisplayFilters(); }); }
+        if (toggleNewlyReceivedFilterButton) { toggleNewlyReceivedFilterButton.addEventListener('click', function() { isNewlyReceivedFilterActive = !isNewlyReceivedFilterActive; applyDisplayFilters(); }); }
+
+        const warehouseFilterContainer = document.getElementById('warehouse-filter-container');
+        if (warehouseFilterContainer) {
+            warehouseFilterContainer.addEventListener('click', function(event) {
+                const button = event.target.closest('.warehouse-filter-btn');
+                if (button) {
+                    const warehouseId = button.dataset.warehouseId;
+                    if (activeWarehouseIds.has(warehouseId)) {
+                        activeWarehouseIds.delete(warehouseId);
+                    } else {
+                        activeWarehouseIds.add(warehouseId);
+                    }
+                    applyDisplayFilters();
+                }
+            });
+        }
+
+        const resetFiltersBtn = document.getElementById('reset-filters-btn');
+        if (resetFiltersBtn) {
+            resetFiltersBtn.addEventListener('click', function() {
+                isExpiryFilterActive = false;
+                isUnbatchedFilterActive = false;
+                isNewlyReceivedFilterActive = false;
+                activeWarehouseIds.clear();
+
+                if (searchInput) {
+                    searchInput.value = '';
+                }
+                currentSearchTerm = '';
+
+                applyDisplayFilters();
+            });
+        }
+
+
+        // Delegated event listener for buttons inside the main table
+        if (mainTableBody) {
+            mainTableBody.addEventListener('click', function(event) {
+                // Handler for the zero-quantity toggle button
+                const toggleBtn = event.target.closest('.toggle-zero-batches-btn');
+                if (toggleBtn) {
+                    const wpRow = toggleBtn.closest('.warehouse-product-row');
+                    const wpId = wpRow.dataset.wpId;
+                    if (wpId && wpDisplayState.hasOwnProperty(wpId)) {
+                        wpDisplayState[wpId].showZeroQty = !wpDisplayState[wpId].showZeroQty;
+                        applyDisplayFilters();
+                    }
+                    return;
+                }
+
+                // Handler for the "Batch It" (manage unbatched) button
+                const unbatchedBtn = event.target.closest('.manage-unbatched-btn');
+                if (unbatchedBtn) {
+                    const wpId = unbatchedBtn.dataset.wpId;
+                    const wpName = unbatchedBtn.dataset.wpName || "Selected Product";
+                    const addBatchModalToggle = document.getElementById('add-batch-modal-toggle');
+                    const currentAddBatchForm = document.getElementById('add-batch-form');
+                    if (!currentAddBatchForm || !addBatchModalToggle) { console.error("Add batch modal or form not found!"); return; }
+                    const warehouseProductSelectOriginal = currentAddBatchForm.elements['warehouse_product'];
+                    const wpSelectContainer = document.getElementById('wp-select-container');
+                    const wpDisplayContainer = document.getElementById('wp-display-container');
+                    const warehouseProductDisplayText = document.getElementById('selected_wp_display_in_modal');
+                    const hiddenWpIdField = currentAddBatchForm.elements['hidden_warehouse_product_id'];
+                    const quantityField = currentAddBatchForm.elements['quantity'];
+                    currentAddBatchForm.reset();
+                    if (wpSelectContainer) wpSelectContainer.style.display = 'none';
+                    if (warehouseProductSelectOriginal) { warehouseProductSelectOriginal.style.display = 'none'; warehouseProductSelectOriginal.removeAttribute('required'); }
+                    if (wpDisplayContainer && warehouseProductDisplayText) { warehouseProductDisplayText.textContent = wpName; wpDisplayContainer.style.display = 'block'; }
+                    if (hiddenWpIdField) { hiddenWpIdField.value = wpId; }
+                    else { console.warn("Hidden WP ID field 'hidden_warehouse_product_id' not found.");}
+                    const unbatchedInfoDiv = unbatchedBtn.closest('.unbatched-info');
+                    if (unbatchedInfoDiv) {
+                        const unbatchedQtyValueSpan = unbatchedInfoDiv.querySelector('span.unbatched-qty-value');
+                        if (unbatchedQtyValueSpan && quantityField) { quantityField.value = parseInt(unbatchedQtyValueSpan.textContent, 10); }
+                    }
+                    setTimeout(() => { if (addBatchModalToggle) addBatchModalToggle.checked = true; }, 0);
+                    return;
+                }
+            });
+        }
+
+        // ** THE FIX IS HERE **
+        // I am now calling setupPickLocationModal and storing its return value.
+        const defaultModalSetup = setupPickLocationModal();
+
+        applyDisplayFilters();
     });
-    applyDisplayFilters();
-});
-// V001
-</script>
+    </script>
+
 {% endblock %}

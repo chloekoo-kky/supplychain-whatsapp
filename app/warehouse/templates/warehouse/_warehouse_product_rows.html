@@ -1,0 +1,50 @@
+{% comment %} warehouse/templates/warehouse/_warehouse_product_rows.html {% endcomment %}
+{% load humanize %}
+{% load custom_filters %}
+
+{% for item in products %}
+{# Add data-attributes to the row for easy access in JavaScript #}
+<tr data-threshold="{{ item.threshold|default_if_none:0 }}" data-quantity="{{ item.quantity }}" data-gap="0">
+    <td>
+        <label>
+            <input type="checkbox" class="checkbox checkbox-sm select-item" value="{{ item.id }}">
+        </label>
+    </td>
+    <td>
+        <div class="flex items-center space-x-3">
+            <div>
+                <div class="font-bold">{{ item.product.name }}</div>
+                <div class="text-sm opacity-50">{{ item.product.sku }}</div>
+            </div>
+        </div>
+    </td>
+    <td>{{ item.supplier.code|default:"N/A" }}</td>
+    <td>{{ item.warehouse.name }}</td>
+
+    <td class="text-right font-mono text-base">{{ item.threshold|default_if_none:0 }}</td>
+
+    <td class="text-right font-mono text-base">
+        <span class="font-bold">{{ item.quantity }}</span> / <span class="text-blue-600 hl-qty-value"></span>
+    </td>
+
+    <td class="text-right font-mono text-base gap-cell"></td>
+
+    <td>
+        {% if item.pending_arrival > 0 %}
+        <label for="incoming-modal-{{ item.id }}" class="btn btn-xs btn-gray-800 btn-outline font-normal">
+            +{{ item.pending_arrival }} Incoming
+        </label>
+        {% endif %}
+    </td>
+
+    <td>
+        <button class="btn btn-xs btn-outline btn-info stats-modal-trigger" data-wp-id="{{ item.pk }}">
+            View
+        </button>
+    </td>
+</tr>
+{% empty %}
+<tr>
+    <td colspan="9" class="text-center py-6">No products found matching your criteria.</td>
+</tr>
+{% endfor %}

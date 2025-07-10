@@ -14,7 +14,13 @@ from django.db import transaction # For atomic operations
 from django.contrib.admin.views.main import ChangeList
 
 # Import your models
-from .models import Warehouse, WarehouseProduct, PurchaseOrder, PurchaseOrderItem
+from .models import (Warehouse,
+                     WarehouseProduct,
+                     PurchaseOrder,
+                     PurchaseOrderItem,
+                     PurchaseOrderStatusLog,
+                     )
+
 from inventory.models import Product, Supplier, StockTransaction # Make sure StockTransaction is imported
 
 
@@ -27,42 +33,28 @@ class ExcelImportForm(forms.Form):
 
 @admin.register(WarehouseProduct)
 class WarehouseProductAdmin(admin.ModelAdmin):
+    # ... (all your other admin settings like list_display, search_fields, etc., remain the same) ...
     change_list_template = "admin/warehouse/warehouseproduct/changelist.html"
     list_display = (
-        'get_warehouse_name',
-        'code',
-        'get_product_sku',
-        'get_product_name',
-        'quantity',
-        'threshold',
-        'get_supplier_code_display'
+        'get_warehouse_name', 'code', 'get_product_sku', 'get_product_name',
+        'quantity', 'threshold', 'get_supplier_code_display'
     )
     search_fields = (
-        'warehouse__name',
-        'code',
-        'product__sku',
-        'product__name',
-        'supplier__name',
-        'supplier__code'
+        'warehouse__name', 'code', 'product__sku', 'product__name',
+        'supplier__name', 'supplier__code'
     )
     list_filter = ('warehouse', 'supplier', 'product__name')
     autocomplete_fields = ['product', 'warehouse', 'supplier']
     ordering = ('warehouse__name', 'code', 'product__name')
 
     fieldsets = (
-        (None, {
-            'fields': ('warehouse', 'product', 'code', 'supplier')
-        }),
-        ('Stock Details', {
-            'fields': ('quantity', 'threshold')
-        }),
+        (None, {'fields': ('warehouse', 'product', 'code', 'supplier')}),
+        ('Stock Details', {'fields': ('quantity', 'threshold')}),
     )
 
-    # Define consistent headers
     EXCEL_HEADERS = [
         'Warehouse Name', 'Product SKU', 'Warehouse Product Code',
-        'Product Name', 'Quantity', 'Threshold',
-        'Supplier Code' # Assuming this is WarehouseProduct.supplier.code
+        'Product Name', 'Quantity', 'Threshold', 'Supplier Code'
     ]
 
     def get_warehouse_name(self, obj):
@@ -97,24 +89,20 @@ class WarehouseProductAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def download_excel_template(self, request):
+        # ... (This method is fine) ...
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = "WarehouseProduct Template"
-
         sheet.append(self.EXCEL_HEADERS)
-
-        # Add example rows
         sheet.append(['Main Warehouse', 'SKU001', 'MW-SKU001', 'Sample Product One', 100, 10, 'SUP001'])
-        sheet.append(['Secondary Warehouse', 'SKU002', 'SW-SKU002', 'Another Product', 50, 5, '']) # Example with no supplier
-
-        response = HttpResponse(
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
+        sheet.append(['Secondary Warehouse', 'SKU002', '', 'Another Product', 50, 5, ''])
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = 'attachment; filename="warehouseproduct_template.xlsx"'
         workbook.save(response)
         return response
 
     def export_excel(self, request):
+        # ... (This method is fine) ...
         sortable_by = self.get_sortable_by(request)
         cl = ChangeList(
             request, self.model, self.list_display, self.list_display_links,
@@ -122,31 +110,21 @@ class WarehouseProductAdmin(admin.ModelAdmin):
             self.list_select_related, self.list_per_page, self.list_max_show_all,
             self.list_editable, self, sortable_by
         )
-        queryset = cl.get_queryset(request).select_related('warehouse', 'product', 'supplier') # Ensure related objects are fetched
-
+        queryset = cl.get_queryset(request).select_related('warehouse', 'product', 'supplier')
         workbook = openpyxl.Workbook()
         sheet = workbook.active
         sheet.title = "Warehouse Products Export"
         sheet.append(self.EXCEL_HEADERS)
-
         for obj in queryset:
             sheet.append([
-                obj.warehouse.name if obj.warehouse else '',
-                obj.product.sku if obj.product else '',
-                obj.code if obj.code else '',
-                obj.product.name if obj.product else '',
-                obj.quantity,
-                obj.threshold,
-                obj.supplier.code if obj.supplier else '',
+                obj.warehouse.name if obj.warehouse else '', obj.product.sku if obj.product else '',
+                obj.code if obj.code else '', obj.product.name if obj.product else '',
+                obj.quantity, obj.threshold, obj.supplier.code if obj.supplier else '',
             ])
-
-        response = HttpResponse(
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = 'attachment; filename="warehouse_products_export.xlsx"'
         workbook.save(response)
         return response
-    export_excel.short_description = "Export Warehouse Products as Excel"
 
     def upload_excel(self, request):
         if request.method == "POST":
@@ -154,44 +132,37 @@ class WarehouseProductAdmin(admin.ModelAdmin):
             if form.is_valid():
                 excel_file = request.FILES["excel_upload"]
                 try:
-                    workbook = openpyxl.load_workbook(excel_file, data_only=True) # data_only=True to get values not formulas
+                    workbook = openpyxl.load_workbook(excel_file, data_only=True)
                     sheet = workbook.active
                 except Exception as e:
                     self.message_user(request, f"Error reading Excel file: {e}", level=messages.ERROR)
                     return redirect("..")
 
-                created_count = 0
-                updated_count = 0
-                errors = []
-
-                # Read headers from the first row
+                created_count, updated_count, errors = 0, 0, []
                 header_row = [cell.value for cell in sheet[1]]
                 if header_row != self.EXCEL_HEADERS:
                     errors.append(f"Invalid Excel headers. Expected: {', '.join(self.EXCEL_HEADERS)}. Got: {', '.join(header_row)}")
-                    # Log all errors and redirect
-                    for error in errors:
-                        self.message_user(request, error, level=messages.ERROR)
+                    self.message_user(request, errors[0], level=messages.ERROR)
                     return redirect("..")
 
-
-                for row_idx, row in enumerate(sheet.iter_rows(min_row=2), start=2): # Skip header row
-                    # Convert row to a dictionary using headers
+                for row_idx, row in enumerate(sheet.iter_rows(min_row=2), start=2):
                     try:
                         row_data = {self.EXCEL_HEADERS[i]: cell.value for i, cell in enumerate(row) if i < len(self.EXCEL_HEADERS)}
                     except IndexError:
-                        errors.append(f"Row {row_idx}: Mismatch between header count and row cell count.")
+                        errors.append(f"Row {row_idx}: Mismatch in cell count.")
                         continue
-
 
                     warehouse_name = str(row_data.get('Warehouse Name', '')).strip()
                     sku = str(row_data.get('Product SKU', '')).strip()
-                    wp_code = str(row_data.get('Warehouse Product Code', '')).strip()
-                    # Product Name is for reference, not directly used for lookup if SKU is primary
-                    # product_name_excel = str(row_data.get('Product Name', '')).strip()
-                    quantity_val = row_data.get('Quantity')
-                    threshold_val = row_data.get('Threshold')
-                    supplier_code_excel = str(row_data.get('Supplier Code', '')).strip()
 
+                    raw_wp_code = row_data.get('Warehouse Product Code')
+                    wp_code = str(raw_wp_code).strip() if raw_wp_code is not None else None
+
+                    # ===== THIS IS THE FIX FOR THE SUPPLIER CODE =====
+                    raw_supplier_code = row_data.get('Supplier Code')
+                    # Convert to string and strip if not None, otherwise it becomes an empty string
+                    supplier_code_excel = str(raw_supplier_code).strip() if raw_supplier_code is not None else ""
+                    # =================================================
 
                     if not sku or not warehouse_name:
                         errors.append(f"Row {row_idx}: 'Warehouse Name' and 'Product SKU' are required.")
@@ -199,49 +170,47 @@ class WarehouseProductAdmin(admin.ModelAdmin):
 
                     try:
                         warehouse = Warehouse.objects.get(name__iexact=warehouse_name)
+                        product = Product.objects.get(sku__iexact=sku)
                     except Warehouse.DoesNotExist:
                         errors.append(f"Row {row_idx}: Warehouse '{warehouse_name}' not found.")
                         continue
-                    try:
-                        product = Product.objects.get(sku__iexact=sku)
                     except Product.DoesNotExist:
                         errors.append(f"Row {row_idx}: Product with SKU '{sku}' not found.")
                         continue
 
                     wp_supplier = None
+                    # This check will now correctly skip empty strings, preventing the warning
                     if supplier_code_excel:
                         try:
                             wp_supplier = Supplier.objects.get(code__iexact=supplier_code_excel)
                         except Supplier.DoesNotExist:
-                            errors.append(f"Row {row_idx}: Supplier with code '{supplier_code_excel}' not found. Supplier field will be left blank for this item if it's new, or unchanged if updating and previously set.")
+                            errors.append(f"Row {row_idx}: Supplier with code '{supplier_code_excel}' not found.")
 
                     try:
-                        quantity = int(quantity_val) if quantity_val is not None else 0
-                        threshold = int(threshold_val) if threshold_val is not None else 0
+                        quantity = int(row_data.get('Quantity') or 0)
+                        threshold = int(row_data.get('Threshold') or 0)
                     except (ValueError, TypeError):
-                        errors.append(f"Row {row_idx}: Invalid quantity or threshold for SKU '{sku}'. Must be numbers. Got Qty: '{quantity_val}', Threshold: '{threshold_val}'.")
+                        errors.append(f"Row {row_idx}: Invalid quantity or threshold for SKU '{sku}'.")
                         continue
+
+                    if not wp_code:
+                        wp_code = None
 
                     defaults = {
                         'quantity': quantity,
                         'threshold': threshold,
                         'supplier': wp_supplier,
-                        # Only update code if provided, otherwise keep existing or let it be null
-                        'code': wp_code if wp_code else None,
+                        'code': wp_code,
                     }
 
                     try:
                         obj, created = WarehouseProduct.objects.update_or_create(
-                            warehouse=warehouse,
-                            product=product,
-                            defaults=defaults
+                            warehouse=warehouse, product=product, defaults=defaults
                         )
-                        if created:
-                            created_count += 1
-                        else:
-                            updated_count += 1
+                        if created: created_count += 1
+                        else: updated_count += 1
                     except Exception as e:
-                        errors.append(f"Row {row_idx}: Error saving WarehouseProduct for SKU '{sku}' (Warehouse: {warehouse_name}, Code: '{wp_code}'): {e}")
+                        errors.append(f"Row {row_idx}: Error saving WarehouseProduct for SKU '{sku}': {e}")
 
                 summary_message = f"Excel Upload: {created_count} created, {updated_count} updated."
                 if errors:
@@ -252,13 +221,10 @@ class WarehouseProductAdmin(admin.ModelAdmin):
                 else:
                     self.message_user(request, summary_message, level=messages.SUCCESS)
                 return redirect("..")
-            else: # Form not valid
-                for field, field_errors in form.errors.items():
-                    for error in field_errors:
-                        self.message_user(request, f"Form error in {field}: {error}", level=messages.ERROR)
 
         self.message_user(request, "Please select an Excel file (.xlsx) to upload.", level=messages.INFO)
         return redirect("..")
+
 
 @admin.register(Warehouse)
 class WarehouseAdmin(admin.ModelAdmin):
@@ -277,73 +243,12 @@ class PurchaseOrderItemInline(admin.TabularInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(admin.ModelAdmin):
-    list_display = (
-        'id', 'get_supplier_code','get_supplier_name', 'status', 'total_amount_display', 'eta_formatted',
-        'draft_date_formatted', 'payment_made_date_formatted',
-        'delivered_date_formatted', 'last_updated_date_formatted'
-    )
-    list_filter = ('status', 'supplier', ('eta', admin.DateFieldListFilter), ('last_updated_date', admin.DateFieldListFilter))
-    search_fields = ('id', 'supplier__name', 'supplier__code', 'items__item__product__sku', 'items__item__product__name')
-    ordering = ('-last_updated_date',)
+    list_display = ('id', 'supplier', 'status', 'eta', 'total_amount', 'created_at', 'last_updated_date')
+    list_filter = ('status', 'supplier', 'items__item__warehouse')
+    search_fields = ('id', 'supplier__name')
     inlines = [PurchaseOrderItemInline]
-    date_hierarchy = 'last_updated_date'
-    readonly_fields = ('created_at_display', 'last_updated_at_display', 'id') # Added id
-    autocomplete_fields = ['supplier']
+    date_hierarchy = 'created_at'
 
-
-    fieldsets = (
-        (None, {'fields': ('id', 'supplier', 'status', 'notes')}),
-        ('Dates & Timestamps', {'fields': ('eta', 'draft_date', 'waiting_invoice_date', 'payment_made_date', 'partially_delivered_date', 'delivered_date', 'cancelled_date', 'created_at_display', 'last_updated_at_display'), 'classes':('collapse',)}),
-    )
-
-    def get_supplier_code(self, obj):
-        return obj.supplier.code if obj.supplier else "-"
-    get_supplier_code.short_description = 'Supplier Code'
-    get_supplier_code.admin_order_field = 'supplier__code'
-
-    def get_supplier_name(self, obj):
-        return obj.supplier.name if obj.supplier else "-"
-    get_supplier_name.short_description = 'Supplier Name'
-    get_supplier_name.admin_order_field = 'supplier__name'
-
-    def total_amount_display(self, obj):
-        return obj.total_amount
-    total_amount_display.short_description = 'Total Amount'
-
-    def _format_date(self, date_obj, default_val="-", include_time=True):
-        if not date_obj:
-            return default_val
-        if include_time:
-            return date_obj.strftime("%Y-%m-%d %H:%M")
-        return date_obj.strftime("%Y-%m-%d")
-
-    def eta_formatted(self, obj): return self._format_date(obj.eta, include_time=False)
-    eta_formatted.short_description = 'ETA'
-    eta_formatted.admin_order_field = 'eta'
-
-    def draft_date_formatted(self, obj): return self._format_date(obj.draft_date)
-    draft_date_formatted.short_description = 'Drafted'
-    draft_date_formatted.admin_order_field = 'draft_date'
-
-    def payment_made_date_formatted(self, obj): return self._format_date(obj.payment_made_date)
-    payment_made_date_formatted.short_description = 'Payment Made'
-    payment_made_date_formatted.admin_order_field = 'payment_made_date'
-
-    def delivered_date_formatted(self, obj): return self._format_date(obj.delivered_date)
-    delivered_date_formatted.short_description = 'Delivered'
-    delivered_date_formatted.admin_order_field = 'delivered_date'
-
-    def last_updated_date_formatted(self, obj): return self._format_date(obj.last_updated_date)
-    last_updated_date_formatted.short_description = 'Last Updated'
-    last_updated_date_formatted.admin_order_field = 'last_updated_date'
-
-    def created_at_display(self, obj):
-        # Assuming PurchaseOrder model has 'created_at' (auto_now_add=True)
-        # If not, you might need to add it or use 'draft_date' as a proxy.
-        if hasattr(obj, 'created_at') and obj.created_at:
-             return self._format_date(obj.created_at)
-        return self._format_date(obj.draft_date) # Fallback
-    created_at_display.short_description = 'Created At'
 
     def last_updated_at_display(self, obj):
         return self._format_date(obj.last_updated_date)
@@ -393,7 +298,7 @@ class PurchaseOrderItemAdmin(admin.ModelAdmin):
     def get_po_link(self, obj):
         if obj.purchase_order:
             link = reverse("admin:warehouse_purchaseorder_change", args=[obj.purchase_order.id])
-            return format_html('<a href="{}">PO #{}</a>', link, obj.purchase_order.id)
+            return format_html('<a href="{}">PO-{}</a>', link, obj.purchase_order.id)
         return "-"
     get_po_link.short_description = 'Purchase Order'
     get_po_link.admin_order_field = 'purchase_order__id'
@@ -468,7 +373,7 @@ class PurchaseOrderItemAdmin(admin.ModelAdmin):
                 product=warehouse_product.product,
                 transaction_type='ADJUST', # Or a more specific type like 'PO_ITEM_DEL_ADJ'
                 quantity=-quantity_to_reverse, # Negative to indicate deduction
-                reference_note=f"Deletion of received PO Item ID {obj.id} for PO #{obj.purchase_order.id}",
+                reference_note=f"Deletion of received PO Item ID {obj.id} for PO-{obj.purchase_order.id}",
                 related_po=obj.purchase_order
             )
             messages.success(request, f"Stock for {warehouse_product.product.name} in {warehouse_product.warehouse.name} reduced by {quantity_to_reverse} due to PO Item deletion.")
@@ -516,7 +421,7 @@ class PurchaseOrderItemAdmin(admin.ModelAdmin):
                     product=warehouse_product.product,
                     transaction_type='ADJUST',
                     quantity=-quantity_to_reverse,
-                    reference_note=f"Bulk deletion of received PO Item ID {obj.id} for PO #{obj.purchase_order.id}",
+                    reference_note=f"Bulk deletion of received PO Item ID {obj.id} for PO-{obj.purchase_order.id}",
                     related_po=obj.purchase_order
                 )
             pos_to_recheck_status.add(obj.purchase_order)
@@ -537,3 +442,17 @@ class PurchaseOrderItemAdmin(admin.ModelAdmin):
 
         self.message_user(request, f"Successfully deleted {num_deleted} purchase order item(s) and adjusted stock accordingly.", messages.SUCCESS)
 
+@admin.register(PurchaseOrderStatusLog)
+class PurchaseOrderStatusLogAdmin(admin.ModelAdmin):
+    list_display = ('purchase_order', 'status', 'timestamp', 'user', 'notes')
+    list_filter = ('status',)
+    search_fields = ('purchase_order__id', 'user__username')
+    readonly_fields = ('purchase_order', 'status', 'timestamp', 'user', 'notes') # Log entries should be immutable
+
+    def has_add_permission(self, request):
+        # Prevent manual creation of log entries from the admin
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Prevent editing of log entries from the admin
+        return False

@@ -34,6 +34,7 @@ class InventoryBatchItemForm(forms.ModelForm):
 
         user = self.request.user if self.request else None
 
+
         # Filter warehouse_product queryset based on user
         if user and not user.is_superuser and user.warehouse:
             self.fields['warehouse_product'].queryset = WarehouseProduct.objects.filter(
@@ -49,7 +50,7 @@ class InventoryBatchItemForm(forms.ModelForm):
 
         # Set fields as not required if their model field has blank=True
         if self.fields.get('expiry_date') and self.Meta.model._meta.get_field('expiry_date').blank:
-            self.fields['expiry_date'].required = False
+            self.fields['expiry_date'].required = True
 
         if self.fields.get('location_label') and self.Meta.model._meta.get_field('location_label').blank:
             self.fields['location_label'].required = False

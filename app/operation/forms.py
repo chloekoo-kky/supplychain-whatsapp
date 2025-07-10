@@ -1,10 +1,23 @@
 # app/operation/forms.py
 import random
 from django import forms
+from decimal import Decimal
+from django.utils import timezone
+
 from django.forms import inlineformset_factory, NumberInput
-from .models import Parcel, ParcelItem, OrderItem, Order, CustomsDeclaration, CourierCompany, PackagingType, PackagingTypeMaterialComponent
+from .models import (Parcel,
+                     ParcelItem,
+                     OrderItem,
+                     Order,
+                     CustomsDeclaration,
+                     CourierCompany,
+                     PackagingType,
+                     PackagingTypeMaterialComponent,
+                     CourierInvoice,
+                     CourierInvoiceItem)
 from inventory.models import InventoryBatchItem, PackagingMaterial
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -453,3 +466,79 @@ class AirwayBillForm(forms.ModelForm):
             'tracking_number': 'Tracking ID',
             'estimated_cost': 'Estimated Cost (MYR)',
         }
+
+class CourierInvoiceForm(forms.ModelForm):
+    """
+    Form for uploading a new courier invoice.
+    The user now only needs to select the courier and the file.
+    """
+    class Meta:
+        model = CourierInvoice
+        # MODIFIED: Removed invoice_number, invoice_date, and invoice_amount
+        fields = ['courier_company', 'invoice_file']
+        widgets = {
+            'courier_company': forms.Select(attrs={'class': 'form-select'}),
+            'invoice_file': forms.ClearableFileInput(attrs={'class': 'form-input'}),
+        }
+
+class CourierInvoiceItemForm(forms.ModelForm):
+    """
+    Form for an individual item on the courier invoice. (No changes here)
+    """
+    class Meta:
+        model = CourierInvoiceItem
+        fields = ['tracking_number', 'actual_cost']
+
+
+class DisputeUpdateForm(forms.Form):
+    update_date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date', 'class': 'input input-sm input-bordered w-full'}))
+    remarks = forms.CharField(widget=forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 1}), required=False)
+
+class DisputeForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = kwargs.get('instance')
+
+        if instance:
+            # Lock dispute date if it exists, otherwise default to today
+            if instance.dispute_date:
+                self.fields['dispute_date'].widget.attrs['disabled'] = True
+                self.fields['dispute_date'].widget.attrs['class'] += ' bg-gray-200'
+            else:
+                self.initial['dispute_date'] = timezone.now().date()
+
+            # FIX: Lock final amount if it exists
+            if instance.final_amount_after_dispute is not None:
+                self.fields['final_amount_after_dispute'].widget.attrs['disabled'] = True
+                self.fields['final_amount_after_dispute'].widget.attrs['class'] += ' bg-gray-200'
+
+            # FIX: Lock final amount date if it exists
+            if instance.final_amount_date:
+                self.fields['final_amount_date'].widget.attrs['disabled'] = True
+                self.fields['final_amount_date'].widget.attrs['class'] += ' bg-gray-200'
+
+    def clean_dispute_date(self):
+        if self.instance and self.instance.pk and self.instance.dispute_date:
+            return self.instance.dispute_date
+        return self.cleaned_data.get('dispute_date')
+
+    # FIX: Add clean methods to preserve final amount fields when disabled
+    def clean_final_amount_after_dispute(self):
+        if self.instance and self.instance.pk and self.instance.final_amount_after_dispute is not None:
+            return self.instance.final_amount_after_dispute
+        return self.cleaned_data.get('final_amount_after_dispute')
+
+    def clean_final_amount_date(self):
+        if self.instance and self.instance.pk and self.instance.final_amount_date:
+            return self.instance.final_amount_date
+        return self.cleaned_data.get('final_amount_date')
+
+    class Meta:
+        model = CourierInvoiceItem
+        fields = ['dispute_date', 'final_amount_after_dispute', 'final_amount_date']
+        widgets = {
+            'dispute_date': forms.DateInput(attrs={'type': 'date', 'class': 'input input-sm input-bordered w-full'}),
+            'final_amount_after_dispute': forms.NumberInput(attrs={'class': 'input input-sm input-bordered w-full', 'placeholder': 'e.g., 150.25'}),
+            'final_amount_date': forms.DateInput(attrs={'type': 'date', 'class': 'input input-sm input-bordered w-full'}),
+        }
+

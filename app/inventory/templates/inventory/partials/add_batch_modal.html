@@ -75,19 +75,15 @@
                 {% endfor %}
             </div>
 
-            {# Remaining fields (Cost Price, Date Received) - full width #}
-            {% for field in add_batch_form %}
-                {% if field.name != "warehouse_product" and field.name != "batch_number" and field.name != "expiry_date" and field.name != "quantity" and field.name != "location_label" %}
-                    <div class="form-control w-full mb-2">
-                        <label class="label" for="{{ field.id_for_label }}">
-                            <span class="label-text">{{ field.label }} {% if field.field.required %}<span class="text-error">*</span>{% endif %}</span>
-                        </label>
-                        {{ field }}
-                        {% if field.help_text %}<label class="label"><span class="label-text-alt">{{ field.help_text }}</span></label>{% endif %}
-                        {% for error in field.errors %}<label class="label"><span class="label-text-alt text-error">{{ error }}</span></label>{% endfor %}
-                    </div>
+
+
+            <div class="form-control w-full mb-2">
+                <label class="label" for="{{ add_batch_form.date_received.id_for_label }}"><span class="label-text">Date Received</span></label>
+                {{ add_batch_form.date_received }}
+                {% if add_batch_form.date_received.errors %}
+                    <div class="text-error text-xs mt-1">{{ add_batch_form.date_received.errors|first }}</div>
                 {% endif %}
-            {% endfor %}
+            </div>
 
             <div class="modal-action mt-8">
                 <label for="add-batch-modal-toggle" class="btn btn-ghost">Cancel</label>

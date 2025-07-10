@@ -131,7 +131,7 @@ class InventoryBatchItem(models.Model):
 class StockTransaction(models.Model):
     # --- MODIFICATION: Use TextChoices for better organization ---
     class TransactionTypes(models.TextChoices):
-        STOCK_IN = 'IN', 'Stock In'
+        STOCK_IN = 'IN', 'In'
         STOCK_OUT = 'OUT', 'Stock Out' # General stock out
         ADJ_POSITIVE = 'ADJ_P', 'Positive Adjustment'
         ADJ_NEGATIVE = 'ADJ_N', 'Negative Adjustment'
@@ -140,7 +140,7 @@ class StockTransaction(models.Model):
         RETURN_IN = 'RETURN_IN', 'Return In'
         STOCKTAKE_INITIAL = 'ST_INITIAL', 'Stock Take Initial'
         STOCKTAKE_UPDATE = 'ST_UPDATE', 'Stock Take Update'
-        SALE_PACKED_OUT = 'SALE_PACKED_OUT', 'Sale - Packed Out' # Added for clarity
+        SALE_PACKED_OUT = 'SALE_PACKED_OUT', 'Out' # Added for clarity
     # --- END MODIFICATION ---
 
     warehouse = models.ForeignKey('warehouse.Warehouse', on_delete=models.PROTECT, related_name='stock_transactions')

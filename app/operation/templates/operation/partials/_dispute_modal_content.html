@@ -1,0 +1,57 @@
+<form id="dispute-form" action="{% url 'operation:save_dispute_details' item.id %}" method="POST">
+    {% csrf_token %}
+    <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+        <div class="flex justify-between items-start">
+            <div>
+                <h3 class="text-lg leading-6 font-medium text-gray-900">Log Dispute for {{ item.tracking_number }}</h3>
+                <p class="text-sm text-gray-500">Actual Cost: {{ item.actual_cost }}</p>
+            </div>
+            <button type="button" class="btn btn-sm btn-ghost close-dispute-modal-btn">✕</button>
+        </div>
+
+        <div class="mt-4 space-y-4">
+            <div class="form-control">
+                <label class="label"><span class="label-text">Dispute Date</span></label>
+                {{ form.dispute_date }}
+            </div>
+
+            <fieldset>
+                <legend class="text-md font-semibold text-gray-800 mb-2">Dispute History</legend>
+                <div class="space-y-1 max-h-40 overflow-y-auto p-2 bg-gray-100 rounded-lg">
+                    {% for history_entry in item.dispute_history %}
+                        <div class="p-2 border-b flex items-center gap-x-3">
+                            <p class="font-semibold text-sm text-gray-800 shrink-0">{{ history_entry.update_date }}</p>
+                            <p class="text-gray-600 text-sm border-l pl-3">{{ history_entry.remarks }}</p>
+                        </div>
+                    {% empty %}
+                        <p class="text-sm text-gray-500 p-2">No updates have been logged.</p>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend class="text-md font-semibold text-gray-800 mb-2">Add New Update</legend>
+                <div class="grid grid-cols-12 gap-2 items-end">
+                    <div class="col-span-4 form-control">{{ new_update_form.update_date }}</div>
+                    <div class="col-span-8 form-control">{{ new_update_form.remarks }}</div>
+                </div>
+            </fieldset>
+
+            <div class="grid grid-cols-12 gap-2 items-end">
+                <div class="col-span-4 form-control">
+                    <label class="label" for="{{ form.final_amount_date.id_for_label }}"><span class="label-text">Finalized Date</span></label>
+                        {{ form.final_amount_date }}
+                </div>
+
+                <div class="col-span-8 form-control">
+                    <label class="label" for="{{ form.final_amount_after_dispute.id_for_label }}"><span class="label-text">Final Amount After Dispute</span></label>
+                        {{ form.final_amount_after_dispute }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+        <button type="submit" class="btn btn-primary">Save Dispute</button>
+        <button type="button" class="btn close-dispute-modal-btn">Cancel</button>
+    </div>
+</form>

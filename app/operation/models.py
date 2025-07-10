@@ -7,6 +7,7 @@ import uuid
 import random
 import string
 import logging
+import uuid
 from decimal import Decimal
 
 from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
@@ -305,6 +306,7 @@ class Parcel(models.Model):
         blank=True,
         help_text="Estimated shipping cost for this parcel."
     )
+    actual_shipping_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
 
     class Meta:
@@ -638,7 +640,12 @@ class ParcelTrackingLog(models.Model):
     location = models.CharField(max_length=255, blank=True, null=True, help_text="The location where the event occurred.")
 
     # A unique identifier provided by the courier for this specific event to prevent duplicates.
-    event_id = models.CharField(max_length=100, blank=True, null=True)
+    event_id = models.CharField(
+        max_length=255,
+        unique=True,
+        help_text="A unique identifier for the tracking event from the courier API to prevent duplicates.",
+        default=uuid.uuid4
+        )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -652,3 +659,63 @@ class ParcelTrackingLog(models.Model):
     def __str__(self):
         return f"{self.parcel.parcel_code_system} @ {self.timestamp}: {self.status_description}"
 
+class CourierInvoice(models.Model):
+    """
+    Represents an uploaded invoice from a courier company.
+    """
+    courier_company = models.ForeignKey(CourierCompany, on_delete=models.PROTECT)
+    # MODIFIED: These fields are now optional, as they will be parsed from the file.
+    invoice_number = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    invoice_date = models.DateField(null=True, blank=True)
+    invoice_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    payment_date = models.DateField(null=True, blank=True)
+    invoice_file = models.FileField(upload_to='courier_invoices/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+
+    def __str__(self):
+        if self.invoice_number:
+            return f"Invoice {self.invoice_number} from {self.courier_company.name}"
+        return f"Pending Invoice from {self.courier_company.name} uploaded on {self.uploaded_at.strftime('%Y-%m-%d')}"
+
+class CourierInvoiceItem(models.Model):
+    """
+    Represents a single billable tracking number across all invoices.
+    """
+    courier_invoice = models.ForeignKey(CourierInvoice, related_name='items', on_delete=models.CASCADE, help_text="The most recent invoice this tracking number appeared on.")
+
+    tracking_number = models.CharField(max_length=100, unique=True)
+    receiver_state = models.CharField(max_length=100, null=True, blank=True, help_text="The state/province of the receiver from the invoice.")
+    destination_name = models.CharField(max_length=255, null=True, blank=True, help_text="The destination name from the invoice file.")
+
+    parcel = models.OneToOneField('operation.Parcel', on_delete=models.SET_NULL, null=True, blank=True, related_name='billing_item')
+    actual_cost = models.DecimalField(max_digits=10, decimal_places=2, help_text="The cumulative cost for this tracking number across all invoices.")
+
+    scale_weight = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, help_text="DHL Scale Weight (B)")
+    vol_weight = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, help_text="DHL Vol Weight (W)")
+    billed_weight = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True, help_text="Weight (kg)")
+
+    # --- NEW FIELD TO STORE CHARGE HISTORY ---
+    cost_history = models.JSONField(default=list, blank=True, help_text="A list of all charges from individual invoices.")
+
+    is_billed_to_customer = models.BooleanField(default=False)
+
+    dispute_date = models.DateField(null=True, blank=True)
+    dispute_history = models.JSONField(default=list, blank=True, help_text="A list of updates with dates and remarks for the dispute.")
+    final_amount_after_dispute = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    final_amount_date = models.DateField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Tracking {self.tracking_number} - Cumulative Cost: {self.actual_cost}"
+
+    @property
+    def dispute_successful_amount(self):
+        if self.final_amount_after_dispute is not None and self.actual_cost is not None:
+            return self.actual_cost - self.final_amount_after_dispute
+        return None
+
+    class Meta:
+        # We can add an index for faster lookups on tracking_number
+        indexes = [
+            models.Index(fields=['tracking_number']),
+        ]

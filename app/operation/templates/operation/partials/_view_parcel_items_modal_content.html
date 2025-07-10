@@ -1,0 +1,83 @@
+{% if parcel %}
+<div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+    <div class="flex justify-between items-start">
+        <div>
+            <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                Parcel Details: {{ parcel.parcel_code_system }}
+            </h3>
+            <p class="text-sm text-gray-500">
+                For: {{ parcel.order.customer.customer_name|default:"N/A" }}
+            </p>
+        </div>
+        {# FIX: Added class for JS hook #}
+        <button type="button" class="btn btn-sm btn-ghost close-view-modal-btn">✕</button>
+    </div>
+
+    <div class="mt-4 grid grid-cols-2 gap-4 text-sm bg-gray-50 p-3 rounded-lg">
+        <div>
+            <span class="font-semibold text-gray-600">Packaging Type:</span>
+            <p>{{ parcel.packaging_type.name|default:"N/A" }}</p>
+        </div>
+        <div>
+            <span class="font-semibold text-gray-600">Dimensions (L x W x H):</span>
+            <p>
+                {% if parcel.length and parcel.width and parcel.height %}
+                    {{ parcel.length|floatformat:0 }} x {{ parcel.width|floatformat:0 }} x {{ parcel.height|floatformat:0 }} cm
+                {% else %}
+                    N/A
+                {% endif %}
+            </p>
+        </div>
+        <div>
+            <span class="font-semibold text-gray-600">Dimensional Weight:</span>
+            <p>{{ parcel.dimensional_weight_kg|default:"-" }} kg</p>
+        </div>
+        <div>
+            <span class="font-semibold text-gray-600">Actual Weight:</span>
+            <p>{{ parcel.weight|default:"-" }} kg</p>
+        </div>
+    </div>
+
+    <div class="mt-4">
+        <div class="bg-gray-50 rounded-lg p-3">
+            <h4 class="text-md font-semibold text-gray-800 mb-2">Items in Parcel</h4>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-200">
+                        <tr>
+                            <th class="px-2 py-1 text-left">Product</th>
+                            <th class="px-2 py-1 text-left">SKU</th>
+                            <th class="px-2 py-1 text-center">Qty Packed</th>
+                            <th class="px-2 py-1 text-left">Batch No.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p_item in parcel.items_in_parcel.all %}
+                        <tr class="border-b">
+                            <td class="px-2 py-1">{{ p_item.order_item.product.name }}</td>
+                            <td class="px-2 py-1">{{ p_item.order_item.product.sku }}</td>
+                            <td class="px-2 py-1 text-center">{{ p_item.quantity_shipped_in_this_parcel }}</td>
+                            <td class="px-2 py-1">{{ p_item.shipped_from_batch.batch_number|default:'N/A' }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="4" class="text-center py-4 text-gray-500">No items found in this parcel.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+    {# FIX: Added class for JS hook #}
+    <button type="button" class="close-view-modal-btn mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+      Close
+    </button>
+</div>
+{% else %}
+<div class="p-4">
+    <p class="text-red-500">Error: This invoice item is not linked to a parcel in the database.</p>
+</div>
+{% endif %}

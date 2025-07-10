@@ -10,17 +10,20 @@ from django.utils import timezone
 from django.urls import reverse
 
 from django.db import transaction, IntegrityError, models
-from django.db.models import Q, Count, Prefetch, F, Value
+from django.db.models import Q, Count, Prefetch, F, Value, Case, When, Sum, ExpressionWrapper, DurationField
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
-from datetime import datetime, timedelta
-from django.http import JsonResponse, Http404, HttpResponse
+from django.http import JsonResponse, Http404, HttpResponse, HttpResponseForbidden
 from django.template.loader import render_to_string
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 import logging
 import traceback
+import datetime
+import calendar
+
 from decimal import Decimal
+from openpyxl import Workbook
 
 import openpyxl
 import xlrd
@@ -30,8 +33,8 @@ from .forms import (
     ExcelImportForm, ParcelItemFormSet, InitialParcelItemFormSet,
     RemoveOrderItemForm, RemoveOrderItemFormSet,
     ParcelCustomsDetailForm, ParcelItemCustomsDetailFormSet, CustomsDeclarationForm,
-    PackagingTypeForm, PackagingMaterialForm, AirwayBillForm
-
+    PackagingTypeForm, PackagingMaterialForm, AirwayBillForm, CourierInvoiceForm,
+    DisputeForm, DisputeUpdateForm
 )
 from .models import (Order,
                      OrderItem,
@@ -41,13 +44,15 @@ from .models import (Order,
                      CourierCompany,
                      PackagingType,
                      PackagingTypeMaterialComponent,
-                     ParcelTrackingLog)
+                     ParcelTrackingLog,
+                     CourierInvoice,
+                     CourierInvoiceItem)
 from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
 from warehouse.models import Warehouse, WarehouseProduct
 from inventory.services import get_suggested_batch_for_order_item
 from customers.utils import get_or_create_customer_from_import
 from customers.models import Customer
-from .services import update_parcel_tracking_from_api
+from .services import update_parcel_tracking_from_api, parse_invoice_file
 
 
 
@@ -186,7 +191,7 @@ def order_list_view(request):
         fetch_parcel_list_only = request.GET.get('fetch_parcel_list_only') == 'true'
 
         parcels_qs = Parcel.objects.select_related(
-            'order__warehouse', 'order__imported_by', 'created_by', 'courier_company'
+            'order__warehouse', 'order__imported_by', 'created_by', 'courier_company', 'billing_item'
         ).prefetch_related(
             Prefetch('items_in_parcel', queryset=ParcelItem.objects.select_related(
                 'order_item__product', 'shipped_from_batch'
@@ -199,6 +204,9 @@ def order_list_view(request):
         warehouses_for_parcel_filters_ui = all_warehouses_qs
         actual_selected_warehouse_id_for_query_and_ui = request.GET.get('parcel_warehouse')
         selected_parcel_courier_name = request.GET.get('parcel_courier')
+
+        start_date_str = request.GET.get('parcel_start_date')
+        end_date_str = request.GET.get('parcel_end_date')
 
         if not user.is_superuser:
             if user.warehouse:
@@ -221,6 +229,23 @@ def order_list_view(request):
 
         if selected_parcel_courier_name:
             parcels_qs = parcels_qs.filter(courier_company__code=selected_parcel_courier_name)
+
+        if start_date_str:
+            try:
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Filter parcels created on or after the start date
+                parcels_qs = parcels_qs.filter(created_at__gte=start_date)
+            except ValueError:
+                pass # Ignore invalid date format
+
+        if end_date_str:
+            try:
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # To include the entire end day, filter up to the end of that day
+                end_of_day = datetime.combine(end_date, time.max)
+                parcels_qs = parcels_qs.filter(created_at__lte=end_of_day)
+            except ValueError:
+                pass # Ignore invalid date format
 
         parcel_query_param = request.GET.get('parcel_q', '').strip()
         page_number = request.GET.get('page', 1)
@@ -254,6 +279,8 @@ def order_list_view(request):
             'selected_parcel_courier': selected_parcel_courier_name,
             'parcel_query': parcel_query_param,
             'page_title': "Parcel Details",
+            'start_date': start_date_str,
+            'end_date': end_date_str,
         })
 
         if is_ajax:
@@ -399,8 +426,8 @@ def import_orders_from_excel(request):
                     else: headers = [] # No rows, no headers
 
                 if not headers:
-                     messages.error(request, "The Excel file is empty or has no header row.")
-                     return redirect('operation:order_list')
+                        messages.error(request, "The Excel file is empty or has no header row.")
+                        return redirect('operation:order_list')
 
                 # --- Define header mapping configuration ---
                 # Keys are internal field names, values are expected Excel column headers (case-insensitive match)
@@ -443,7 +470,7 @@ def import_orders_from_excel(request):
                     if found_actual_header:
                         header_map_for_indexing[internal_key] = found_actual_header
                     elif internal_key in critical_internal_keys: # If a critical header is missing
-                         missing_headers_from_config.append(f"'{excel_header_normalized_target}' (expected for '{internal_key}')")
+                            missing_headers_from_config.append(f"'{excel_header_normalized_target}' (expected for '{internal_key}')")
 
 
                 if missing_headers_from_config:
@@ -479,7 +506,7 @@ def import_orders_from_excel(request):
                         if idx is not None and idx < len(row_tuple) and row_tuple[idx] is not None:
                             val_lambda = row_tuple[idx]
                             # If already datetime (from xlrd) or number, return as is
-                            if isinstance(val_lambda, (datetime, int, float)):
+                            if isinstance(val_lambda, (datetime.datetime, datetime.date)): # ✅ CORRECT
                                 return val_lambda
                             # Otherwise, convert to string and strip
                             val_str = str(val_lambda).strip()
@@ -518,49 +545,63 @@ def import_orders_from_excel(request):
 
                         # Parse order_date (handle various formats and types)
                         if order_date_val:
-                            if isinstance(order_date_val, datetime): # Already a datetime object (e.g., from xlrd)
-                                order_date_for_this_entry = order_date_val.date()
+                            # Correctly check for datetime or date types first
+                            if isinstance(order_date_val, (datetime.datetime, datetime.date)):
+                                # If it's a datetime object, get the date part. If it's a date, this does nothing.
+                                order_date_for_this_entry = order_date_val.date() if hasattr(order_date_val, 'date') else order_date_val
+
                             elif isinstance(order_date_val, str):
-                                # Try parsing common string date formats
-                                order_date_str_cleaned = order_date_val.split(' ')[0] # Handle "YYYY-MM-DD HH:MM:SS"
-                                order_date_for_this_entry = parse_date(order_date_str_cleaned) # Django's helper
-                                if not order_date_for_this_entry: # Try other formats if Django's helper fails
-                                    for fmt in ('%B %d, %Y', '%b %d %Y', '%d/%m/%Y', '%m/%d/%Y', '%Y%m%d'): # Add more as needed
+                                # Initialize to None
+                                order_date_for_this_entry = None
+                                # First, try Django's robust parser. It handles ISO formats like YYYA-MM-DD well.
+                                parsed_by_django = parse_date(order_date_val)
+                                if parsed_by_django:
+                                    if isinstance(parsed_by_django, datetime.datetime):
+                                        order_date_for_this_entry = parsed_by_django.date()
+                                    else:
+                                        order_date_for_this_entry = parsed_by_django
+
+                                # If Django's parser fails, try our specific list of formats
+                                if not order_date_for_this_entry:
+                                    for fmt in ('%b %d, %Y', '%B %d, %Y', '%d/%m/%Y', '%m/%d/%Y', '%Y%m%d'):
                                         try:
-                                            order_date_for_this_entry = datetime.strptime(order_date_val, fmt).date()
-                                            if order_date_for_this_entry: break
+                                            parsed_date = datetime.datetime.strptime(order_date_val, fmt)
+                                            order_date_for_this_entry = parsed_date.date()
+                                            break # Success, exit loop
                                         except ValueError:
-                                            continue
-                            elif isinstance(order_date_val, (float, int)) and hasattr(workbook_data, 'datemode') and not is_xlsx: # Excel date number (xlrd)
+                                            continue # Try next format
+
+                            # Handle Excel's numeric date format (for .xls files)
+                            elif isinstance(order_date_val, (float, int)) and hasattr(workbook_data, 'datemode') and not is_xlsx:
                                 try:
                                     order_date_for_this_entry = xlrd.xldate_as_datetime(order_date_val, workbook_data.datemode).date()
-                                except: pass # Ignore conversion error, will be caught by check below
+                                except (ValueError, TypeError):
+                                    pass # Will be caught by the check below
 
-                            if not order_date_for_this_entry and order_date_val: # If still None after attempts
-                                logger.warning(f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Unparseable order_date '{order_date_val}'.")
-                                # This order will be skipped by the `if not all(...)` check below if date is critical
+                        # After all attempts, if it's still not a valid date, log a warning.
+                        if not order_date_for_this_entry and order_date_val:
+                            logger.warning(f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Unparseable order_date '{order_date_val}'.")
+                        # --- START: New Customer Logic Integration ---
+                        # 1. Collect all customer info from the row
+                        customer_address_details = {
+                            'address_line1': get_current_row_value('address_line1', ''),
+                            'city': get_current_row_value('city', ''),
+                            'state': get_current_row_value('state', ''),
+                            'zip_code': get_current_row_value('zip_code', ''),
+                            'country': get_current_row_value('country', ''),
+                        }
 
-                            # --- START: New Customer Logic Integration ---
-                            # 1. Collect all customer info from the row
-                            customer_address_details = {
-                                'address_line1': get_current_row_value('address_line1', ''),
-                                'city': get_current_row_value('city', ''),
-                                'state': get_current_row_value('state', ''),
-                                'zip_code': get_current_row_value('zip_code', ''),
-                                'country': get_current_row_value('country', ''),
-                            }
-
-                            # 2. Find or create the customer record using the utility function
-                            customer_obj, created = get_or_create_customer_from_import(
-                                customer_name=get_current_row_value('customer_name', ''),
-                                company_name=get_current_row_value('company_name', ''),
-                                phone_number=get_current_row_value('phone', ''),
-                                address_info=customer_address_details,
-                                vat_number=get_current_row_value('vat_number', '')
-                            )
-                            if created:
-                                logger.info(f"Import created new customer: {customer_obj.customer_name} ({customer_obj.customer_id})")
-                            # --- END: New Customer Logic Integration ---
+                        # 2. Find or create the customer record using the utility function
+                        customer_obj, created = get_or_create_customer_from_import(
+                            customer_name=get_current_row_value('customer_name', ''),
+                            company_name=get_current_row_value('company_name', ''),
+                            phone_number=get_current_row_value('phone', ''),
+                            address_info=customer_address_details,
+                            vat_number=get_current_row_value('vat_number', '')
+                        )
+                        if created:
+                            logger.info(f"Import created new customer: {customer_obj.customer_name} ({customer_obj.customer_id})")
+                        # --- END: New Customer Logic Integration ---
 
                         # Check if critical order-level details are present for a new order entry
                         if not all([order_date_for_this_entry, warehouse_name, customer_name]):
@@ -980,7 +1021,7 @@ def process_packing_for_order(request, order_pk):
                 product=batch.warehouse_product.product,
                 batch_item_involved=batch,
                 quantity=-qty,
-                reference_note=f"Packed: Order {order.erp_order_id}, Parcel {new_parcel.parcel_code_system}, Batch {batch.batch_number}",
+                reference_note=f"LWA Order {order.erp_order_id}, Parcel {new_parcel.parcel_code_system}, Batch {batch.batch_number}",
                 related_order=order,
                 recorded_by=request.user
             )
@@ -1864,22 +1905,6 @@ def save_airway_bill(request, parcel_pk):
             updated_parcel.shipped_at = timezone.now()
             updated_parcel.save(update_fields=['status', 'shipped_at'])
 
-            # --- START: Make the background task call resilient ---
-            try:
-                # Attempt to schedule the background task to fetch tracking info
-                update_parcel_tracking_status.delay(updated_parcel.id)
-                logger.info(f"Successfully scheduled tracking update for parcel {updated_parcel.id}")
-            except Exception as e:
-                # If Celery isn't running or configured, this will prevent a server crash.
-                # It logs the error for the system admin and can optionally inform the user.
-                logger.error(
-                    f"Could not schedule Celery task for parcel {updated_parcel.id}. "
-                    f"Please check if the Celery worker is running. Error: {e}"
-                )
-                # You can add a Django message to inform the admin/user on the next page refresh.
-                messages.warning(request, "Parcel saved, but automatic tracking could not be initiated. Please check system services.")
-            # --- END: Make the background task call resilient ---
-
         return JsonResponse({'success': True, 'message': 'Air Waybill details saved successfully.'})
     else:
         error_message = ". ".join([f"{field}: {error[0]}" for field, error in form.errors.items()])
@@ -2013,3 +2038,594 @@ def print_selected_parcels(request):
         }
     }
     return render(request, 'operation/printable_parcels.html', context)
+
+
+
+# 3. Edit Invoice (for payment date)
+@login_required
+def edit_courier_invoice(request, invoice_id):
+    invoice = get_object_or_404(CourierInvoice, pk=invoice_id)
+    if request.method == 'POST':
+        payment_date = request.POST.get('payment_date')
+        if payment_date:
+            invoice.payment_date = payment_date
+            invoice.save()
+            messages.success(request, 'Payment date updated.')
+    return redirect('operation:courier_invoice_list')
+
+
+# 4. Display Billed Parcels
+@login_required
+def billed_parcels_list(request):
+    billed_items = CourierInvoiceItem.objects.select_related('courier_invoice', 'parcel').all()
+    return render(request, 'operation/billed_parcels_list.html', {'billed_items': billed_items})
+
+
+# 6. Cost Comparison Report
+@login_required
+def cost_comparison_report(request):
+    parcels_with_costs = Parcel.objects.filter(
+        estimated_cost__isnull=False,
+        actual_shipping_cost__isnull=False
+    ).annotate(
+        cost_difference=F('actual_shipping_cost') - F('estimated_cost')
+    )
+    return render(request, 'operation/cost_comparison_report.html', {'parcels': parcels_with_costs})
+
+
+# 7. Generate Client Invoice
+@login_required
+def generate_client_invoice(request, parcel_id):
+    parcel = get_object_or_404(Parcel.objects.select_related('order__customer'), pk=parcel_id)
+    # This view would gather all necessary details and render them into an invoice template.
+    # For PDF generation, you could integrate libraries like WeasyPrint or ReportLab.
+    return render(request, 'operation/client_invoice_template.html', {'parcel': parcel})
+
+
+@login_required
+def courier_invoice_list(request):
+    """
+    Handles both displaying the list of invoices and uploading a new one.
+    Now separates success toasts from error messages.
+    """
+    if request.method == 'POST':
+        form = CourierInvoiceForm(request.POST, request.FILES)
+        if form.is_valid():
+            invoice = form.save(commit=False)
+            invoice.uploaded_by = request.user
+            invoice.save()
+
+            # The view now expects four return values from the parsing function
+            created_count, errors, updated_count, successes = parse_invoice_file(invoice)
+
+            # Display success messages as green toasts
+            for msg in successes:
+                messages.success(request, msg)
+
+            # Display informational and error messages
+            has_critical_error = False
+            if errors:
+                for error in errors:
+                    if "Info:" in error:
+                        messages.info(request, error)
+                    else:
+                        messages.error(request, error)
+                        if "Critical" in error:
+                            has_critical_error = True
+
+            # This provides a final summary of items created/updated
+            if not errors or not has_critical_error:
+                summary_parts = []
+                if created_count > 0:
+                    summary_parts.append(f"Created {created_count} new item(s)")
+                if updated_count > 0:
+                    summary_parts.append(f"Updated {updated_count} existing item(s)")
+
+                if summary_parts:
+                    item_summary = ", ".join(summary_parts) + "."
+                    messages.success(request, f"Processing complete. {item_summary}")
+
+            return redirect('operation:courier_invoice_list')
+        else:
+             for field, field_errors in form.errors.items():
+                 for error in field_errors:
+                     messages.error(request, f"{field.capitalize()}: {error}")
+             return redirect('operation:courier_invoice_list')
+
+    invoices = CourierInvoice.objects.select_related('courier_company').prefetch_related('items').all().order_by('-invoice_date')
+    form = CourierInvoiceForm()
+    return render(request, 'operation/courier_invoice_list.html', {'invoices': invoices, 'form': form})
+
+
+@login_required
+def invoice_item_report(request):
+    """
+    Handles the initial page load and filter submissions for the Invoice Item Report.
+    FIX: Added date range filtering for shipment date.
+    """
+    is_ajax_filter = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+
+    sort_by = request.GET.get('sort_by', '-courier_invoice__invoice_date')
+    allowed_sort_fields = [
+            'courier_invoice__invoice_date', '-courier_invoice__invoice_date', 'actual_cost',
+            '-actual_cost', 'tracking_number', '-tracking_number', 'parcel__estimated_cost',
+            '-parcel__estimated_cost', 'receiver_state', '-receiver_state', 'destination_name',
+            '-destination_name', 'parcel__order__customer__customer_name',
+            '-parcel__order__customer__customer_name', 'cost_gap', '-cost_gap'
+        ]
+    if sort_by not in allowed_sort_fields:
+        sort_by = '-courier_invoice__invoice_date'
+
+    items_query = CourierInvoiceItem.objects.select_related(
+        'parcel__order__customer',
+        'courier_invoice__courier_company'
+    ).annotate(
+        cost_gap=Case(
+            When(parcel__estimated_cost__isnull=False, then=F('actual_cost') - F('parcel__estimated_cost')),
+            default=Value(None)
+        )
+    ).order_by(sort_by)
+
+    # --- Filter Logic ---
+    selected_dispute_status = request.GET.get('dispute_status', '')
+
+    if selected_dispute_status == 'pending':
+        # FIX: Changed 'items' to 'items_query'
+        items_query = items_query.filter(dispute_date__isnull=False, final_amount_date__isnull=True)
+    elif selected_dispute_status == 'finalized':
+        # FIX: Changed 'items' to 'items_query'
+        items_query = items_query.filter(final_amount_date__isnull=False)
+
+    courier_id = request.GET.get('courier')
+    if courier_id:
+        items_query = items_query.filter(courier_invoice__courier_company_id=courier_id)
+
+    query = request.GET.get('q')
+    if query:
+        items_query = items_query.filter(
+            Q(tracking_number__icontains=query) |
+            Q(courier_invoice__invoice_number__icontains=query)
+        ).distinct()
+
+    # FIX: Add date range filtering logic
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            items_query = items_query.filter(parcel__created_at__gte=start_date)
+        except ValueError:
+            pass # Ignore invalid date format
+
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            end_of_day = datetime.combine(end_date, datetime.time.max)
+            items_query = items_query.filter(parcel__created_at__lte=end_of_day)
+        except ValueError:
+            pass # Ignore invalid date format
+
+    # --- Pagination and Context ---
+    paginator = Paginator(items_query, 25)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    for item in page_obj:
+        # ... (cost history processing remains the same) ...
+        cumulative_costs = []
+        running_total = Decimal('0.0')
+        if isinstance(item.cost_history, list):
+            sorted_history = sorted(item.cost_history, key=lambda x: x.get('date', ''))
+            for charge in sorted_history:
+                running_total += Decimal(str(charge.get('cost', 0)))
+                cumulative_costs.append(running_total)
+        item.display_costs = cumulative_costs
+
+    couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
+
+    context = {
+        'items': page_obj,
+        'couriers': couriers,
+        'selected_courier': int(courier_id) if courier_id else None,
+        'query': query,
+        'start_date': start_date_str, # Pass date strings back to template
+        'end_date': end_date_str,   # Pass date strings back to template
+        'current_sort': sort_by,
+        'total_items_count': paginator.count,
+        'selected_dispute_status': selected_dispute_status,
+    }
+
+    if is_ajax_filter:
+        return render(request, 'operation/partials/_invoice_item_report_table_with_pagination.html', context)
+
+    return render(request, 'operation/invoice_item_report.html', context)
+
+@login_required
+def load_more_invoice_items(request):
+    """
+    Handles AJAX requests for the 'Explore More' button.
+    FIX: Added date range filtering to match the main view.
+    """
+    sort_by = request.GET.get('sort_by', '-courier_invoice__invoice_date')
+    allowed_sort_fields = [
+        'courier_invoice__invoice_date', '-courier_invoice__invoice_date', 'actual_cost',
+        '-actual_cost', 'tracking_number', '-tracking_number', 'parcel__estimated_cost',
+        '-parcel__estimated_cost', 'receiver_state', '-receiver_state', 'destination_name',
+        '-destination_name', 'parcel__order__customer__customer_name',
+        '-parcel__order__customer__customer_name', 'cost_gap', '-cost_gap'
+    ]
+
+    items_query = CourierInvoiceItem.objects.select_related(
+        'parcel__order__customer', 'courier_invoice__courier_company'
+    ).annotate(
+        cost_gap=Case(
+            When(parcel__estimated_cost__isnull=False, then=F('actual_cost') - F('parcel__estimated_cost')),
+            default=Value(None)
+        )
+    ).order_by(sort_by)
+
+    courier_id = request.GET.get('courier')
+    if courier_id:
+        items_query = items_query.filter(courier_invoice__courier_company_id=courier_id)
+
+    query = request.GET.get('q')
+    if query:
+        items_query = items_query.filter(
+            Q(tracking_number__icontains=query) | Q(courier_invoice__invoice_number__icontains=query)
+        ).distinct()
+
+    # FIX: Add date range filtering logic here as well
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+
+    if start_date_str:
+        try:
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            items_query = items_query.filter(parcel__created_at__gte=start_date)
+        except ValueError:
+            pass
+
+    if end_date_str:
+        try:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            end_of_day = datetime.combine(end_date, datetime.time.max)
+            items_query = items_query.filter(parcel__created_at__lte=end_of_day)
+        except ValueError:
+            pass
+
+    paginator = Paginator(items_query, 25)
+    page_number = request.GET.get('page', 1)
+    page_obj = paginator.get_page(page_number)
+
+    # ... (cost history processing is the same) ...
+    for item in page_obj:
+        cumulative_costs = []
+        running_total = Decimal('0.0')
+        if isinstance(item.cost_history, list):
+            sorted_history = sorted(item.cost_history, key=lambda x: x.get('date', ''))
+            for charge in sorted_history:
+                running_total += Decimal(str(charge.get('cost', 0)))
+                cumulative_costs.append(running_total)
+        item.display_costs = cumulative_costs
+
+
+    context = {'items': page_obj.object_list}
+    html_rows = render_to_string('operation/partials/_invoice_item_report_rows_only.html', context)
+
+    return JsonResponse({'html': html_rows, 'has_next': page_obj.has_next()})
+
+@login_required
+def view_parcel_items(request, item_id):
+    """
+    Handles the AJAX request to fetch and display the contents of a specific parcel
+    linked to a courier invoice item.
+    """
+    # Fetch the specific invoice item, which links to the parcel
+    invoice_item = get_object_or_404(
+        CourierInvoiceItem.objects.select_related(
+            'parcel__order__customer', # Pre-fetch related data for efficiency
+            'parcel__packaging_type'  # <-- Added this line
+        ).prefetch_related(
+            # Pre-fetch all items within the parcel, including product and batch details
+            'parcel__items_in_parcel__order_item__product',
+            'parcel__items_in_parcel__shipped_from_batch'
+        ),
+        pk=item_id
+    )
+
+    parcel = invoice_item.parcel
+
+    # Render just the modal content partial
+    return render(request, 'operation/partials/_view_parcel_items_modal_content.html', {'parcel': parcel})
+
+
+@login_required
+def get_dispute_details(request, item_id):
+    """
+    Handles the AJAX request to fetch and render the dispute form for the modal.
+    """
+    invoice_item = get_object_or_404(CourierInvoiceItem, pk=item_id)
+    form = DisputeForm(instance=invoice_item)
+    # This is now for a single new entry
+    new_update_form = DisputeUpdateForm(prefix='new_update')
+
+    context = {
+        'item': invoice_item,
+        'form': form,
+        'new_update_form': new_update_form,
+    }
+    return render(request, 'operation/partials/_dispute_modal_content.html', context)
+
+@login_required
+@require_POST
+def save_dispute_details(request, item_id):
+    """
+    Handles the POST request to save dispute details from the modal form.
+    """
+    invoice_item = get_object_or_404(CourierInvoiceItem, pk=item_id)
+    form = DisputeForm(request.POST, instance=invoice_item)
+    new_update_form = DisputeUpdateForm(request.POST, prefix='new_update')
+
+    if form.is_valid():
+        dispute_item = form.save()
+
+        # Check if a new update was submitted
+        if new_update_form.is_valid() and new_update_form.cleaned_data.get('update_date'):
+            # Get existing history, or start a new list
+            history = dispute_item.dispute_history or []
+
+            # Append the new entry
+            history.append({
+                'update_date': new_update_form.cleaned_data['update_date'].strftime('%Y-%m-%d'),
+                'remarks': new_update_form.cleaned_data.get('remarks', '')
+            })
+
+            # Save the updated history list
+            dispute_item.dispute_history = sorted(history, key=lambda x: x['update_date'])
+            dispute_item.save(update_fields=['dispute_history'])
+
+        return JsonResponse({'success': True, 'message': 'Dispute details saved successfully.'})
+    else:
+        errors = form.errors.as_json()
+        logger.error(f"Dispute form save failed for item {item_id}: {errors}")
+        return JsonResponse({'success': False, 'message': 'Please correct the errors.', 'errors': errors}, status=400)
+
+# @login_required
+# def export_parcels_to_excel(request):
+#     """
+#     Generates and serves an Excel file of selected parcels with calculated shipment charges.
+#     This view is for superusers only.
+#     """
+#     if not request.user.is_superuser:
+#         return HttpResponseForbidden("You do not have permission to access this resource.")
+
+#     # 1. Get data from query parameters
+#     parcel_ids_str = request.GET.get('ids', '')
+#     margin_str = request.GET.get('margin', '0')
+#     rate_str = request.GET.get('rate', '1')
+
+#     if not parcel_ids_str:
+#         return HttpResponse("No parcel IDs provided.", status=400)
+
+#     # 2. Validate and process input data
+#     try:
+#         parcel_ids = [int(id) for id in parcel_ids_str.split(',')]
+#         margin_multiplier = 1 + (Decimal(margin_str) / Decimal('100'))
+#         exchange_rate = Decimal(rate_str)
+#         if exchange_rate == 0:
+#             return HttpResponse("Exchange rate cannot be zero.", status=400)
+#     except (ValueError, TypeError):
+#         return HttpResponse("Invalid margin or exchange rate provided.", status=400)
+
+#     # 3. Fetch data from the database
+#     parcels = Parcel.objects.filter(id__in=parcel_ids).select_related(
+#         'order__warehouse',
+#         'packaging_type',
+#         'billing_item'
+#     ).order_by('created_at')
+
+#     # 4. Create the Excel workbook in memory
+#     workbook = openpyxl.Workbook()
+#     sheet = workbook.active
+#     sheet.title = "Parcels Export"
+
+#     # Write headers
+#     headers = [
+#         "Order#",
+#         "Tracking Number",
+#         "Shipment Date",
+#         "Warehouse",
+#         "Type",
+#         "Shipment cost"
+#     ]
+#     sheet.append(headers)
+
+#     # 5. Write data rows
+#     for parcel in parcels:
+#         # Calculate shipment charges
+#         shipment_charges = Decimal('0.00')
+#         if parcel.billing_item and parcel.billing_item.actual_cost is not None:
+#             billing_cost = parcel.billing_item.actual_cost
+#             shipment_charges = (billing_cost / exchange_rate) * margin_multiplier
+
+#         # Prepare row data
+#         row_data = [
+#             parcel.order.erp_order_id,
+#             parcel.tracking_number,
+#             parcel.created_at.strftime('%Y-%m-%d'),
+#             parcel.order.warehouse.name if parcel.order and parcel.order.warehouse else 'N/A',
+#             parcel.packaging_type.name if parcel.packaging_type else 'N/A',
+#             round(shipment_charges, 2)
+#         ]
+#         sheet.append(row_data)
+
+#     # 6. Prepare the HTTP response
+#     response = HttpResponse(
+#         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+#     )
+#     response['Content-Disposition'] = 'attachment; filename="parcels_export.xlsx"'
+#     workbook.save(response)
+
+#     return response
+
+
+STATE_MAP = {
+    'AL': 'ALABAMA', 'AK': 'ALASKA', 'AZ': 'ARIZONA', 'AR': 'ARKANSAS', 'CA': 'CALIFORNIA',
+    'CO': 'COLORADO', 'CT': 'CONNECTICUT', 'DE': 'DELAWARE', 'FL': 'FLORIDA', 'GA': 'GEORGIA',
+    'HI': 'HAWAII', 'ID': 'IDAHO', 'IL': 'ILLINOIS', 'IN': 'INDIANA', 'IA': 'IOWA',
+    'KS': 'KANSAS', 'KY': 'KENTUCKY', 'LA': 'LOUISIANA', 'ME': 'MAINE', 'MD': 'MARYLAND',
+    'MA': 'MASSACHUSETTS', 'MI': 'MICHIGAN', 'MN': 'MINNESOTA', 'MS': 'MISSISSIPPI',
+    'MO': 'MISSOURI', 'MT': 'MONTANA', 'NE': 'NEBRASKA', 'NV': 'NEVADA', 'NH': 'NEW HAMPSHIRE',
+    'NJ': 'NEW JERSEY', 'NM': 'NEW MEXICO', 'NY': 'NEW YORK', 'NC': 'NORTH CAROLINA',
+    'ND': 'NORTH DAKOTA', 'OH': 'OHIO', 'OK': 'OKLAHOMA', 'OR': 'OREGON', 'PA': 'PENNSYLVANIA',
+    'RI': 'RHODE ISLAND', 'SC': 'SOUTH CAROLINA', 'SD': 'SOUTH DAKOTA', 'TN': 'TENNESSEE',
+    'TX': 'TEXAS', 'UT': 'UTAH', 'VT': 'VERMONT', 'VA': 'VIRGINIA', 'WA': 'WASHINGTON',
+    'WV': 'WEST VIRGINIA', 'WI': 'WISCONSIN', 'WY': 'WYOMING', 'DC': 'DISTRICT OF COLUMBIA',
+    'PR': 'PUERTO RICO', 'VI': 'VIRGIN ISLANDS'
+}
+
+@login_required
+def generate_report(request):
+    """
+    Handles the 'Generate Report' page.
+    - GET: Displays dashboards for state and courier statistics.
+    - POST: Generates and serves an Excel file based on the selected month.
+    """
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("You do not have permission to access this resource.")
+
+    # --- POST: Handle Excel Report Generation ---
+    if request.method == 'POST':
+        month_str = request.POST.get('month')
+        margin_str = request.POST.get('margin', '20')
+        rate_str = request.POST.get('usd_exchange_rate', '7.25')
+        try:
+            year, month = map(int, month_str.split('-'))
+            _, last_day_of_month = calendar.monthrange(year, month)
+            start_date = datetime.date(year, month, 1)
+            end_date = datetime.date(year, month, last_day_of_month)
+            margin_multiplier = 1 + (Decimal(margin_str) / Decimal('100'))
+            exchange_rate = Decimal(rate_str)
+            if exchange_rate <= 0:
+                return HttpResponse("Exchange rate must be positive.", status=400)
+        except (ValueError, TypeError):
+            return HttpResponse("Invalid data provided.", status=400)
+
+        parcels = Parcel.objects.filter(created_at__date__range=[start_date, end_date]).select_related(
+            'order__warehouse', 'packaging_type', 'billing_item').order_by('created_at')
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Parcels Export"
+        headers = ["Order#", "Tracking Number", "Shipment Date", "Warehouse", "Type", "Shipment cost", "Dispute"]
+        sheet.append(headers)
+        for parcel in parcels:
+            shipment_charges = Decimal('0.00')
+            is_disputed = ""
+            try:
+                if parcel.billing_item:
+                    if parcel.billing_item.actual_cost is not None:
+                        billing_cost = parcel.billing_item.actual_cost
+                        shipment_charges = (billing_cost / exchange_rate) * margin_multiplier
+                    if parcel.billing_item.dispute_date:
+                        is_disputed = "Yes"
+            except Parcel.billing_item.RelatedObjectDoesNotExist:
+                pass
+            row_data = [
+                parcel.order.erp_order_id, parcel.tracking_number, parcel.created_at.strftime('%Y-%m-%d'),
+                parcel.order.warehouse.name if parcel.order and parcel.order.warehouse else 'N/A',
+                parcel.packaging_type.name if parcel.packaging_type else 'N/A', round(shipment_charges, 2),
+                is_disputed
+            ]
+            sheet.append(row_data)
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="parcels_report_{month_str}.xlsx"'
+        workbook.save(response)
+        return response
+
+    # --- GET: Handle Dashboard Display ---
+    today = datetime.date.today()
+    selected_month_str = request.GET.get('month', today.strftime('%Y-%m'))
+    try:
+        selected_date = datetime.datetime.strptime(selected_month_str, '%Y-%m').date()
+    except ValueError:
+        selected_date = today
+
+    months_for_selector = []
+    current_month = today.replace(day=1)
+    for _ in range(12):
+        months_for_selector.append(current_month.strftime('%Y-%m'))
+        last_month = current_month - datetime.timedelta(days=1)
+        current_month = last_month.replace(day=1)
+
+    # Dashboard 1: State Statistics
+    stats_query_state = Parcel.objects.filter(created_at__year=selected_date.year, created_at__month=selected_date.month).values(
+        'billing_item__receiver_state', 'courier_company__name'
+    ).annotate(total=Count('id')).order_by('billing_item__receiver_state', '-total')
+    state_courier_counts = {}
+    for item in stats_query_state:
+        raw_state = item['billing_item__receiver_state']
+        courier = item['courier_company__name']
+        count = item['total']
+        if not raw_state or not courier:
+            continue
+        state = STATE_MAP.get(raw_state.upper(), raw_state.upper())
+        if state not in state_courier_counts:
+            state_courier_counts[state] = {'total': 0, 'couriers': {}}
+        state_courier_counts[state]['couriers'][courier] = count
+        state_courier_counts[state]['total'] += count
+
+    # Dynamically generate the list of all couriers
+    all_couriers = list(CourierCompany.objects.values_list('name', flat=True))
+
+    # Dashboard 2: Courier Performance Statistics
+    # **FIXED**: Using the direct 'courier_company__name' and correct status logic
+    courier_stats_query = Parcel.objects.filter(
+        created_at__year=selected_date.year, created_at__month=selected_date.month
+    ).values('courier_company__name').annotate(
+        total_parcels=Count('id'),
+        total_successful=Count('id', filter=Q(status='DELIVERED')),
+        total_billing_cost=Sum('actual_shipping_cost'), # Using direct field from Parcel
+        total_delivery_duration=Sum(
+            ExpressionWrapper(F('delivered_at') - F('shipped_at'), output_field=DurationField()),
+            filter=Q(status='DELIVERED')
+        )
+    )
+
+    monthly_stats_dict = {
+        stat['courier_company__name']: stat
+        for stat in courier_stats_query if stat['courier_company__name']
+    }
+
+    courier_performance_stats = []
+    for courier_name in all_couriers:
+        stat = monthly_stats_dict.get(courier_name)
+
+        if stat:
+            total_parcels = stat['total_parcels']
+            total_successful = stat['total_successful']
+            success_rate = (total_successful / total_parcels * 100) if total_parcels > 0 else 0
+            avg_days = 0
+            if total_successful > 0 and stat['total_delivery_duration']:
+                avg_days = stat['total_delivery_duration'].total_seconds() / (3600 * 24) / total_successful
+            total_billing_cost = stat['total_billing_cost'] or 0
+        else:
+            total_parcels, total_successful, success_rate, avg_days, total_billing_cost = 0, 0, 0, 0, 0
+
+        courier_performance_stats.append({
+            'courier_name': courier_name,
+            'total_parcels': total_parcels,
+            'total_successful': total_successful,
+            'success_rate': success_rate,
+            'avg_delivery_days': avg_days,
+            'total_billing_cost': total_billing_cost,
+        })
+
+    context = {
+        'state_courier_counts': state_courier_counts,
+        'courier_performance_stats': courier_performance_stats,
+        'months': months_for_selector,
+        'selected_month': selected_date.strftime('%Y-%m')
+    }
+
+    return render(request, 'operation/generate_report.html', context)

@@ -4,10 +4,12 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponseBadRequest, JsonResponse, HttpResponse, HttpResponseForbidden
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.serializers import serialize
-import json
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Q, Sum, Avg
+from datetime import timedelta
 import logging
+import json
+
 
 
 from django.views.decorators.http import require_POST
@@ -20,171 +22,170 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import csrf_exempt
 
 
-from django.db.models import Q
 
 from django.template.loader import render_to_string
 
 from .models import (
     WarehouseProduct, Warehouse, PurchaseOrder, PurchaseOrderItem,
-    PurchaseOrderReceiptLog, PurchaseOrderReceiptItem # New models
+    PurchaseOrderStatusLog, PurchaseOrderReceiptItem # New models
 )
-from inventory.models import Product, Supplier, StockTransaction # Make sure StockTransaction is imported
+from inventory.models import Product, Supplier, StockTransaction
 
-from .utils import get_next_status
 
 
 DEFAULT_TAB = "warehouseproduct"
 logger = logging.getLogger(__name__)
 
-# --- Helper function to prepare context for PO rendering ---
 def _get_po_context_for_rendering(purchase_orders_page_obj):
-    """Helper to generate context needed for rendering PO lists and modals."""
+    """Helper to generate context for rendering PO lists and modals."""
+    logger.debug("--- Debugging _get_po_context_for_rendering ---")
     status_choices_list = PurchaseOrder.STATUS_CHOICES
     status_dates_dict = {}
-    next_statuses_dict = {}
-    # Generates field names like 'draft_date', 'waiting_invoice_date', etc.
-    status_field_names = [code.lower() + "_date" for code, _ in status_choices_list]
 
-    for po in purchase_orders_page_obj: # Iterate over the Paginator page object items
+    po_list = purchase_orders_page_obj.object_list if hasattr(purchase_orders_page_obj, 'object_list') else purchase_orders_page_obj
+    if not po_list:
+        logger.debug("po_list is empty. Returning empty context.")
+        return {"status_choices": status_choices_list, "status_dates": {}}
+
+    po_ids = [po.id for po in po_list]
+    logger.debug(f"Processing PO IDs: {po_ids}")
+
+    logs = PurchaseOrderStatusLog.objects.filter(purchase_order_id__in=po_ids).order_by('purchase_order_id', 'timestamp')
+    logger.debug(f"Found {logs.count()} status logs for these POs.")
+
+    for po_id in po_ids:
+        status_dates_dict[str(po_id)] = {}
+
+    for log in logs:
+        po_id_str = str(log.purchase_order_id)
+        if log.status not in status_dates_dict[po_id_str]:
+            status_dates_dict[po_id_str][log.status] = log.timestamp
+    logger.debug(f"Status dates dictionary after processing logs: {status_dates_dict}")
+
+    for po in po_list:
         po_id_str = str(po.id)
-        dates = {}
-        for field_name_base in status_field_names:
-            status_code_key = field_name_base.replace('_date', '').upper() # e.g., DRAFT
-            date_val = getattr(po, field_name_base, None)
-            if date_val and hasattr(date_val, 'strftime'):
-                dates[status_code_key] = date_val.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if po.last_updated_date else None
-            else:
-                dates[status_code_key] = None # Or handle backfilling here if desired
-        status_dates_dict[po_id_str] = dates
-        next_statuses_dict[po_id_str] = get_next_status(po.status)
+        if po.created_at:
+             status_dates_dict[po_id_str]['DRAFT'] = po.created_at
+             logger.debug(f"Set DRAFT date for PO-{po_id_str} to {po.created_at}")
 
+    logger.debug(f"Final status_dates context being returned: {status_dates_dict}")
     return {
         "status_choices": status_choices_list,
         "status_dates": status_dates_dict,
-        "next_statuses": next_statuses_dict,
     }
+
+
 
 # --- Tab Handler for Warehouse Products ---
 def handle_warehouseproduct_tab(request):
+    """
+    Handles both initial load and AJAX filtering for the Warehouse Products tab.
+    """
     user = request.user
     selected_warehouse_id = request.GET.get("warehouse")
     selected_supplier_id = request.GET.get("supplier")
     query_param = request.GET.get("q", "").strip()
+    page_number = request.GET.get('page', '1')
 
-    logger.debug(f"handle_warehouseproduct_tab: warehouse='{selected_warehouse_id}', supplier='{selected_supplier_id}', q='{query_param}' for user '{user.email}' (superuser: {user.is_superuser})")
+    # Base queryset
+    products_qs = WarehouseProduct.objects.select_related(
+        'product', 'warehouse', 'supplier'
+        ).prefetch_related(
+        'purchaseorderitem_set__purchase_order__supplier'
+        )
 
-    base_products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier')
+    # Filter by user permissions
+    if not user.is_superuser and user.warehouse:
+        products_qs = products_qs.filter(warehouse=user.warehouse)
 
-    if user.is_superuser:
-        products_qs = base_products_qs.all()
-        if selected_warehouse_id:
-            products_qs = products_qs.filter(warehouse_id=selected_warehouse_id)
-
-        warehouses_list = Warehouse.objects.all().order_by('name')
-        # For superuser, list all suppliers
-        suppliers_list = Supplier.objects.all().order_by('code')
-
-    else: # Non-superuser
-        if user.warehouse:
-            products_qs = base_products_qs.filter(warehouse=user.warehouse)
-            warehouses_list = Warehouse.objects.filter(pk=user.warehouse.id)
-
-            # SIMPLIFIED: Get suppliers directly from WarehouseProduct entries in their warehouse
-            suppliers_list = Supplier.objects.filter(
-            warehouseproduct__warehouse=user.warehouse,
-            warehouseproduct__supplier__isnull=False # Ensure we only get WPs that have a supplier
-            ).distinct().order_by('code')
-
-        else: # Non-superuser with no assigned warehouse
-            products_qs = base_products_qs.none()
-            warehouses_list = Warehouse.objects.none()
-            suppliers_list = Supplier.objects.none()
-
-    # Apply supplier filter (common for both)
+    # Apply request filters
+    if selected_warehouse_id:
+        products_qs = products_qs.filter(warehouse_id=selected_warehouse_id)
     if selected_supplier_id:
-            products_qs = products_qs.filter(supplier_id=selected_supplier_id) # Now only checks WarehouseProduct.supplier
-
-
-
-    # Apply text query (common for both)
+        products_qs = products_qs.filter(supplier_id=selected_supplier_id)
     if query_param:
-        q_filters = Q(product__name__icontains=query_param) | \
-                    Q(product__sku__icontains=query_param)
-        if user.is_superuser and not selected_warehouse_id: # Only allow superuser to search by warehouse name if not filtering
-            q_filters |= Q(warehouse__name__icontains=query_param)
-        products_qs = products_qs.filter(q_filters).distinct()
+        products_qs = products_qs.filter(
+            Q(product__name__icontains=query_param) | Q(product__sku__icontains=query_param)
+        ).distinct()
 
     products_qs = products_qs.order_by('product__name')
 
+    # Paginate the results
+    paginator = Paginator(products_qs, 20) # You can adjust the page size
+    products_page = paginator.get_page(page_number)
+
+    # Determine which suppliers and warehouses to show in the filter panel
+    if user.is_superuser:
+        warehouses_list = Warehouse.objects.all().order_by('name')
+        suppliers_list = Supplier.objects.all().order_by('code')
+    else:
+        warehouses_list = Warehouse.objects.filter(pk=user.warehouse.id) if user.warehouse else Warehouse.objects.none()
+        suppliers_list = Supplier.objects.filter(
+            warehouseproduct__warehouse__in=warehouses_list
+        ).distinct().order_by('code')
+
     context = {
-        "products": products_qs,
+        "products": products_page,
         "warehouses": warehouses_list,
         "suppliers": suppliers_list,
         "selected_warehouse_id": selected_warehouse_id,
-        "selected_supplier": selected_supplier_id, # This is the ID of the selected supplier
+        "selected_supplier": selected_supplier_id,
         "query": query_param,
         "user": user,
-        "today": timezone.now().date(),
     }
+    # The main warehouse_management view will handle rendering this partial for AJAX requests
     return context, "warehouse/warehouse_product_partial.html"
 
 # --- Tab Handler for Purchase Orders ---
 def handle_purchaseorders_tab(request):
-    logger.debug("--- handle_purchaseorders_tab ---")
+    """Prepares context for the Purchase Orders tab for the initial page load."""
+    logger.debug("--- handle_purchaseorders_tab (Initial Load) ---")
     query = request.GET.get("q", "").strip()
     selected_supplier_id = request.GET.get("supplier")
     selected_status = request.GET.get("status")
-    raw_page = request.GET.get('page', '1')
-    try:
-        page = int(raw_page)
-        if page <= 0: page = 1
-    except ValueError:
-        page = 1
+    selected_warehouse_id = request.GET.get("warehouse")
+    page = request.GET.get('page', '1')
+    logger.debug(f"Initial load filters: q={query}, supplier={selected_supplier_id}, status={selected_status}, wh={selected_warehouse_id}")
 
-    logger.debug(f"Params: query='{query}', supplier='{selected_supplier_id}', status='{selected_status}', page={page}")
+    purchase_orders_qs = PurchaseOrder.objects.select_related('supplier').prefetch_related(
+        'items', 'items__item__product', 'items__item__warehouse'
+    ).order_by('-last_updated_date')
 
-    purchase_orders_qs = PurchaseOrder.objects.select_related('supplier') \
-                                       .prefetch_related(
-                                           'items__item__product', # WarehouseProduct's product
-                                           'items__item__warehouse', # WarehouseProduct's warehouse
-                                           'items__item__supplier' # WarehouseProduct's supplier
-                                        ) \
-                                       .order_by('-last_updated_date')
-
+    # Apply filters
     if selected_supplier_id:
         purchase_orders_qs = purchase_orders_qs.filter(supplier_id=selected_supplier_id)
     if selected_status:
         purchase_orders_qs = purchase_orders_qs.filter(status=selected_status)
+    if selected_warehouse_id:
+        purchase_orders_qs = purchase_orders_qs.filter(items__item__warehouse_id=selected_warehouse_id).distinct()
     if query:
-        q_filters = Q(supplier__name__icontains=query) | \
-                    Q(items__item__product__name__icontains=query) | \
-                    Q(items__item__product__sku__icontains=query)
-        if query.isdigit(): # Safe check for ID
-            q_filters |= Q(id=query)
+        q_filters = Q(supplier__name__icontains=query) | Q(items__item__product__name__icontains=query) | Q(id__icontains=query)
         purchase_orders_qs = purchase_orders_qs.filter(q_filters).distinct()
 
-    paginator = Paginator(purchase_orders_qs, 10) # Show 10 POs per page
+    paginator = Paginator(purchase_orders_qs, 10)
     try:
         purchase_orders_page = paginator.page(page)
-    except PageNotAnInteger:
+    except (PageNotAnInteger, EmptyPage):
         purchase_orders_page = paginator.page(1)
-    except EmptyPage:
-        purchase_orders_page = paginator.page(paginator.num_pages)
+
+    for po in purchase_orders_page:
+        logger.debug(f"Initial load: PO-{po.id} has {po.items.count()} item(s).")
 
     common_po_rendering_context = _get_po_context_for_rendering(purchase_orders_page)
 
     context = {
-        "purchase_orders": purchase_orders_page, # This is the Paginator page object
-        "suppliers": Supplier.objects.all(), # For filter dropdown
+        "purchase_orders": purchase_orders_page,
+        "page_obj": purchase_orders_page,
+        "warehouses": Warehouse.objects.all().order_by('name'),
+        "suppliers": Supplier.objects.all().order_by('code'),
+        "selected_warehouse": selected_warehouse_id,
         "selected_supplier": selected_supplier_id,
         "selected_status": selected_status,
         "query": query,
-        "page_obj": purchase_orders_page, # Common practice for paginator page object
-        "has_next": purchase_orders_page.has_next(),
-        "next_page": purchase_orders_page.next_page_number() if purchase_orders_page.has_next() else None,
-        **common_po_rendering_context # Add status_choices, status_dates, next_statuses
+        **common_po_rendering_context
     }
     return context, "warehouse/purchase_orders_partial.html"
+
 
 TAB_HANDLERS = {
     "warehouseproduct": handle_warehouseproduct_tab,
@@ -208,128 +209,6 @@ def warehouse_management(request):
 
     logger.debug(f"Rendering full page: warehouse/warehouse_management.html, active_tab: {tab}")
     return render(request, "warehouse/warehouse_management.html", context)
-
-def get_next_status(current_status): # Make sure this function is defined
-    ordered_statuses = ['DRAFT', 'WAITING_INVOICE', 'PAYMENT_MADE', 'PARTIALLY_DELIVERED', 'DELIVERED']
-    try:
-        idx = ordered_statuses.index(current_status)
-        if current_status in ['DELIVERED', 'CANCELLED']: return None
-        return ordered_statuses[idx + 1] if idx + 1 < len(ordered_statuses) else None
-    except ValueError:
-        return None
-
-# @login_required
-# def warehouse_management(request):
-#     tab = request.GET.get("tab", "warehouseproduct")
-#     user = request.user
-#     selected_supplier = request.GET.get("supplier")
-#     selected_status = request.GET.get("status")
-
-
-#     if tab == "purchaseorders":
-
-#         purchase_orders = PurchaseOrder.objects \
-#             .annotate(
-#                 latest_update=Coalesce(
-#                     F('delivered_date'),
-#                     F('partially_delivered_date'),
-#                     F('payment_made_date'),
-#                     F('waiting_invoice_date'),
-#                     F('draft_date'),
-
-#                 )
-#             ).order_by('-last_updated_date') \
-#             .prefetch_related("items__item__product")
-
-#         if selected_supplier:
-#             purchase_orders = purchase_orders.filter(supplier_id=selected_supplier)
-#         if selected_status:
-#             purchase_orders = purchase_orders.filter(status=selected_status)
-
-#         status_choices = PurchaseOrder.STATUS_CHOICES
-#         ordered_statuses = [code for code, _ in status_choices]
-
-#         paginator = Paginator(purchase_orders, 10)  # 每页5个
-#         page_number = request.GET.get("page")
-#         purchase_orders_page = paginator.get_page(page_number)
-
-
-#         status_dates = {
-#             po.id: {
-#                 code: getattr(po, f"{code.lower()}_date", None)
-#                 for code in ordered_statuses
-#             }
-#             for po in purchase_orders_page
-#         }
-
-#         next_statuses = {
-#             po.id: get_next_status(po.status)
-#             for po in purchase_orders_page
-#         }
-
-#         query = request.GET.get("q", "").strip()
-#         if query:
-#             purchase_orders_page = purchase_orders_page.filter(
-#                 Q(id__icontains=query) |
-#                 Q(supplier__name__icontains=query) |
-#                 Q(items__item__product__name__icontains=query) |
-#                 Q(items__item__product__sku__icontains=query)
-#             ).distinct()
-
-
-#         context = {
-#             "purchase_orders": purchase_orders_page,
-#             "suppliers": Supplier.objects.all(),
-#             "selected_supplier": selected_supplier,
-#             "selected_status": selected_status,
-#             "status_choices": status_choices,
-#             "status_dates": status_dates,
-#             "next_statuses": next_statuses,
-#             "active_tab": "purchaseorders",
-#             "query": query,
-#             "page_obj": purchase_orders_page,
-#         }
-
-#         partial_template = "warehouse/purchase_orders_partial.html"
-
-#     else:
-#         if user.is_superuser:
-#             selected_warehouse_id = request.GET.get("warehouse")
-#             selected_supplier_id = request.GET.get("supplier")
-
-#             products = WarehouseProduct.objects.all().order_by('product__name')  # 一开始先查全部
-
-#             if selected_warehouse_id:
-#                 products = products.filter(warehouse_id=selected_warehouse_id)
-
-#             if selected_supplier_id:
-#                 products = products.filter(product__supplier_id=selected_supplier_id)
-
-#             warehouses = Warehouse.objects.all()
-#             suppliers = Supplier.objects.all()
-#         else:
-#             products = WarehouseProduct.objects.filter(warehouse=user.warehouse).order_by('product__name')
-#             warehouses = None
-#             suppliers = None
-#             selected_warehouse_id = None
-#             selected_supplier_id = None
-
-#         context = {
-#             "products": products,
-#             "warehouse": user.warehouse if not user.is_superuser else None,
-#             "warehouses": warehouses,
-#             "suppliers": suppliers,  # ✅ 补上
-#             "selected_warehouse_id": selected_warehouse_id,
-#             "selected_supplier_id": selected_supplier_id,
-#             "user": user,
-#             "active_tab": "warehouseproduct",
-#         }
-#         partial_template = "warehouse/warehouse_product_partial.html"
-
-#     if request.headers.get("x-requested-with") == "XMLHttpRequest":
-#         return render(request, partial_template, context)
-
-#     return render(request, "warehouse/warehouse_management.html", context)
 
 
 @login_required
@@ -367,77 +246,102 @@ def update_stock(request):
 
 @login_required
 def search(request):
-    print("--- Entering AJAX search view (/warehouse/search/) ---")
+    """
+    Handles AJAX search/filter requests for the Warehouse Products tab.
+    Now returns a JSON object with HTML and the filtered count.
+    """
     query = request.GET.get('q', '').strip()
-    warehouse_id_param = request.GET.get('warehouse') # Explicit warehouse filter from GET params
+    warehouse_id_param = request.GET.get('warehouse')
     supplier_id = request.GET.get('supplier')
     user = request.user
 
-    print(f"Received parameters: q='{query}', warehouse_id_param='{warehouse_id_param}', supplier_id='{supplier_id}', user='{user.email}'")
-
-    # Start with a base queryset
     products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier')
 
-    if user.is_superuser:
-        # Superuser can filter by any warehouse if 'warehouse' param is provided
-        if warehouse_id_param:
-            products_qs = products_qs.filter(warehouse_id=warehouse_id_param)
-            print(f"Superuser: After warehouse_id_param filter ('{warehouse_id_param}'), count: {products_qs.count()}")
-        # If no warehouse_id_param, superuser sees all warehouses initially (before other filters like query or supplier)
-    else:
-        # Non-superuser is RESTRICTED to their assigned warehouse
-        if user.warehouse:
-            products_qs = products_qs.filter(warehouse=user.warehouse)
-            print(f"Non-superuser: Filtered by assigned warehouse '{user.warehouse.name}', count: {products_qs.count()}")
-        else:
-            # Non-superuser with no assigned warehouse should see no products
-            products_qs = products_qs.none()
-            print("Non-superuser: No warehouse assigned, queryset is None.")
+    # Apply filters based on user role and request params
+    if not user.is_superuser and user.warehouse:
+        products_qs = products_qs.filter(warehouse=user.warehouse)
+    elif warehouse_id_param:
+        products_qs = products_qs.filter(warehouse_id=warehouse_id_param)
 
-    # Apply supplier filter (if provided) - This applies to both superuser and non-superuser on the (potentially already warehouse-filtered) queryset
     if supplier_id:
-        # Ensure the supplier filter on WarehouseProduct is correct.
-        # If WarehouseProduct has a direct FK 'supplier':
         products_qs = products_qs.filter(supplier_id=supplier_id)
-        # If supplier is linked via product (Product.supplier):
-        # products_qs = products_qs.filter(product__supplier_id=supplier_id)
-        # Choose the correct one based on your WarehouseProduct model structure.
-        # From your models, WarehouseProduct has a direct 'supplier' FK.
-        print(f"After supplier_id filter ('{supplier_id}'), count: {products_qs.count()}")
 
-    # Apply text query filter
     if query:
-        print(f"Applying text query: '{query}'")
-        q_object = Q(product__name__icontains=query) | \
-                   Q(product__sku__icontains=query)
-
-        # For superusers, if they are NOT already filtering by a specific warehouse_id_param,
-        # allow them to search by warehouse name as well.
-        # For non-superusers, they are already confined to their warehouse, so searching its name is less critical here.
-        if user.is_superuser and not warehouse_id_param:
-            q_object |= Q(warehouse__name__icontains=query)
-
+        q_object = Q(product__name__icontains=query) | Q(product__sku__icontains=query)
         products_qs = products_qs.filter(q_object).distinct()
-        print(f"After text query filter ('{query}'), count: {products_qs.count()}")
 
-    # Optional: Apply a default ordering
+    # Get the total count *after* filtering
+    product_count = products_qs.count()
+
     products_qs = products_qs.order_by('product__name')
 
-    # Logging for results (optional)
-    if products_qs.exists():
-        print("Sample results from AJAX search (first 3):")
-        for p_item in products_qs[:3]: # Limit logging output
-            print(f"  - Product: {p_item.product.name}, SKU: {p_item.product.sku}, Warehouse: {p_item.warehouse.name}")
-    else:
-        print("No results from AJAX search with current filters.")
+    # Paginate the results
+    paginator = Paginator(products_qs, 20) # Or your desired page size
+    page_number = request.GET.get('page', 1)
+    products_page = paginator.get_page(page_number)
 
     context = {
-        "products": products_qs,
-        "query": query, # Pass the original query back for display in the input field
-        "today": timezone.now().date(), # For incoming PO ETA comparison in _search_results.html
-        "user": user # Pass user to the template if needed for conditional rendering
+        "products": products_page,
+        "user": user,
+        "today": timezone.now().date(),
     }
-    return render(request, "warehouse/_search_results.html", context)
+
+    # Render the table rows partial to an HTML string
+    html = render_to_string("warehouse/_search_results.html", context)
+
+    # Return everything in a single JSON response
+    return JsonResponse({"html": html, "count": product_count})
+
+@login_required
+def warehouse_product_list_partial(request):
+    """
+    This view handles AJAX requests for the filtered product list.
+    It returns a JSON response containing the rendered HTML for the table rows
+    and the total count of filtered products.
+    """
+    # This logic is moved from your old 'search' view and handle_warehouseproduct_tab view
+    user = request.user
+    selected_warehouse_id = request.GET.get("warehouse")
+    selected_supplier_id = request.GET.get("supplier")
+    query_param = request.GET.get("q", "").strip()
+    page_number = request.GET.get('page', 1)
+
+    products_qs = WarehouseProduct.objects.select_related('product', 'warehouse', 'supplier')
+
+    if not user.is_superuser and user.warehouse:
+        products_qs = products_qs.filter(warehouse=user.warehouse)
+
+    if selected_warehouse_id:
+        products_qs = products_qs.filter(warehouse_id=selected_warehouse_id)
+    if selected_supplier_id:
+        products_qs = products_qs.filter(supplier_id=selected_supplier_id)
+    if query_param:
+        products_qs = products_qs.filter(
+            Q(product__name__icontains=query_param) | Q(product__sku__icontains=query_param)
+        ).distinct()
+
+    # Get the total count *after* filtering
+    product_count = products_qs.count()
+    products_qs = products_qs.order_by('product__name')
+
+    paginator = Paginator(products_qs, 20)
+    products_page = paginator.get_page(page_number)
+
+    context = {
+        "products": products_page,
+        "user": user,
+        "today": timezone.now().date(),
+    }
+
+    # Render just the table rows to an HTML string
+    html_rows = render_to_string("warehouse/_warehouse_product_rows.html", context, request=request)
+    html_modals = render_to_string("warehouse/_warehouse_product_modals.html", context, request=request)
+
+    return JsonResponse({
+            "html_rows": html_rows,
+            "html_modals": html_modals,
+            "count": product_count
+        })
 
 @login_required
 def warehouseproduct_details(request, pk):
@@ -520,137 +424,88 @@ def prepare_po_from_selection(request):
 
 @csrf_exempt # Consider CSRF
 @login_required
-@require_POST
 @transaction.atomic
 def confirm_create_po(request):
-    # ... (Implementation from your file) ...
+    logger.debug("--- confirm_create_po view ---")
     try:
         data = json.loads(request.body)
-        orders_data = data.get("orders", {}) # Renamed to avoid conflict with Order model
+        orders_data = data.get("orders", {})
+        logger.debug(f"Received PO creation data: {orders_data}")
 
         if not orders_data:
             return JsonResponse({"success": False, "error": "No orders data provided."}, status=400)
 
         created_po_ids = []
         for supplier_id_str, items in orders_data.items():
-            try:
-                supplier_id = int(supplier_id_str)
-                supplier = Supplier.objects.get(pk=supplier_id)
-            except (ValueError, Supplier.DoesNotExist):
-                logger.error(f"Invalid supplier ID: {supplier_id_str} in confirm_create_po.")
-                # Optionally, decide if this should halt all PO creation or just skip this one
-                return JsonResponse({"success": False, "error": f"Invalid supplier ID: {supplier_id_str}."}, status=400)
+            supplier_id = int(supplier_id_str)
+            supplier = Supplier.objects.get(pk=supplier_id)
 
-            # Create the PurchaseOrder instance
-            # Ensure all necessary fields for PO creation are handled, e.g., assigned user, warehouse context if applicable
-            po = PurchaseOrder.objects.create(
-                supplier=supplier,
-                status='DRAFT' # Default status
-                # created_by=request.user, # Example if tracking user
-                # warehouse=request.user.warehouse, # Example if PO is tied to a user's warehouse
-            )
+            po = PurchaseOrder(supplier=supplier, status='DRAFT')
+            po.save()
+            logger.debug(f"Created new PurchaseOrder with ID: {po.id}")
             created_po_ids.append(po.id)
 
+            PurchaseOrderStatusLog.objects.create(purchase_order=po, status='DRAFT', user=request.user)
+            logger.debug(f"Created DRAFT status log for PO-{po.id}")
+
             for item_data in items:
-                try:
-                    wp_id = int(item_data["warehouse_product_id"])
-                    wp = WarehouseProduct.objects.get(id=wp_id)
-                    quantity = int(item_data["quantity"])
+                wp_id = int(item_data["warehouse_product_id"])
+                wp = WarehouseProduct.objects.get(id=wp_id)
+                quantity = int(item_data["quantity"])
+                price = wp.product.price
 
-                    if quantity <= 0: # Skip items with zero or negative quantity
-                        logger.warning(f"Skipping item {wp.product.sku} for PO {po.id} due to zero/negative quantity: {quantity}")
-                        continue
+                PurchaseOrderItem.objects.create(
+                    purchase_order=po, item=wp, quantity=quantity, price=price
+                )
+                logger.debug(f"Created PO Item for PO-{po.id}: {quantity}x {wp.product.name}")
 
-                    # Price: Use product's default price. Could be extended to allow price input.
-                    price = wp.product.price
+        logger.debug(f"PO creation successful. Committing transaction.")
+        return JsonResponse({ "success": True, "created_po_ids": created_po_ids })
 
-                    PurchaseOrderItem.objects.create(
-                        purchase_order=po,
-                        item=wp, # This is WarehouseProduct instance
-                        quantity=quantity,
-                        price=price,
-                    )
-                except (KeyError, ValueError, WarehouseProduct.DoesNotExist) as item_exc:
-                    logger.error(f"Error processing item for PO (Supplier ID: {supplier_id}): {item_data}. Exception: {item_exc}", exc_info=True)
-                    # Decide on error handling: roll back all, or just skip this item/PO?
-                    # For now, let's assume an error with an item invalidates this PO creation and rolls back.
-                    raise # Re-raise to trigger transaction rollback for this PO
-
-        if not created_po_ids:
-             return JsonResponse({"success": False, "error": "No Purchase Orders were created."})
-
-
-        return JsonResponse({
-            "success": True,
-            "message": f"{len(created_po_ids)} Purchase Order(s) created.",
-            "latest_po_id": created_po_ids[-1] if created_po_ids else None,
-            "created_po_ids": created_po_ids
-        })
     except Exception as e:
         logger.error(f"Error in confirm_create_po: {str(e)}", exc_info=True)
-        # The @transaction.atomic will handle rollback on unhandled exceptions
         return JsonResponse({"success": False, "error": str(e)}, status=500)
+
 
 @require_POST
 @login_required # Ensure user is logged in
 @transaction.atomic # Ensure atomicity
 def po_update(request, pk):
-    # ... (Implementation from your file, ensure csrf protection if not an API endpoint) ...
-    # If this is called via AJAX from a form, ensure CSRF token is sent or exempt if appropriate
-    purchase_order = get_object_or_404(PurchaseOrder, pk=pk)
-    original_status = purchase_order.status
-    selected_status = request.POST.get('selected_status')
-    eta_str = request.POST.get('eta') # Expects 'YYYY-MM-DD'
+    """
+    Updates a PO's ETA and status, creating log entries for all status changes, including backfilling.
+    """
+    po = get_object_or_404(PurchaseOrder, pk=pk)
+    new_status = request.POST.get('selected_status')
+    eta_str = request.POST.get('eta')
 
-    response_data = {
-        'success': False,
-        'message': 'No changes made or invalid request.',
-        'po_id': purchase_order.id,
-        'new_status_display': purchase_order.get_status_display(), # Start with current
-        'refresh_po_list': False
-    }
-    updated_fields_count = 0
+    po.eta = eta_str if eta_str else None
 
-    if eta_str: # eta_str can be empty if user clears the date
+    if new_status and new_status != po.status:
+        ordered_statuses = [code for code, _ in PurchaseOrder.STATUS_CHOICES]
         try:
-            # Attempt to parse, or set to None if empty, or handle invalid format
-            purchase_order.eta = eta_str if eta_str else None
-            updated_fields_count +=1
+            current_index = ordered_statuses.index(po.status)
+            new_index = ordered_statuses.index(new_status)
         except ValueError:
-            response_data['message'] = 'Invalid ETA date format. Please use YYYY-MM-DD.'
-            # No JsonResponse here yet, continue to check status
+            return JsonResponse({"success": False, "message": f"Invalid status '{new_status}' provided."}, status=400)
 
-    if selected_status and selected_status != original_status:
-        if selected_status in [choice[0] for choice in PurchaseOrder.STATUS_CHOICES]:
-            purchase_order.status = selected_status
-            # The PurchaseOrder.save() method should handle set_status_date()
-            updated_fields_count +=1
-        else:
-            response_data['message'] = f'Invalid status: {selected_status}.'
-            # No JsonResponse here yet
+        if new_index > current_index:
+            # Backfill statuses by creating log entries
+            for i in range(current_index, new_index + 1):
+                status_to_log = ordered_statuses[i]
+                # Create log entry only if one for this status doesn't already exist
+                PurchaseOrderStatusLog.objects.get_or_create(
+                    purchase_order=po,
+                    status=status_to_log,
+                    defaults={'user': request.user}
+                )
 
-    if updated_fields_count > 0:
-        try:
-            purchase_order.save() # This will call set_status_date if status changed
-            response_data['success'] = True
-            response_data['message'] = 'PO details updated successfully.'
-            response_data['new_status_display'] = purchase_order.get_status_display()
-            response_data['refresh_po_list'] = True # Signal JS to refresh the list
-        except Exception as e:
-            logger.error(f"Error saving PO {pk} in po_update: {e}", exc_info=True)
-            response_data['success'] = False;
-            response_data['message'] = f"Error saving PO: {e}"
+        po.status = new_status
 
+    po.save()
+    return JsonResponse({"success": True, "message": "Purchase Order updated successfully.", "refresh_po_list": True})
 
-    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-        return JsonResponse(response_data)
-
-    # Fallback for non-AJAX (should ideally not happen with current JS)
-    # messages.info(request, response_data['message']) # Use Django messages framework
-    return redirect('warehouse:warehouse_management') # Redirect back to the main page
 
 # --- New View: Get PO Items for Receiving Modal ---
-@login_required
 @login_required
 def get_po_items_for_receiving(request, po_id):
     # ... (Implementation from your file) ...
@@ -671,97 +526,89 @@ def get_po_items_for_receiving(request, po_id):
         })
     return JsonResponse({'success': True, 'po_id': po_id, 'po_status': purchase_order.status, 'items': items_data})
 
-# --- New View: Process PO Receipt ---
 @login_required
 @require_POST
 @transaction.atomic
 def process_po_receipt(request, po_id):
-    # ... (Implementation from your file) ...
-    # Ensure this view correctly updates WarehouseProduct quantities, StockTransaction,
-    # PurchaseOrderItem.received_quantity, and the PurchaseOrder status.
-    purchase_order = get_object_or_404(PurchaseOrder, pk=po_id)
+    """
+    Processes the receipt of items for a PO, updates inventory, and correctly
+    sets the final PO status to DELIVERED if all items are now received.
+    """
+    purchase_order = get_object_or_404(PurchaseOrder.objects.prefetch_related('items'), pk=po_id)
 
-    # Basic permission check (can be more granular)
-    # if purchase_order.warehouse.owner != request.user and not request.user.is_staff:
-    #     return JsonResponse({'success': False, 'message': 'Permission denied.'}, status=403)
     if purchase_order.status not in ['PAYMENT_MADE', 'PARTIALLY_DELIVERED', 'DELIVERED']:
-         return JsonResponse({'success': False, 'message': f'Cannot process receipt for PO in status {purchase_order.get_status_display()}.'}, status=400)
-
+        return JsonResponse({'success': False, 'message': f'Cannot process receipt for PO in status {purchase_order.get_status_display()}.'}, status=400)
 
     try:
         data = json.loads(request.body)
         received_items_info = data.get('items', [])
         receipt_notes = data.get('notes', '')
 
-        if not received_items_info and purchase_order.status != 'DELIVERED': # Allow empty submission if PO is already delivered (e.g. just adding notes)
-            return JsonResponse({'success': False, 'message': 'No items data provided for receipt.'}, status=400)
+        if not any(int(item.get('quantity_received_now', 0)) > 0 for item in received_items_info):
+            return JsonResponse({'success': True, 'message': 'No items were marked as received.'})
 
-        receipt_log = PurchaseOrderReceiptLog.objects.create(
-            purchase_order=purchase_order,
-            notes=receipt_notes
-            # user=request.user # Optional: track who received
-        )
-
-        any_item_received_this_time = False
+        # --- Step 1: Process all item updates first ---
+        updated_po_items = []
         for item_info in received_items_info:
-            po_item_id = item_info.get('po_item_id')
             quantity_received_now = int(item_info.get('quantity_received_now', 0))
-
-            if quantity_received_now < 0: # Cannot receive negative
-                raise ValueError(f"Received quantity cannot be negative for PO Item ID {po_item_id}.")
-            if quantity_received_now == 0: # Skip items with no quantity received this time
+            if quantity_received_now <= 0:
                 continue
 
-            any_item_received_this_time = True
-            po_item = get_object_or_404(PurchaseOrderItem.objects.select_related('item__product', 'item__warehouse'), pk=po_item_id, purchase_order=purchase_order)
+            po_item = get_object_or_404(PurchaseOrderItem.objects.select_related('item__product', 'item__warehouse'),
+                                        pk=item_info.get('po_item_id'), purchase_order=purchase_order)
 
             if quantity_received_now > po_item.balance_quantity:
                 raise ValueError(f"Cannot receive {quantity_received_now} for {po_item.item.product.name}. Max balance is {po_item.balance_quantity}.")
 
-            PurchaseOrderReceiptItem.objects.create(
-                receipt_log=receipt_log,
-                po_item=po_item,
-                quantity_received_this_time=quantity_received_now
-            )
-
-            warehouse_product = po_item.item # This is the WarehouseProduct instance
-            warehouse_product.quantity += quantity_received_now
-            warehouse_product.save()
-
-            StockTransaction.objects.create(
-                warehouse=warehouse_product.warehouse,
-                warehouse_product=warehouse_product,
-                product=warehouse_product.product, # Redundant for faster queries
-                transaction_type='IN',
-                quantity=quantity_received_now,
-                reference_note=f"PO#{purchase_order.id} - Receipt#{receipt_log.id}",
-                related_po=purchase_order
-            )
-
+            # Update received quantity and inventory
             po_item.received_quantity += quantity_received_now
             po_item.save()
 
-        if not any_item_received_this_time and purchase_order.status != 'DELIVERED':
-            # If modal submitted with all zeros and PO wasn't already delivered
-            receipt_log.delete() # Delete the empty log
-            return JsonResponse({'success': True, 'message': 'No items were marked as received. PO status unchanged.', 'refresh_po_list': True})
+            warehouse_product = po_item.item
+            warehouse_product.quantity += quantity_received_now
+            warehouse_product.save()
 
-        # Determine new PO status
-        if purchase_order.is_fully_received():
-            if purchase_order.status != 'DELIVERED': # Only change to DELIVERED if not already
-                 purchase_order.status = 'DELIVERED'
-        elif any_item_received_this_time: # If anything was received, but not all, it's PARTIALLY_DELIVERED
-             if purchase_order.status != 'PARTIALLY_DELIVERED':
-                  purchase_order.status = 'PARTIALLY_DELIVERED'
+            updated_po_items.append({'item': po_item, 'qty_now': quantity_received_now})
 
-        # purchase_order.inventory_updated = True # This field was removed in migration 0006
-        purchase_order.save() # This will also call set_status_date
+            # Create a corresponding stock transaction record
+            StockTransaction.objects.create(
+                warehouse=warehouse_product.warehouse,
+                warehouse_product=warehouse_product,
+                product=warehouse_product.product,
+                transaction_type='IN',
+                quantity=quantity_received_now,
+                reference_note=f"Receipt for PO-{purchase_order.id}", # Simplified note
+                related_po=purchase_order
+            )
+
+        # --- Step 2: Determine the final status AFTER all items are updated ---
+        # We need to refresh the PO from the database to get the latest state of its items
+        purchase_order.refresh_from_db()
+        new_status = 'DELIVERED' if purchase_order.is_fully_received else 'PARTIALLY_DELIVERED'
+
+        # --- Step 3: Create a single log entry for this receipt event ---
+        status_log = PurchaseOrderStatusLog.objects.create(
+            purchase_order=purchase_order,
+            status=new_status,
+            notes=receipt_notes,
+            user=request.user
+        )
+
+        # --- Step 4: Link the received items to the log entry ---
+        for received_item_data in updated_po_items:
+            PurchaseOrderReceiptItem.objects.create(
+                status_log=status_log,
+                po_item=received_item_data['item'],
+                quantity_received_this_time=received_item_data['qty_now']
+            )
+
+        # --- Step 5: Update the main PO status and save ---
+        purchase_order.status = new_status
+        purchase_order.save()
 
         return JsonResponse({
             'success': True,
             'message': 'Items received and inventory updated successfully.',
-            'new_po_status': purchase_order.get_status_display(),
-            'po_id': purchase_order.id,
             'refresh_po_list': True
         })
 
@@ -771,6 +618,7 @@ def process_po_receipt(request, po_id):
     except Exception as e:
         logger.error(f"Exception in process_po_receipt for PO {po_id}: {e}", exc_info=True)
         return JsonResponse({'success': False, 'message': f'An error occurred: {str(e)}'}, status=500)
+
 
 @require_POST
 @login_required
@@ -904,249 +752,88 @@ def po_delete(request, pk):
         # messages.error(request, f"Error deleting PO: {e}")
         return redirect("warehouse:warehouse_management")
 
-def purchase_order_list_partial(request):
+def purchase_order_table(request):
     """
     View to handle AJAX requests for filtering and paginating purchase orders.
     Returns an HTML partial containing only the list of POs and pagination.
-    Ensures correct context (status_dates, etc.) is passed for modal rendering.
     """
-    print("--- purchase_order_list_partial (AJAX refresh v3 - Context Fix) ---")
-    purchase_orders_list = PurchaseOrder.objects.select_related('supplier') \
-                                           .prefetch_related('items__item__product', 'items__item__warehouse') \
-                                           .order_by('-last_updated_date')
-
-    selected_status = request.GET.get('status')
-    selected_supplier_id = request.GET.get('supplier')
-    query = request.GET.get('q', '').strip()
-    page_number = request.GET.get('page', 1)
-
-    print(f"Params: q='{query}', supplier='{selected_supplier_id}', status='{selected_status}', page='{page_number}'")
-
-    # Apply filters
-    if selected_status:
-        purchase_orders_list = purchase_orders_list.filter(status=selected_status)
-    if selected_supplier_id:
-        purchase_orders_list = purchase_orders_list.filter(supplier_id=selected_supplier_id)
-    if query:
-        print(f"Applying query '{query}' to Purchase Orders (including SKU)")
-        purchase_orders_list = purchase_orders_list.filter(
-            Q(id__icontains=query) |
-            Q(supplier__name__icontains=query) |
-            Q(items__item__product__name__icontains=query) |
-            Q(items__item__product__sku__icontains=query)
-        ).distinct()
-
-    # Pagination
-    paginator = Paginator(purchase_orders_list, 10)
     try:
-        purchase_orders_page = paginator.page(page_number)
-    except PageNotAnInteger:
-        purchase_orders_page = paginator.page(1)
-    except EmptyPage:
-        purchase_orders_page = paginator.page(paginator.num_pages)
+        # Start with the base queryset
+        purchase_orders_list = PurchaseOrder.objects.select_related('supplier') \
+                                               .prefetch_related('items__item__product', 'items__item__warehouse') \
+                                               .order_by('-last_updated_date')
 
-    print(f"Final PO count for AJAX refresh (page {purchase_orders_page.number}): {len(purchase_orders_page.object_list)}")
+        # Get filter parameters from the request
+        selected_status = request.GET.get('status')
+        selected_supplier_id = request.GET.get('supplier')
+        warehouse_id = request.GET.get('warehouse')
+        query = request.GET.get('q', '').strip()
+        page_number = request.GET.get('page', 1)
 
-    # --- Context Preparation (CRITICAL BLOCK - Copied from handle_purchaseorders_tab) ---
-    status_choices = PurchaseOrder.STATUS_CHOICES
-    status_dates_for_page = {}
-    next_statuses_for_page = {}
-    status_date_fields = [f"{code.lower()}_date" for code, _ in status_choices]
+        # Apply filters to the queryset
+        if selected_status:
+            purchase_orders_list = purchase_orders_list.filter(status=selected_status)
+        if selected_supplier_id:
+            purchase_orders_list = purchase_orders_list.filter(supplier_id=selected_supplier_id)
+        if warehouse_id:
+            # CORRECTED: Use the correct variable 'purchase_orders_list' and the correct DB lookup path
+            purchase_orders_list = purchase_orders_list.filter(items__item__warehouse_id=warehouse_id).distinct()
+        if query:
+            purchase_orders_list = purchase_orders_list.filter(
+                Q(id__icontains=query) |
+                Q(supplier__name__icontains=query) |
+                Q(items__item__product__name__icontains=query) |
+                Q(items__item__product__sku__icontains=query)
+            ).distinct()
 
-    for po in purchase_orders_page:
-        po_id_str = str(po.id)
-        dates = {}
-        for field_name_base in status_date_fields:
-            actual_field_name = field_name_base
-            if hasattr(po, actual_field_name):
-                status_code_key = actual_field_name.replace('_date', '').upper()
-                dates[status_code_key] = getattr(po, actual_field_name, None)
-        status_dates_for_page[po_id_str] = dates
-        next_statuses_for_page[po_id_str] = get_next_status(po.status)
-    # --- End of Context Preparation Block ---
+        # Paginate the filtered queryset
+        paginator = Paginator(purchase_orders_list, 10)
+        try:
+            purchase_orders_page = paginator.page(page_number)
+        except (PageNotAnInteger, EmptyPage):
+            purchase_orders_page = paginator.page(1)
 
-    # Add print statement for debugging
-    print("DEBUG (AJAX): status_dates_for_page being sent to template:")
-    import pprint
-    pprint.pprint(status_dates_for_page)
+        # CORRECTED: Use the working helper function to get context needed for the modals
+        common_context = _get_po_context_for_rendering(purchase_orders_page)
 
-    # --- Final Context ---
-    context = {
-        'purchase_orders': purchase_orders_page,
-        'request': request,
-        'status_choices': status_choices,        # Now included
-        'status_dates': status_dates_for_page,   # Now included
-        'next_statuses': next_statuses_for_page, # Now included
-        'selected_status': selected_status,
-        'selected_supplier': selected_supplier_id,
-        'query': query,
-        # 'page_obj': purchase_orders_page # Pass if template uses page_obj for pagination
-    }
-    # Render the partial template used for AJAX updates
-    return render(request, 'warehouse/po_list_items.html', context)
+        context = {
+            'purchase_orders': purchase_orders_page,
+            'request': request,
+            'page_obj': purchase_orders_page,
+            **common_context
+        }
+
+        return render(request, 'warehouse/_po_table_with_pagination.html', context)
+
+    except Exception as e:
+        # ADDED: Graceful error handling to prevent 500 crashes
+        logger.error(f"Error in purchase_order_table: {e}", exc_info=True)
+        # Return a simple text error response instead of crashing
+        return HttpResponse(f"An error occurred while processing your request. Please check the server logs. Error: {e}", status=500)
 
 
 def get_filtered_po_data(request):
+    """View to handle AJAX requests for filtering and paginating purchase orders."""
     logger.debug(f"get_filtered_po_data request.GET: {request.GET}")
 
-    try: # Wrap the whole view in a try-except to catch unexpected errors and log them
-        purchase_orders_qs = PurchaseOrder.objects.select_related('supplier') \
-                                           .prefetch_related(
-                                               'items__item__product',
-                                               'items__item__warehouse',
-                                               'items__item__supplier'
-                                            ) \
-                                           .order_by('-last_updated_date')
+    purchase_orders_qs = PurchaseOrder.objects.select_related('supplier').prefetch_related(
+        'items__item__product', 'items__item__warehouse'
+    ).order_by('-last_updated_date')
 
-        selected_status = request.GET.get('status')
-        selected_supplier_id_str = request.GET.get('supplier')
-        query = request.GET.get('q', '').strip()
-        raw_page_number = request.GET.get('page', '1')
+    # Get filter parameters from request
+    selected_status = request.GET.get('status')
+    selected_supplier_id_str = request.GET.get('supplier')
+    selected_warehouse_id_str = request.GET.get('warehouse') # <-- ADDED
+    query = request.GET.get('q', '').strip()
+    page_to_request = request.GET.get('page', '1')
 
-        try:
-            page_to_request = int(raw_page_number)
-            if page_to_request <= 0: page_to_request = 1
-        except ValueError:
-            logger.warning(f"Invalid page number '{raw_page_number}' received. Defaulting to 1.")
-            page_to_request = 1
-
-        logger.debug(f"Filtering POs with: status='{selected_status}', supplier_id='{selected_supplier_id_str}', q='{query}', page='{page_to_request}'")
-
-        if selected_status:
-            purchase_orders_qs = purchase_orders_qs.filter(status=selected_status)
-        if selected_supplier_id_str and selected_supplier_id_str.isdigit():
-            try:
-                purchase_orders_qs = purchase_orders_qs.filter(supplier_id=int(selected_supplier_id_str))
-            except ValueError:
-                logger.error(f"ValueError converting selected_supplier_id_str '{selected_supplier_id_str}' to int.")
-        elif selected_supplier_id_str:
-            logger.debug(f"selected_supplier_id '{selected_supplier_id_str}' is present but not a valid digit; supplier filter not applied.")
-
-        if query:
-            q_filters = Q(supplier__name__icontains=query) | \
-                        Q(items__item__product__name__icontains=query) | \
-                        Q(items__item__product__sku__icontains=query)
-            if query.isdigit():
-                try:
-                    q_filters |= Q(id=int(query))
-                except ValueError:
-                    logger.warning(f"Query '{query}' identified as isdigit but failed int conversion for ID search.")
-            purchase_orders_qs = purchase_orders_qs.filter(q_filters).distinct()
-
-        paginator = Paginator(purchase_orders_qs, 10)
-        try:
-            purchase_orders_page = paginator.page(page_to_request)
-        except PageNotAnInteger:
-            purchase_orders_page = paginator.page(1)
-        except EmptyPage:
-            if paginator.num_pages > 0:
-                purchase_orders_page = paginator.page(paginator.num_pages)
-            else:
-                purchase_orders_page = Page([], page_to_request, paginator)
-
-        po_list_serialized = []
-        logger.debug(f"Serializing {len(purchase_orders_page.object_list)} POs for page {purchase_orders_page.number}.")
-        for po in purchase_orders_page.object_list:
-            try:
-                items_data = []
-                for item_obj in po.items.all():
-                    product_sku = "N/A"
-                    product_name = "N/A"
-                    warehouse_name = "N/A"
-                    po_item_id_for_edit = None
-                    product_variant_id_for_edit = None
-
-                    if item_obj and item_obj.item:
-                        if item_obj.item.product:
-                            product_sku = item_obj.item.product.sku
-                            product_name = item_obj.item.product.name
-                        if hasattr(item_obj.item, 'warehouse') and item_obj.item.warehouse: # Check if warehouse attribute exists
-                            warehouse_name = item_obj.item.warehouse.name
-
-                        po_item_id_for_edit = item_obj.id
-                        product_variant_id_for_edit = item_obj.item.id
-                    else:
-                        logger.warning(f"PO {po.id} item (POItem ID: {item_obj.id if item_obj else 'Unknown'}) missing related refs.")
-
-                    items_data.append({
-                        'po_item_id': po_item_id_for_edit,
-                        'item_id': product_variant_id_for_edit,
-                        'sku': product_sku,
-                        'name': product_name,
-                        'warehouse_name': warehouse_name,
-                        'quantity': item_obj.quantity if item_obj else 0,
-                        'price': str(item_obj.price) if item_obj and item_obj.price is not None else "0.00",
-                        'total_price': str(item_obj.total_price) if item_obj and hasattr(item_obj, 'total_price') and item_obj.total_price is not None else "0.00",
-                    })
-
-                po_data = {
-                    'id': po.id,
-                    'supplier': po.supplier.code if po.supplier else 'N/A',
-                    'status': po.status,
-                    'status_display': po.get_status_display(),
-                    'eta': po.eta.strftime('%Y-%m-%d') if po.eta else None,
-                    'last_updated_date': po.last_updated_date.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ') if po.last_updated_date else None,
-                    'total_amount': str(po.total_amount) if hasattr(po, 'total_amount') and po.total_amount is not None else "0.00",
-                    'items': items_data,
-                }
-                po_list_serialized.append(po_data)
-            except Exception as e_po: # More specific exception handling for a single PO
-                logger.error(f"Error serializing individual PO ID {po.id}: {e_po}", exc_info=True)
-                po_list_serialized.append({'id': po.id, 'error': f'Failed to serialize PO: {str(e_po)}'})
-
-        # === MODIFICATION START: Use your helper to get common PO rendering context ===
-        # This assumes _get_po_context_for_rendering is defined in this file or imported
-        # and that PurchaseOrder.STATUS_CHOICES is accessible.
-        common_po_rendering_context = _get_po_context_for_rendering(purchase_orders_page)
-        # === MODIFICATION END ===
-
-        context_for_json = {
-            'purchase_orders': po_list_serialized,
-            'current_user_is_superuser': request.user.is_superuser,
-            'page': purchase_orders_page.number,
-            'has_next': purchase_orders_page.has_next(),
-            'has_prev': purchase_orders_page.has_previous(),
-            'next_page_number': purchase_orders_page.next_page_number() if purchase_orders_page.has_next() else None,
-            'previous_page_number': purchase_orders_page.previous_page_number() if purchase_orders_page.has_previous() else None,
-            'total_pages': paginator.num_pages,
-            # Merge the common rendering context (status_choices, status_dates, next_statuses)
-            **common_po_rendering_context
-        }
-
-        logger.debug(f"Context for JsonResponse: page {context_for_json['page']}, num_pos: {len(context_for_json['purchase_orders'])}, has_status_choices: {'status_choices' in context_for_json}")
-        return JsonResponse(context_for_json)
-
-    except Exception as e_view: # Catch-all for any other unexpected error in the view
-        logger.error(f"Unhandled error in get_filtered_po_data view: {e_view}", exc_info=True)
-        return JsonResponse({'error': 'An unexpected server error occurred.'}, status=500)
-
-# --- Load More POs View ---
-def load_more_pos(request):
-    logger.debug("--- load_more_pos view ---")
-    query = request.GET.get("q", "").strip()
-    selected_supplier_id = request.GET.get("supplier")
-    selected_status = request.GET.get("status")
-    raw_page = request.GET.get('page', '1') # Page to load
-    try:
-        page = int(raw_page)
-        if page <= 0: page = 1
-    except ValueError:
-        logger.warning(f"Invalid page number '{raw_page}' for load_more_pos. Defaulting to 1.")
-        page = 1
-
-    logger.debug(f"Params: query='{query}', supplier='{selected_supplier_id}', status='{selected_status}', page={page}")
-
-    purchase_orders_qs = PurchaseOrder.objects.select_related('supplier') \
-                                   .prefetch_related(
-                                       'items__item__product',
-                                       'items__item__warehouse',
-                                       'items__item__supplier'
-                                    ) \
-                                   .order_by('-last_updated_date')
-    if selected_supplier_id:
-        purchase_orders_qs = purchase_orders_qs.filter(supplier_id=selected_supplier_id)
+    # Apply filters
     if selected_status:
         purchase_orders_qs = purchase_orders_qs.filter(status=selected_status)
+    if selected_supplier_id_str:
+        purchase_orders_qs = purchase_orders_qs.filter(supplier_id=selected_supplier_id_str)
+    if selected_warehouse_id_str: # <-- ADDED
+        purchase_orders_qs = purchase_orders_qs.filter(items__item__warehouse_id=selected_warehouse_id_str).distinct()
     if query:
         q_filters = Q(supplier__name__icontains=query) | \
                     Q(items__item__product__name__icontains=query) | \
@@ -1155,30 +842,189 @@ def load_more_pos(request):
             q_filters |= Q(id=query)
         purchase_orders_qs = purchase_orders_qs.filter(q_filters).distinct()
 
+    # Pagination
+    paginator = Paginator(purchase_orders_qs, 10)
+    try:
+        purchase_orders_page = paginator.page(page_to_request)
+    except (PageNotAnInteger, EmptyPage):
+        purchase_orders_page = paginator.page(1)
+
+    # Serialize PO data
+    po_list_serialized = []
+    for po in purchase_orders_page.object_list:
+        items_data = []
+        for item_obj in po.items.all():
+            if item_obj and item_obj.item:
+                items_data.append({
+                    'po_item_id': item_obj.id,
+                    'item_id': item_obj.item.id,
+                    'sku': item_obj.item.product.sku,
+                    'name': item_obj.item.product.name,
+                    'warehouse_name': item_obj.item.warehouse.name if item_obj.item.warehouse else 'N/A', # <-- ENSURED
+                    'quantity': item_obj.quantity,
+                    'price': str(item_obj.price),
+                    'total_price': str(item_obj.total_price),
+                })
+        po_list_serialized.append({
+            'id': po.id,
+            'supplier_name': po.supplier.name if po.supplier else 'N/A',
+            'status': po.status,
+            'status_display': po.get_status_display(),
+            'eta': po.eta,
+            'last_updated_date': po.last_updated_date,
+            'total_amount': str(po.total_amount),
+            'items': items_data,
+        })
+
+    common_po_rendering_context = _get_po_context_for_rendering(purchase_orders_page)
+
+    context_for_json = {
+        'purchase_orders': po_list_serialized,
+        'current_user_is_superuser': request.user.is_superuser,
+        'page': purchase_orders_page.number,
+        'has_next': purchase_orders_page.has_next(),
+        'total_pages': paginator.num_pages,
+        **common_po_rendering_context
+    }
+    return JsonResponse(context_for_json, encoder=DjangoJSONEncoder)
+
+
+@login_required
+def load_more_pos(request):
+    """
+    Handles AJAX requests for the "Explore More" button on the PO list.
+    Renders only the new table rows (<tr>...</tr>) to be appended by the frontend.
+    """
+    logger.debug("--- Executing load_more_pos view ---")
+
+    # 1. Get all filter and pagination parameters from the request
+    query = request.GET.get("q", "").strip()
+    selected_supplier_id = request.GET.get("supplier")
+    selected_status = request.GET.get("status")
+    selected_warehouse_id = request.GET.get("warehouse") # <-- Added missing parameter
+    page = request.GET.get('page', '1')
+
+    # 2. Build the base queryset, same as in the main list view
+    purchase_orders_qs = PurchaseOrder.objects.select_related('supplier').prefetch_related(
+        'items__item__product',
+        'items__item__warehouse'
+    ).order_by('-last_updated_date')
+
+    # 3. Apply all relevant filters to the queryset
+    if selected_supplier_id:
+        purchase_orders_qs = purchase_orders_qs.filter(supplier_id=selected_supplier_id)
+    if selected_status:
+        purchase_orders_qs = purchase_orders_qs.filter(status=selected_status)
+    if selected_warehouse_id:
+        purchase_orders_qs = purchase_orders_qs.filter(items__item__warehouse_id=selected_warehouse_id).distinct()
+    if query:
+        q_filters = Q(supplier__name__icontains=query) | \
+                    Q(items__item__product__name__icontains=query) | \
+                    Q(items__item__product__sku__icontains=query)
+        if query.isdigit():
+            q_filters |= Q(id=query)
+        purchase_orders_qs = purchase_orders_qs.filter(q_filters).distinct()
+
+    # 4. Paginate the filtered results
     paginator = Paginator(purchase_orders_qs, 10)
     try:
         purchase_orders_page = paginator.page(page)
-    except PageNotAnInteger:
-        logger.warning(f"PageNotAnInteger for page '{page}' in load_more_pos. Serving page 1.")
-        purchase_orders_page = paginator.page(1) # Should not happen if JS sends valid page number
-        if not purchase_orders_page.object_list: # If page 1 is also empty
-             return HttpResponse("")
-    except EmptyPage:
-        logger.info(f"EmptyPage for page '{page}' in load_more_pos. No more items.")
-        return HttpResponse("") # Return empty response, JS will hide button
+    except (PageNotAnInteger, EmptyPage):
+        # This means the requested page has no results.
+        # Return an empty HTTP response. The JavaScript will see this and hide the "Explore More" button.
+        return HttpResponse("")
 
-    # Prepare context required by _po_list_items.html for modals
-    common_po_rendering_context = _get_po_context_for_rendering(purchase_orders_page)
+    if not purchase_orders_page.object_list:
+        return JsonResponse({"html_rows": "", "html_modals": "", "has_next": False})
 
+    # Prepare context for rendering templates
     context = {
-        "purchase_orders": purchase_orders_page.object_list, # Pass the list of PO objects for this page
-        "page_obj": purchase_orders_page, # Pass the Paginator page object
-        "has_next": purchase_orders_page.has_next(), # For the next "load more" button in the partial
-        "request": request, # Pass request for template tags like {% csrf_token %} if used by included modals
-        **common_po_rendering_context # status_choices, status_dates, next_statuses
+        "purchase_orders": purchase_orders_page.object_list,
+        "request": request,
+        "status_choices": PurchaseOrder.STATUS_CHOICES,
+        "status_dates": _get_po_context_for_rendering(purchase_orders_page).get("status_dates"),
     }
 
-    # Render only the items list part
-    html = render_to_string("warehouse/_po_list_items.html", context, request=request)
-    return HttpResponse(html)
+    # Render the two partials to strings
+    html_rows = render_to_string("warehouse/_po_table_rows_only.html", context)
+    html_modals = render_to_string("warehouse/_po_modals_only.html", context)
 
+    # Return the data as a JSON object
+    return JsonResponse({
+        "html_rows": html_rows,
+        "html_modals": html_modals,
+        "has_next": purchase_orders_page.has_next(),
+        "next_page_number": purchase_orders_page.next_page_number() if purchase_orders_page.has_next() else None,
+    })
+
+
+@login_required
+def product_stats_json(request, wp_id):
+    """
+    Handles AJAX requests to fetch stock transactions and PO stats for a
+    single WarehouseProduct.
+    """
+    try:
+        product = get_object_or_404(WarehouseProduct.objects.select_related('product'), pk=wp_id)
+
+        # 1. Get recent stock transactions
+        # CORRECTED: Use 'transaction_date' instead of 'created_at'
+        transactions = StockTransaction.objects.filter(warehouse_product=product).order_by('-transaction_date')[:20]
+        transactions_data = [{
+            'date': tx.transaction_date.strftime('%Y-%m-%d %H:%M'), # CORRECTED
+            'type_code': tx.transaction_type,
+            'type_display': tx.get_transaction_type_display(),
+            'quantity': tx.quantity,
+            'reference': tx.reference_note
+        } for tx in transactions]
+
+        # 2. Get purchase order history for this specific product (This part was already correct)
+        po_items = PurchaseOrderItem.objects.filter(item=product).select_related('purchase_order__supplier').order_by('-purchase_order__created_at')[:10]
+        po_history_data = [{
+            'po_id': item.purchase_order.id,
+            'date': item.purchase_order.created_at.strftime('%Y-%m-%d'),
+            'quantity': item.quantity,
+            'price': f"{item.price:.2f}"
+        } for item in po_items]
+
+        # 3. Calculate statistics
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        sales_last_30_days = StockTransaction.objects.filter(
+            warehouse_product=product,
+            transaction_type='OUT',
+            transaction_date__gte=thirty_days_ago
+        ).aggregate(total_sold=Sum('quantity'))['total_sold'] or 0
+
+        # --- NEW CALCULATION LOGIC ---
+        existing_stock = product.quantity
+        incoming_stock = product.pending_arrival  # Uses the new model property
+        total_stock = existing_stock + incoming_stock
+
+        stock_lasts_for_months = 0
+        if sales_last_30_days > 0:
+            # This calculation gives a result in months
+            stock_lasts_for_months = total_stock / sales_last_30_days
+        # --- END OF NEW LOGIC ---
+
+        stats_data = {
+            'sales_last_30_days': sales_last_30_days,
+            'monthly_avg_sales': sales_last_30_days,
+            'recommended_po_qty': (sales_last_30_days * 1.5),
+            'total_stock': total_stock, # Pass total stock for display
+            'stock_lasts_for_months': stock_lasts_for_months, # Pass the new stat
+        }
+
+        response = {
+            'success': True,
+            'product_name': product.product.name,
+            'transactions': transactions_data,
+            'po_history': po_history_data,
+            'statistics': stats_data,
+        }
+        return JsonResponse(response)
+
+    except WarehouseProduct.DoesNotExist:
+        return JsonResponse({'success': False, 'error': 'Product not found.'}, status=404)
+    except Exception as e:
+        logger.error(f"Error in product_stats_json for wp_id {wp_id}: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'error': 'An unexpected server error occurred.'}, status=500)

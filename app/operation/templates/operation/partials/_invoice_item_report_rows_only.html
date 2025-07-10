@@ -1,0 +1,96 @@
+{% load my_filters %}
+
+{% for item in items %}
+<tr class="hover:bg-gray-50">
+    {# Col 1: Invoice Number(s) #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm">
+        <p class="text-gray-900 whitespace-no-wrap">{{ item.courier_invoice.invoice_number }}
+            {% if item.dispute_date %}
+                <span class="inline-block w-2 h-2 ml-2 rounded-full
+                    {% if item.final_amount_date %}
+                        bg-success
+                    {% else %}
+                        bg-warning
+                    {% endif %}"
+                    title="{% if item.final_amount_date %}Finalized on {{ item.final_amount_date|date:'Y-m-d' }}{% else %}Disputed on {{ item.dispute_date|date:'Y-m-d' }}{% endif %}">
+                </span>
+            {% endif %}
+        </p>
+        <p class="text-gray-600 whitespace-no-wrap text-xs">{{ item.courier_invoice.courier_company.name }}</p>
+    </td>
+    {# Col 2: Invoice Date #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm">
+        <p class="whitespace-no-wrap">{{ item.courier_invoice.invoice_date|date:"Y-m-d" }}</p>
+        {% if item.parcel %}
+        <p class="text-gray-600 whitespace-no-wrap text-xs pt-0" title="Shipment Date">
+            Shipped: {{ item.parcel.created_at|date:"Y-m-d" }}
+        </p>
+        {% endif %}
+    </td>
+    {# Col 3: Tracking No. / Recipient #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm font-mono">
+        <p class="text-gray-900 whitespace-no-wrap">{{ item.tracking_number }}</p>
+        {% if item.parcel.order.customer.customer_name %}
+        <p class="text-gray-600 whitespace-no-wrap text-xs pt-0">{{ item.parcel.order.customer.customer_name|title_case }}</p>
+        {% endif %}
+    </td>
+    {# Col 4: State/City #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm">
+        <p class="text-gray-900 whitespace-no-wrap">{{ item.receiver_state|default_if_none:"" }}</p>
+        <p class="text-gray-600 whitespace-no-wrap text-xs pt-0">{{ item.destination_name|title_case|default_if_none:"" }}</p>
+    </td>
+    {# Col 5: Est. Cost #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-right">
+        {{ item.parcel.estimated_cost|floatformat:2|default:"-" }}
+    </td>
+    {# Col 6: Actual Cost #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-right">
+        <b class="text-gray-900">{{ item.actual_cost|floatformat:2 }}</b>
+    </td>
+    {# Col 7: Gap #}
+    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">
+        {% if item.cost_gap is not None %}
+            <span class="font-semibold {% if item.cost_gap > 0 %}text-red-600{% elif item.cost_gap < 0 %}text-green-600{% endif %}">
+                {{ item.cost_gap|floatformat:2 }}
+            </span>
+        {% else %}
+            <span class="text-gray-400">-</span>
+        {% endif %}
+    </td>
+    {# Col 8: Scale Wt. #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-center">{{ item.scale_weight|default:"-" }}</td>
+    {# Col 9: Vol. Wt. #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-center">{{ item.vol_weight|default:"-" }}</td>
+    {# Col 10: Billed Wt. #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-center">{{ item.billed_weight|default:"-" }}</td>
+    {# Col 11: Billed? #}
+    <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-left">
+        {% if item.parcel %}
+        <div>
+            <button
+                class="btn btn-xs mb-1 btn-outline view-parcel-items-btn"
+                data-url="{% url 'operation:view_parcel_items' item.id %}">
+                View
+            </button>
+        </div>
+        <div>
+            <button
+                class="btn btn-xs btn-outline log-dispute-btn"
+                data-url="{% url 'operation:get_dispute_details' item.id %}">
+                Dispute
+            </button>
+        </div>
+
+        {% endif %}
+    </td>
+    <td class="px-1 py-4 border-b border-gray-200 bg-white text-sm text-right text-green-600 font-semibold">
+        {{ item.dispute_successful_amount|floatformat:2|default:"" }}
+    </td>
+</tr>
+{% empty %}
+    {% if items.number == 1 %}
+    <tr>
+        <td colspan="11" class="text-center py-10 text-gray-500">No invoice items found matching your filters.</td>
+    </tr>
+    {% endif %}
+{% endfor %}

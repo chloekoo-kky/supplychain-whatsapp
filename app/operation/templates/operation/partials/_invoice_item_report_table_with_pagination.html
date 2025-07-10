@@ -1,0 +1,49 @@
+{% load my_filters %}
+<span id="total-items-count-hidden" data-total="{{ total_items_count|default:0 }}" class="hidden"></span>
+
+<div class="bg-white shadow-md rounded-lg overflow-x-auto overflow-y-auto max-h-[75vh]">
+    <table class="min-w-full leading-normal">
+        <thead class="sticky top-0 z-10 bg-gray-100">
+            <tr>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice No.</th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    {% next_sort 'courier_invoice__invoice_date' current_sort as sort_order %}
+                    <a href="?{% url_replace sort_by=sort_order %}" class="hover:text-blue-600">Invoice Date</a>
+                </th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tracking No./<br>Cust. Name</th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    {% next_sort 'receiver_state' current_sort as sort_order %}
+                    <a href="?{% url_replace sort_by=sort_order %}" class="hover:text-blue-600">State/<br>City</a>
+                </th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    {% next_sort 'parcel__estimated_cost' current_sort as sort_order %}
+                    <a href="?{% url_replace sort_by=sort_order %}" class="hover:text-blue-600">Est. Cost</a>
+                </th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    {% next_sort 'actual_cost' current_sort as sort_order %}
+                    <a href="?{% url_replace sort_by=sort_order %}" class="hover:text-blue-600">Actual Cost</a>
+                </th>
+                <th class="px-5 py-3 border-b-2 border-gray-200 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    {% next_sort 'cost_gap' current_sort as sort_order %}
+                    <a href="?{% url_replace sort_by=sort_order %}" class="hover:text-blue-600">Gap</a>
+                </th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Scale Wt.</th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Vol. Wt.</th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Billed Wt.</th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Dispute?</th>
+                <th class="px-3 py-3 border-b-2 border-gray-200 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">CN.</th>
+
+            </tr>
+        </thead>
+        <tbody id="invoice-items-tbody">
+            {% include 'operation/partials/_invoice_item_report_rows_only.html' with items=items.object_list %}
+        </tbody>
+    </table>
+
+    <div id="load-more-invoice-items-container" class="text-center py-4" {% if not items.has_next %}style="display: none;"{% endif %}>
+        <button id="explore-more-invoice-items-btn" class="btn btn-sm btn-outline btn-primary">
+            Explore More
+        </button>
+        <span class="loading loading-spinner text-primary" id="invoice-items-loading-spinner" style="display: none;"></span>
+    </div>
+</div>

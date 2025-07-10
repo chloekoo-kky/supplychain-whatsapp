@@ -2,44 +2,74 @@
 {% load static %}
 {% load custom_filters %}
 
-<div class="flex flex-col md:flex-row gap-6 max-w-7xl mx-auto px-4">
+<div class="po-filter-panel sticky top-8 md:top-24 bg-base-200 shadow px-4 py-2 rounded-lg z-40 mb-4">
 
-  <div class="md:w-64 shrink-0 sticky top-28 h-fit bg-base-100 rounded p-4 shadow z-10">
-    <button type="button" class="btn btn-sm btn-outline bg-gray-300 w-full mb-1" onclick="resetPurchaseOrderFilters()">
-        Reset Filters
-    </button>
-    <form id="po-search-form" class="mb-4">
-      <input type="text" name="q" class="input input-bordered w-full" placeholder="Search PO, supplier, or item name" value="{{ query|default:'' }}">
-    </form>
-    <div class="flex justify-between items-center mb-1">
-      <h3 class="text-md font-semibold uppercase text-gray-500 tracking-wide">Supplier</h3>
+  <div class="grid grid-cols-12 gap-2">
+
+    <div class="col-span-12 md:col-span-2 md:mr-6">
+      <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch">
+            {% if user.is_superuser %}
+                {% for w_obj in warehouses %}
+                <button type="button" class="btn btn-sm sm:btn-sm btn-outline" data-filter="warehouse" data-value="{{ w_obj.id }}">
+                    {{ w_obj.name }}
+                </button>
+                {% endfor %}
+            {% else %}
+                {% if user.warehouse %}
+                    <button type="button" class="btn btn-sm md:btn-sm btn-neutral text-white">{{ user.warehouse.name }}</button>
+                    <input type="hidden" id="user-assigned-warehouse-id" value="{{ user.warehouse.id }}">
+                {% else %}
+                    <button type="button" class="btn btn-sm md:btn-sm btn-neutral text-white" disabled>No Warehouse Assigned</button>
+                {% endif %}
+            {% endif %}
+      </div>
     </div>
-    <div class="flex flex-wrap gap-1">
-      <button type="button" class="btn btn-sm {% if not selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="supplier" data-value="">All</button>
-      {% for supplier_obj in suppliers %}
-      <button type="button" class="btn btn-sm {% if supplier_obj.id|stringformat:'s' == selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="supplier" data-value="{{ supplier_obj.id }}">
-        {{ supplier_obj.code }}
-      </button>
-      {% endfor %}
+
+    <div class="col-span-12 md:col-span-6 flex flex-col gap-2 md:mr-8">
+      <div class="flex flex-row gap-2 w-full">
+          {% for code, label in status_choices|slice:":3" %}
+              <button type="button" class="btn btn-sm flex-1 {% if code == selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="status" data-value="{{ code }}">
+                  {{ label }}
+              </button>
+          {% endfor %}
+      </div>
+
+      <div class="flex flex-row gap-2 w-full">
+          {% for code, label in status_choices|slice:"3:" %}
+              <button type="button" class="btn btn-sm flex-1 {% if code == selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="status" data-value="{{ code }}">
+                  {{ label }}
+              </button>
+          {% endfor %}
+      </div>
     </div>
-    <div class="flex justify-between items-center mb-1 mt-4">
-      <h3 class="text-md font-semibold uppercase text-gray-500 tracking-wide">Status</h3>
+
+    <div class="col-span-12 md:col-span-4 flex flex-col gap-2">
+      <div class="grid grid-flow-col auto-cols-fr gap-2">
+        {% for supplier_obj in suppliers %}
+        <button type="button" class="btn btn-sm {% if supplier_obj.id|stringformat:'s' == selected_supplier %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="supplier" data-value="{{ supplier_obj.id }}">
+          {{ supplier_obj.code }}
+        </button>
+        {% endfor %}
+      </div>
+
+      <div class="flex items-center gap-2">
+        <input id="po-search-input" type="text" name="q" class="input input-bordered input-sm w-[80%]" placeholder="Search PO, supplier, or item name" value="{{ query|default:'' }}">
+        <button type="button" class="btn btn-sm md:btn-sm btn-outline bg-gray-300 w-[20%]" onclick="resetPurchaseOrderFilters()">
+            Reset
+        </button>
+      </div>
+
     </div>
-    <div class="flex flex-wrap gap-1">
-      <button type="button" class="btn btn-sm {% if not selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="status" data-value="">All</button>
-      {% for code, label in status_choices %}
-      <button type="button" class="btn btn-sm {% if code == selected_status %}btn-neutral text-white{% else %}btn-outline{% endif %}" data-filter="status" data-value="{{ code }}">
-        {{ label }}
-      </button>
-      {% endfor %}
-    </div>
+
   </div>
 
-  <div class="flex-1 space-y-6" id="purchase-orders-list">
-    <div id="item-list-container" class="initially-hidden">
-      {% include "warehouse/_po_list_items.html" with purchase_orders=purchase_orders.object_list page_obj=purchase_orders has_next=purchase_orders.has_next status_choices=status_choices status_dates=status_dates next_statuses=next_statuses request=request %}
+</div>
+
+  <div id="purchase-orders-list">
+    <div id="item-list-container">
+      {% include "warehouse/_po_table_with_pagination.html" with purchase_orders=purchase_orders.object_list page_obj=purchase_orders has_next=purchase_orders.has_next status_choices=status_choices status_dates=status_dates next_statuses=next_statuses request=request %}
     </div>
 
     <div id="receive-items-modal-container"></div>
 
-  </div> </div>
+  </div>

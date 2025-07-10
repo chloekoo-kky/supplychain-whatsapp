@@ -1,0 +1,56 @@
+{% comment %} This template ONLY renders the <tr> table rows for a list of POs. {% endcomment %}
+    {% load humanize %}
+    {% load custom_filters %}
+
+    {% for po in purchase_orders %}
+    <tr class="hover" id="po-row-{{ po.id }}">
+
+        <td class="font-bold">{{ po.id }}</td>
+        <td>{{ po.supplier.name|default:'N/A' }}</td>
+        <td>
+            <span class="{{ po.eta|eta_color_class }}">{{ po.eta|date:"d M Y"|default:"Not set" }}</span>
+        </td>
+        <td class="text-right font-mono">{{ po.total_amount|floatformat:2|default:"0.00" }}</td>
+        <td>
+            <div class="text-xs font-semibold text-center {{ po.status|badge_class }} font-semibold">{{ po.get_status_display }}</div>
+        </td>
+        <td class="text-sm text-gray-500">{{ po.last_updated_date|naturaltime }}</td>
+        <td class="align-top">
+            <div class="text-xs space-y-1">
+                {% for item in po.items.all %}
+                    <div class="whitespace-nowrap">
+                        <span class="font-semibold text-gray-700">{{ item.quantity }}x</span>
+                        <span>{{ item.item.product.name|truncatechars:30 }}</span>
+                        <span class="text-gray-500">@{{ item.item.warehouse.name }}</span>
+                    </div>
+                {% empty %}
+                    <span class="text-xs text-gray-400">No items.</span>
+                {% endfor %}
+            </div>
+        </td>
+        <td class="space-x-1 whitespace-nowrap">
+            <div class="tooltip" data-tip="Update PO">
+                <label for="modal-update-po-{{ po.id }}" class="btn btn-xs btn-ghost">
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </label>
+            </div>
+
+            <div class="tooltip" data-tip="{% if po.is_receivable %}Receive Items{% else %}Cannot receive items in '{{ po.get_status_display }}' status{% endif %}">
+                <label class="btn btn-xs btn-ghost {% if po.is_receivable %}receive-items-trigger{% else %}btn-disabled cursor-not-allowed{% endif %}"
+                       data-po-id="{{ po.id }}">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                </label>
+            </div>
+
+           {% if request.user.is_superuser %}
+            <div class="tooltip" data-tip="Edit Items">
+                <label for="modal-edit-items-{{ po.id }}" class="btn btn-xs btn-ghost">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                </label>
+            </div>
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}

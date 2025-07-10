@@ -1,73 +1,70 @@
 {% load i18n %}
 {% load humanize %}
 
-<div class="operations-filter-panel md:w-full shrink-0 sticky top-24 h-fit bg-base-200 shadow px-4 py-3 rounded-lg z-20 mb-4 parcel-filters">
-    <div class="grid grid-cols-12 gap-x-6 items-start">
+<div class="operations-filter-panel sticky top-8 md:top-24 bg-base-200 shadow px-4 py-2 rounded-lg z-40 mb-4 parcel-filters">
 
-        <div class="col-span-12 md:col-span-2">
-            <h2 class="text-lg font-semibold text-gray-700 mb-1">
-                Total:
-                <br><span class="font-normal text-gray-500 parcel-count-display">
-                    ({% if parcels %}{{ parcels.paginator.count|default:0 }}{% else %}{{ total_parcels_count|default:0 }}{% endif %})
+    <div class="grid grid-cols-12 gap-2">
+
+        <div class="col-span-12 md:col-span-1 items-start">
+            <h2 class="text-xl font-semibold text-gray-900 mb-2">
+                <span class="font-normal parcel-count-display">
+                    {% if parcels %}{{ parcels.paginator.count|default:0 }} parcels
+                    {% else %}{{ total_parcels_count|default:0 }} parcels{% endif %}
                 </span>
             </h2>
         </div>
 
-        <div class="col-span-12 md:col-span-4">
-            <div class="grid grid-cols-5 md:grid-cols-5 gap-2 items-end">
-                <div class="col-span-full">
-                    {% if request.user.is_superuser %}
-                            <button type="button" class="btn btn-sm sm:btn-sm parcel-warehouse-filter-btn" data-value="">All</button>
-                            {% for wh in warehouses %}
-                                <button type="button" class="btn btn-sm sm:btn-sm parcel-warehouse-filter-btn" data-value="{{ wh.pk }}">{{ wh.name }}</button>
-                            {% endfor %}
-                        {% elif request.user.warehouse %}
-                            <button type="button" class="btn btn-sm btn-neutral text-white">{{ request.user.warehouse.name }}</button>
-                        {% endif %}
-                </div>
+        <div class="col-span-12 md:col-span-4 flex flex-col gap-2 mr-3">
 
-                <div class="col-span-full">
-                    <button type="button" class="btn btn-sm sm:btn-sm parcel-courier-filter-btn" data-value="">All</button>
-                    {% for courier_obj in courier_companies %}
-                        <button class="btn btn-sm sm:btn-sm parcel-courier-filter-btn" data-value="{{ courier_obj.code }}">{{ courier_obj.name }}</button>
+            <div class="grid grid-flow-col auto-cols-fr gap-2">
+                {% if request.user.is_superuser %}
+                    {% for wh in warehouses %}
+                        <button type="button" class="btn btn-sm sm:btn-sm parcel-warehouse-filter-btn" data-value="{{ wh.pk }}">{{ wh.name }}</button>
                     {% endfor %}
-                </div>
+                {% elif request.user.warehouse %}
+                    <button type="button" class="btn btn-sm sm:btn-sm btn-neutral text-white">{{ request.user.warehouse.name }}</button>
+                {% endif %}
+            </div>
+
+            <div class="grid grid-flow-col auto-cols-fr gap-2">
+                {% for courier_obj in courier_companies %}
+                    <button class="btn btn-sm sm:btn-sm parcel-courier-filter-btn" data-value="{{ courier_obj.code }}">{{ courier_obj.name }}</button>
+                {% endfor %}
+            </div>
+
+            <div class="flex items-center gap-2">
+                <input type="date" name="parcel_start_date" class="input input-sm input-bordered w-full" value="{{ start_date|default:'' }}">
+                <span class="px-2">to</span>
+                <input type="date" name="parcel_end_date" class="input input-sm input-bordered w-full" value="{{ end_date|default:'' }}">
             </div>
         </div>
 
-        <div class="col-span-12 md:col-span-4">
-            <div class="grid grid-cols-5 md:grid-cols-5 p-2 gap-2 items-end">
-                <div class="col-span-full">
-                    <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="PREPARING_TO_PACK">To Pack</button>
-                    <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="READY_TO_SHIP">Ready to Ship</button>
-                    <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="IN_TRANSIT">In Transit</button>
-                    <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="DELIVERED">Delivered</button>
-                </div>
 
-                <div class="col-span-full">
-                    <input type="text" id="parcel-search-input" placeholder="Search by Parcel ID, Tracking, Order ID, Product..."
-                    class="input input-bordered input-sm w-[70%] parcel-dynamic-search-input"
-                    value="{{ parcel_query|default:'' }}">
-                    <button class="btn btn-sm md:btn-sm btn-outline bg-gray-300 parcel-reset-filters-btn">Reset</button>
+        <div class="col-span-12 md:col-span-5 flex flex-col gap-2 mr-3">
+            <div class="grid grid-flow-col auto-cols-fr gap-2">
+                <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="PREPARING_TO_PACK">To Pack</button>
+                <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="READY_TO_SHIP">Ready to Ship</button>
+                <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="IN_TRANSIT">In Transit</button>
+                <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="DELIVERED">Delivered</button>
+            </div>
 
-                </div>
+            <div class="flex items-center gap-2">
+                <input type="text" id="parcel-search-input" placeholder="Search by Parcel ID, Tracking, Order ID, Product..."
+                class="input input-bordered input-sm w-[80%] parcel-dynamic-search-input"
+                value="{{ parcel_query|default:'' }}">
+                <button class="btn btn-sm md:btn-sm btn-outline bg-gray-300 w-[20%] parcel-reset-filters-btn">Reset</button>
             </div>
         </div>
 
-        <div class="col-span-12 md:col-span-2">
-            <div class="grid grid-cols-5 md:grid-cols-5 p-2 gap-2 items-end">
-                <div class="col-span-full">
-
-                    <button class="btn btn-sm btn-secondary w-full mb-1" id="print-selected-parcels-btn" disabled>
+        <div class="col-span-12 md:col-span-2 flex flex-col gap-2">
+            <div class="grid grid-flow-col auto-cols-fr gap-1 md:flex md:flex-col md:items-stretch" id="warehouse-filter-container">
+                <button class="btn btn-sm bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full" id="print-selected-parcels-btn" disabled>
                         Print (<span id="selected-parcels-count-print">0</span>)
                     </button>
 
-                    <button class="btn btn-sm btn-primary w-full" id="trace-selected-parcels-btn" disabled>
+                    <button class="btn btn-sm bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full" id="trace-selected-parcels-btn" disabled>
                         Trace (<span id="selected-parcels-count">0</span>)
                     </button>
-
-
-                 </div>
             </div>
         </div>
     </div>

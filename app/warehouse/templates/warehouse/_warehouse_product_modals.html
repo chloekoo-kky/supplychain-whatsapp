@@ -1,0 +1,47 @@
+{% comment %} warehouse/templates/warehouse/_warehouse_product_modals.html {% endcomment %}
+{% load static %}
+
+{% for item in products %}
+  {# The 'details' modal, which can now be removed if truly unused #}
+  <input type="checkbox" id="details-modal-{{ item.id }}" class="modal-toggle" />
+  <div class="modal" role="dialog">
+      {# ... your details modal content ... #}
+  </div>
+
+  {# The 'Create PO' modal - this is a single, static modal so it can stay in the main partial #}
+
+  {# The 'Incoming POs' modal #}
+  {% if item.pending_arrival > 0 %}
+    <input type="checkbox" id="incoming-modal-{{ item.id }}" class="modal-toggle" />
+    <div class="modal" role="dialog">
+      <div class="modal-box max-w-2xl">
+        <label for="incoming-modal-{{ item.id }}" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
+        <h3 class="font-bold text-lg mb-4">Incoming POs for {{ item.product.name }}</h3>
+        <div class="overflow-x-auto">
+            <table class="table w-full table-sm">
+                <thead>
+                    <tr>
+                        <th>PO ID</th>
+                        <th>Supplier</th>
+                        <th>Balance Qty</th>
+                        <th>ETA</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for po_item in item.incoming_po_items %}
+                    <tr {% if po_item.purchase_order.eta and po_item.purchase_order.eta < today %}class="text-red-500"{% endif %}>
+                        <td>{{ po_item.purchase_order.id }}</td>
+                        <td>{{ po_item.purchase_order.supplier.name }}</td>
+                        <td>{{ po_item.balance_quantity }}</td>
+                        <td>{{ po_item.purchase_order.eta|date:"d M Y"|default:"N/A" }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+      </div>
+       <label class="modal-backdrop" for="incoming-modal-{{ item.id }}">Close</label>
+    </div>
+  {% endif %}
+{% endfor %}
+

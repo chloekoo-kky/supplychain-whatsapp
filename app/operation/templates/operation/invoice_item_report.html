@@ -1,0 +1,440 @@
+{% extends 'base.html' %}
+{% load my_filters %}
+
+{% block title %}Invoice Item Report{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-2">
+    <div class="flex justify-between items-center mb-3">
+        <h1 class="text-3xl font-bold text-gray-800">Invoice Item Report</h1>
+    </div>
+
+    <div class="operations-filter-panel md:w-full shrink-0 sticky top-16 h-fit bg-base-200 shadow px-4 py-3 rounded-lg z-20 mb-4">
+        <form id="filter-form">
+            <div class="grid grid-cols-12 gap-x-4 items-end">
+
+                <div class="col-span-12 md:col-span-2">
+                    <h2 class="text-lg font-semibold text-gray-700 mb-1">
+                        Total Items: <br>
+                        <span id="total-items-count" class="font-normal text-gray-500">
+                            ({{ total_items_count|default:0 }})
+                        </span>
+                    </h2>
+                </div>
+
+                <div class="col-span-12 md:col-span-7">
+                    <div class="flex flex-wrap gap-2 mb-2 items-center">
+                        {% for courier in couriers %}
+                            <button type="button" class="btn btn-xs sm:btn-sm courier-filter-btn btn-outline" data-value="{{ courier.id }}">{{ courier.name }}</button>
+                        {% endfor %}
+                    </div>
+                    <div class="flex flex-wrap items-end gap-x-4">
+                        <div class="form-control flex-grow" style="min-width: 250px;">
+                            <label class="label py-1"><span class="label-text">Search by Tracking or Invoice #</span></label>
+                            <input type="text" id="report-search-input" name="q" class="input input-sm input-bordered w-full" value="{{ query|default:'' }}">
+                        </div>
+                        <div class="form-control" style="min-width: 300px;">
+                            <label class="label py-1"><span class="label-text">Shipment Date Range</span></label>
+                            <div class="flex items-center gap-2">
+                                <input type="date" id="start-date-input" name="start_date" class="input input-sm input-bordered w-full" value="{{ start_date|default:'' }}">
+                                <span class="px-2">to</span>
+                                <input type="date" id="end-date-input" name="end_date" class="input input-sm input-bordered w-full" value="{{ end_date|default:'' }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-span-12 md:col-span-3">
+                    <div class="form-control">
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="pending">Dispute Pending</button>
+                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="finalized">Dispute Finalized</button>
+                        </div>
+                    </div>
+                    <div class="form-control mt-4">
+                        <button type="button" id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300">Reset All Filters</button>
+                    </div>
+                </div>
+            </div>
+
+            <input type="hidden" name="courier" id="courier-hidden-input" value="{{ selected_courier|default:'' }}">
+            <input type="hidden" name="dispute_status" id="dispute-status-hidden-input" value="{{ selected_dispute_status|default:'' }}">
+        </form>
+    </div>
+    <div id="report-table-container">
+        {% include 'operation/partials/_invoice_item_report_table_with_pagination.html' %}
+    </div>
+</div>
+
+<!-- View Items Modal -->
+<div id="view-items-modal" class="fixed z-30 inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div id="view-modal-bg" class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div id="view-items-modal-panel" class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+            </div>
+    </div>
+</div>
+
+<!-- Dispute Modal -->
+<div id="dispute-modal" class="fixed z-40 inset-0 overflow-y-auto hidden">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div id="dispute-modal-bg" class="fixed inset-0 bg-gray-500 bg-opacity-75"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+        <div id="dispute-modal-panel" class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+            <!-- Dispute form will be loaded here -->
+        </div>
+    </div>
+</div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    let currentPage = 1;
+    let isLoading = false;
+    let debounceTimeout;
+
+    const filterForm = document.getElementById('filter-form');
+    const searchInput = document.getElementById('report-search-input');
+    const courierHiddenInput = document.getElementById('courier-hidden-input');
+    const disputeStatusHiddenInput = document.getElementById('dispute-status-hidden-input'); // New
+
+    const startDateInput = document.getElementById('start-date-input');
+    const endDateInput = document.getElementById('end-date-input');
+    const viewModal = document.getElementById('view-items-modal');
+    const viewModalPanel = document.getElementById('view-items-modal-panel');
+
+    const disputeModal = document.getElementById('dispute-modal');
+    const disputeModalPanel = document.getElementById('dispute-modal-panel');
+
+    function openModal(modalId, panelId, url) {
+        const modal = document.getElementById(modalId);
+        const panel = document.getElementById(panelId);
+        if (!modal || !panel) return;
+
+        modal.classList.remove('hidden');
+        panel.innerHTML = '<div class="text-center p-8"><span class="loading loading-lg text-primary"></span></div>';
+
+        fetch(url)
+            .then(response => response.ok ? response.text() : Promise.reject('Network response was not ok.'))
+            .then(html => {
+                panel.innerHTML = html;
+                // If this is the dispute modal, attach the form submission listener now
+                if (modalId === 'dispute-modal') {
+                    setupDisputeModalScripts();
+                }
+            })
+            .catch(error => {
+                panel.innerHTML = `<div class="p-4 text-red-500">Error: ${error}</div>`;
+            });
+    }
+
+    function closeModal(modalId) {
+        const modal = document.getElementById(modalId);
+        if (modal) modal.classList.add('hidden');
+    }
+
+    function setupDisputeModalScripts() {
+        // Rule 1: final_amount_after_dispute and final_amount_date are mutually required (TWO-WAY)
+        initializeConditionalRequired('dispute-form', 'final_amount_after_dispute', 'final_amount_date');
+
+        // Rule 2: update_date is required only when remarks is not empty (ONE-WAY)
+        initializeOneWayRequired('dispute-form', 'remarks', 'update_date');
+
+        // Attach the form submission listener
+        const disputeForm = document.getElementById('dispute-form');
+        if (!disputeForm) return;
+
+        disputeForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(disputeForm);
+            fetch(disputeForm.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    closeModal('dispute-modal');
+                    updateReport(false);
+                } else {
+                    let errorMessage = 'An error occurred.';
+                    if (data.errors) {
+                        const serverErrors = JSON.parse(data.errors);
+                        const messages = Object.values(serverErrors).map(err => err[0].message);
+                        errorMessage = messages.join('\n');
+                    } else if (data.message) {
+                        errorMessage = data.message;
+                    }
+                    alert(errorMessage);
+                }
+            })
+            .catch(error => console.error('Error submitting dispute form:', error));
+        });
+    }
+
+
+    function initializeConditionalRequired(formId, field1Name, field2Name) {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        const field1 = form.querySelector(`[name="${field1Name}"]`);
+        const field2 = form.querySelector(`[name="${field2Name}"]`);
+        if (!field1 || !field2) return;
+
+        const checkAndSet = () => {
+            if (field1.value) { field2.setAttribute('required', ''); }
+            else { field2.removeAttribute('required'); }
+
+            if (field2.value) { field1.setAttribute('required', ''); }
+            else { field1.removeAttribute('required'); }
+        };
+        field1.addEventListener('input', checkAndSet);
+        field2.addEventListener('input', checkAndSet);
+        checkAndSet();
+    }
+
+    function initializeOneWayRequired(formId, sourceFieldName, targetFieldName) {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        const sourceField = form.querySelector(`[name="${sourceFieldName}"]`);
+        const targetField = form.querySelector(`[name="${targetFieldName}"]`);
+        if (!sourceField || !targetField) return;
+
+        const checkAndSet = () => {
+            if (sourceField.value) {
+                targetField.setAttribute('required', '');
+            } else {
+                targetField.removeAttribute('required');
+            }
+        };
+        sourceField.addEventListener('input', checkAndSet);
+        checkAndSet();
+    }
+
+    function attachDisputeFormListener() {
+        const disputeForm = document.getElementById('dispute-form');
+        if (!disputeForm) return;
+
+        disputeForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(disputeForm);
+
+            fetch(disputeForm.action, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    closeModal('dispute-modal');
+                    updateReport(false);
+                } else {
+                    let errorMessage = 'An error occurred.';
+                    if (data.errors) {
+                        const serverErrors = JSON.parse(data.errors);
+                        const messages = Object.values(serverErrors).map(err => err[0].message);
+                        errorMessage = messages.join('\n');
+                    } else if (data.message) {
+                        errorMessage = data.message;
+                    }
+                    alert(errorMessage);
+                }
+            })
+            .catch(error => console.error('Error submitting dispute form:', error));
+        });
+    }
+
+    function updateActiveFilterButtons() {
+        const params = new URLSearchParams(window.location.search);
+
+        // Handle Courier buttons
+        const activeCourier = params.get('courier') || "";
+        document.querySelectorAll('.courier-filter-btn').forEach(btn => {
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeCourier);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeCourier);
+        });
+
+        // NEW: Handle Dispute Status buttons
+        const activeDisputeStatus = params.get('dispute_status') || "";
+        document.querySelectorAll('.dispute-status-filter-btn').forEach(btn => {
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeDisputeStatus);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeDisputeStatus);
+        });
+    }
+
+
+    function updateReport(isLoadMore = false) {
+        if (isLoading) return;
+        isLoading = true;
+        const tableContainer = document.getElementById('report-table-container');
+        const spinner = document.getElementById('invoice-items-loading-spinner');
+        const loadMoreBtn = document.getElementById('explore-more-invoice-items-btn');
+
+        if (spinner && isLoadMore && loadMoreBtn) {
+            loadMoreBtn.style.display = 'none';
+            spinner.style.display = 'inline-block';
+        }
+
+        const params = new URLSearchParams(new FormData(filterForm));
+        if (isLoadMore) {
+            currentPage++;
+        } else {
+            currentPage = 1;
+        }
+        params.set('page', currentPage);
+        const currentSort = new URLSearchParams(window.location.search).get('sort_by');
+        if (currentSort) params.set('sort_by', currentSort);
+
+        const urlPath = isLoadMore ? `{% url 'operation:load_more_invoice_items' %}` : `{% url 'operation:invoice_item_report' %}`;
+        const fullUrl = `${urlPath}?${params.toString()}`;
+
+        fetch(fullUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(response => {
+                if (!response.ok) throw new Error('Network response was not ok');
+                if (!isLoadMore) history.pushState(null, '', `?${params.toString()}`);
+                return isLoadMore ? response.json() : response.text();
+            })
+            .then(data => {
+                if (isLoadMore) {
+                    const tableBody = tableContainer.querySelector('#invoice-items-tbody');
+                    const loadMoreContainer = document.getElementById('load-more-invoice-items-container');
+                    if (data.html && tableBody) tableBody.insertAdjacentHTML('beforeend', data.html);
+                    if (!data.has_next && loadMoreContainer) loadMoreContainer.style.display = 'none';
+                } else {
+                    tableContainer.innerHTML = data;
+                    const newTotal = tableContainer.querySelector('#total-items-count-hidden')?.dataset.total || '...';
+                    document.getElementById('total-items-count').textContent = `(${newTotal})`;
+                    updateActiveFilterButtons();
+                }
+            })
+            .catch(error => console.error('Error updating report:', error))
+            .finally(() => {
+                isLoading = false;
+                const newLoadMoreBtn = document.getElementById('explore-more-invoice-items-btn');
+                const newSpinner = document.getElementById('invoice-items-loading-spinner');
+                if (newSpinner && newLoadMoreBtn) {
+                    newSpinner.style.display = 'none';
+                    newLoadMoreBtn.style.display = 'inline-flex';
+                }
+            });
+    }
+
+    function openDisputeModal(url) {
+        if (!disputeModal || !disputeModalPanel) return;
+        disputeModal.classList.remove('hidden');
+        disputeModalPanel.innerHTML = '<div class="text-center p-8"><span class="loading loading-lg text-primary"></span></div>';
+        fetch(url)
+            .then(response => response.ok ? response.text() : Promise.reject('Network error'))
+            .then(html => {
+                disputeModalPanel.innerHTML = html;
+                setupDisputeModalScripts();
+            })
+            .catch(error => console.error('Error fetching dispute modal:', error));
+    }
+
+    function closeDisputeModal() {
+        if (disputeModal) disputeModal.classList.add('hidden');
+    }
+
+    function setupDisputeFormJS() {
+        const addHistoryBtn = document.getElementById('add-history-form');
+        const historyFormsContainer = document.getElementById('dispute-history-forms');
+        const emptyFormHtml = document.getElementById('empty-history-form').innerHTML;
+        const totalFormsInput = document.querySelector('#id_history-TOTAL_FORMS');
+
+        addHistoryBtn.addEventListener('click', () => {
+            let formIdx = parseInt(totalFormsInput.value);
+            const newForm = emptyFormHtml.replace(/__prefix__/g, formIdx);
+            historyFormsContainer.insertAdjacentHTML('beforeend', newForm);
+            totalFormsInput.value = formIdx + 1;
+        });
+
+        const disputeForm = document.getElementById('dispute-form');
+        disputeForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(disputeForm);
+            fetch(disputeForm.action, { method: 'POST', body: formData, headers: {'X-CSRFToken': '{{ csrf_token }}'} })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        closeDisputeModal();
+                        updateReport(false); // Refresh the table
+                        // You can add a success toast message here
+                    } else {
+                        // Handle form errors (optional)
+                        alert(data.message || 'An error occurred.');
+                    }
+                });
+        });
+    }
+
+    // --- A single, delegated event listener for the whole document ---
+    document.body.addEventListener('click', function(event) {
+        const target = event.target;
+        const sortLink = target.closest('#report-table-container thead a');
+        const viewButton = target.closest('.view-parcel-items-btn');
+        const courierButton = target.closest('.courier-filter-btn');
+        const resetButton = target.closest('#reset-filters-btn');
+        const disputeButton = target.closest('.log-dispute-btn');
+        const disputeStatusButton = target.closest('.dispute-status-filter-btn');
+
+
+        if (target.id === 'explore-more-invoice-items-btn') {
+            event.preventDefault();
+            updateReport(true);
+        } else if (viewButton) {
+            event.preventDefault();
+            openModal('view-items-modal', 'view-items-modal-panel', viewButton.dataset.url);
+        } else if (disputeButton) {
+            event.preventDefault();
+            openModal('dispute-modal', 'dispute-modal-panel', disputeButton.dataset.url);
+        } else if (sortLink) {
+            event.preventDefault();
+            const url = new URL(sortLink.href);
+            const sortParam = url.searchParams.get('sort_by');
+            const currentParams = new URLSearchParams(window.location.search);
+            currentParams.set('sort_by', sortParam);
+            currentParams.set('page', '1');
+            history.pushState(null, '', `?${currentParams.toString()}`);
+            updateReport(false);
+        } else if (resetButton) {
+            filterForm.reset();
+            courierHiddenInput.value = '';
+            searchInput.value = '';
+            startDateInput.value = '';
+            endDateInput.value = '';
+            disputeStatusHiddenInput.value = '';
+            history.pushState(null, '', `{% url 'operation:invoice_item_report' %}`);
+            updateActiveFilterButtons();
+            updateReport(false);
+        } else if (courierButton) {
+            courierHiddenInput.value = courierButton.dataset.value;
+            updateActiveFilterButtons();
+            updateReport(false);
+        } else if (disputeStatusButton) { // New
+            disputeStatusHiddenInput.value = disputeStatusButton.dataset.value;
+            updateActiveFilterButtons();
+            updateReport(false);
+        } else if (target.closest('#view-modal-bg') || target.closest('.close-view-modal-btn')) {
+            closeModal('view-items-modal');
+        } else if (target.closest('#dispute-modal-bg') || target.closest('.close-dispute-modal-btn')) {
+            closeModal('dispute-modal');
+        }
+
+    });
+
+    // --- Listeners for non-click events ---
+    searchInput.addEventListener('input', () => {
+        clearTimeout(debounceTimeout);
+        debounceTimeout = setTimeout(() => updateReport(false), 500);
+    });
+    startDateInput.addEventListener('change', () => updateReport(false));
+    endDateInput.addEventListener('change', () => updateReport(false));
+
+    // --- Initial Setup on Page Load ---
+    updateActiveFilterButtons();
+});
+</script>
+{% endblock %}

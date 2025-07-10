@@ -4,7 +4,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, HttpResponseForbidden, HttpResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST, require_GET
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Prefetch
 from django.db import transaction, IntegrityError
 from django.contrib import messages # Import messages
 from django.forms import inlineformset_factory, formset_factory # Ensure formset_factory is imported
@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 
 @login_required
+@login_required
 def inventory_batch_list_view(request):
     user = request.user
     base_queryset = NewAggregateWarehouseProduct.objects.select_related(
@@ -48,37 +49,32 @@ def inventory_batch_list_view(request):
         'warehouse',
         'supplier'
     ).prefetch_related(
-        'batches'
+        Prefetch('batches', queryset=InventoryBatchItem.objects.order_by('expiry_date'))
     )
 
+    # For non-superusers, restrict to their assigned warehouse. Superusers see all.
     if not user.is_superuser and user.warehouse:
         base_queryset = base_queryset.filter(warehouse=user.warehouse)
     elif not user.is_superuser and not user.warehouse:
         base_queryset = base_queryset.none()
         messages.warning(request, "You are not assigned to a warehouse. Please contact an administrator.")
 
+    # This GET parameter is kept in case you want to use it for setting an initial filter state via URL.
+    selected_warehouse_id = request.GET.get('warehouse')
+
     warehouse_products_qs = base_queryset.order_by(
         'product__name',
         'warehouse__name'
     )
 
-    today = timezone.now().date() # Local date, for display consistency
+    today = timezone.now().date()
     processed_warehouse_products_list = []
 
     for wp in warehouse_products_qs:
         current_aggregate_stock = wp.quantity if wp.quantity is not None else 0
-
         sum_of_batched_stock = wp.batches.aggregate(total_qty=Sum('quantity'))['total_qty'] or 0
         wp.calculated_unbatched_quantity = current_aggregate_stock - sum_of_batched_stock
-
-        processed_batches = []
-        for batch in wp.batches.all():
-            # The line below was causing the AttributeError and is removed.
-            # batch.expiry_status_display = batch.expiry_status_display
-            # The property batch.expiry_status_display will be accessed directly in the template.
-            processed_batches.append(batch)
-
-        wp.processed_batches = processed_batches # This list now contains original batch items
+        wp.processed_batches = wp.batches.all()
         processed_warehouse_products_list.append(wp)
 
     all_batches_qs = InventoryBatchItem.objects.select_related(
@@ -91,49 +87,43 @@ def inventory_batch_list_view(request):
         all_batches_qs = all_batches_qs.none()
 
     all_inventory_batches_for_modals = all_batches_qs.order_by(
-        'warehouse_product__product__name',
-        'warehouse_product__warehouse__name',
-        'batch_number',
-        'location_label',
-        'expiry_date'
+        'warehouse_product__product__name', 'batch_number'
     )
 
-    add_batch_form_instance = InventoryBatchItemForm(request=request) # Pass request to form
-
+    add_batch_form_instance = InventoryBatchItemForm(request=request)
     user_warehouse = request.user.warehouse if hasattr(request.user, 'warehouse') and request.user.warehouse else None
-
-    # Formset for Default Picks
     default_pick_formset = DefaultPickItemFormSet(
-        prefix='default_picks',
-        initial=[], # Populated by JS AJAX call
-        warehouse=user_warehouse # Pass warehouse for context if form needs it
+        prefix='default_picks', initial=[], warehouse=user_warehouse
     )
 
-    # Formset for Secondary Picks
-    secondary_pick_formset = DefaultPickItemFormSet( # Reusing the same formset class
-        prefix='secondary_picks',
-        initial=[], # Populated by JS AJAX call
-        warehouse=user_warehouse
-    )
+    # MODIFICATION: Get warehouses for the filter buttons.
+    # For superusers, we get only warehouses that have products in the current list.
+    # For regular users, this list remains empty, so no filters are shown.
+    warehouses_for_filter = []
+    if user.is_superuser:
+        # This is more efficient and user-friendly than getting all warehouses.
+        warehouse_ids = base_queryset.values_list('warehouse_id', flat=True).distinct()
+        warehouses_for_filter = Warehouse.objects.filter(pk__in=warehouse_ids).order_by('name')
 
 
     context = {
-        'warehouse_products': processed_warehouse_products_list, # Assuming you have this
-        'all_inventory_batches': all_inventory_batches_for_modals, # Assuming you have this
-        'today_date_iso': today.strftime('%Y-%m-%d'), # Assuming you have this
+        'warehouse_products': processed_warehouse_products_list,
+        'all_inventory_batches': all_inventory_batches_for_modals,
         'add_batch_form': add_batch_form_instance,
-        'page_title': 'Inventory Batches & Stock Levels',
+        'page_title': 'Batches & Stock Levels',
         'default_pick_formset': default_pick_formset,
-        'secondary_pick_formset': secondary_pick_formset,
-        # Pass the prefixes directly to the context
         'default_pick_formset_prefix': default_pick_formset.prefix,
-        'secondary_pick_formset_prefix': secondary_pick_formset.prefix,
+        # MODIFICATION: Changed context key to 'warehouses' to match the template.
+        'warehouses': warehouses_for_filter,
+        'selected_warehouse_id': int(selected_warehouse_id) if selected_warehouse_id else None,
     }
     return render(request, 'inventory/inventory_batch_list.html', context)
 
+
+
 @login_required
 @require_POST
-def add_inventory_batch_view(request):
+def add_inventory_batch(request):
     user = request.user
     post_data = request.POST.copy()
     hidden_wp_id = post_data.get('hidden_warehouse_product_id')
@@ -148,26 +138,20 @@ def add_inventory_batch_view(request):
             if not user.is_superuser and user.warehouse and wp_instance.warehouse != user.warehouse:
                 return JsonResponse({'success': False, 'error': 'Permission denied. You cannot add a batch to this warehouse product.'}, status=403)
             elif not user.is_superuser and not user.warehouse:
-                 return JsonResponse({'success': False, 'error': 'Permission denied. No warehouse assigned.'}, status=403)
+                return JsonResponse({'success': False, 'error': 'Permission denied. No warehouse assigned.'}, status=403)
         except NewAggregateWarehouseProduct.DoesNotExist:
             return JsonResponse({'success': False, 'error': 'Selected warehouse product does not exist.'}, status=400)
     else:
         return JsonResponse({'success': False, 'error': 'Warehouse product selection is missing.'}, status=400)
 
-    # Pass the request to the form if it needs it (e.g., for user-based filtering within the form)
-    form = InventoryBatchItemForm(post_data, request=request) # Pass request if form uses it
+    form = InventoryBatchItemForm(post_data, request=request)
 
     if form.is_valid():
         try:
             batch_item = form.save(commit=False)
-            # Ensure the warehouse_product on the batch_item itself is consistent with permissions
             if not user.is_superuser and user.warehouse and batch_item.warehouse_product.warehouse != user.warehouse:
-                 return JsonResponse({'success': False, 'error': 'Permission denied. Mismatch in final warehouse assignment.'}, status=403)
-
+                return JsonResponse({'success': False, 'error': 'Permission denied. Mismatch in final warehouse assignment.'}, status=403)
             batch_item.save()
-            # Optional: Trigger any necessary updates on the parent WarehouseProduct
-            # if batch_item.warehouse_product and hasattr(batch_item.warehouse_product, 'update_stock_from_batches'):
-            #    batch_item.warehouse_product.update_stock_from_batches()
             return JsonResponse({'success': True, 'message': 'Batch added successfully!'})
         except Exception as e:
             return JsonResponse({'success': False, 'error': f'Error saving batch: {str(e)}'}, status=500)
@@ -178,77 +162,44 @@ def add_inventory_batch_view(request):
 
 @login_required
 @require_POST
-def edit_inventory_batch_view(request, batch_pk):
-    user = request.user
-    batch_item_instance = get_object_or_404(InventoryBatchItem.objects.select_related('warehouse_product__warehouse'), pk=batch_pk)
+def edit_inventory_batch(request, batch_pk): # <-- FIX: Changed pk to batch_pk
+    try:
+        batch_item = get_object_or_404(InventoryBatchItem.objects.select_related('warehouse_product__warehouse'), pk=batch_pk) # <-- FIX: Use batch_pk
 
-    if not user.is_superuser and user.warehouse:
-        if batch_item_instance.warehouse_product.warehouse != user.warehouse:
-            return JsonResponse({'success': False, 'error': 'Permission denied. You cannot edit this batch item.'}, status=403)
-    elif not user.is_superuser and not user.warehouse:
-        return JsonResponse({'success': False, 'error': 'Permission denied. No warehouse assigned.'}, status=403)
+        if not request.user.is_superuser and (not request.user.warehouse or request.user.warehouse != batch_item.warehouse_product.warehouse):
+            return JsonResponse({'success': False, 'message': 'You do not have permission for this warehouse.'}, status=403)
 
-    post_data = request.POST.copy()
-    if 'warehouse_product' in post_data: # If user tries to change the warehouse_product link
-        try:
-            wp_instance = NewAggregateWarehouseProduct.objects.get(pk=post_data['warehouse_product'])
-            if not user.is_superuser and user.warehouse and wp_instance.warehouse != user.warehouse:
-                return JsonResponse({'success': False, 'error': 'Permission denied. Cannot reassign batch to this warehouse product.'}, status=403)
-        except NewAggregateWarehouseProduct.DoesNotExist:
-             return JsonResponse({'success': False, 'error': 'Target warehouse product for reassignment does not exist.'}, status=400)
+        form = InventoryBatchItemForm(request.POST, instance=batch_item, request=request)
 
-    form = InventoryBatchItemForm(post_data, instance=batch_item_instance, request=request) # Pass request if form uses it
-    if form.is_valid():
-        try:
-            updated_batch_item = form.save()
+        if form.is_valid():
+            updated_batch_item = form.save(commit=False)
+            set_as_default = request.POST.get('set_as_default_pick') == 'on'
 
-            # Optional: Trigger updates on parent(s) if warehouse_product changed
-            # if form.changed_data and 'warehouse_product' in form.changed_data:
-            #    if hasattr(updated_batch_item.warehouse_product, 'update_stock_from_batches'):
-            #        updated_batch_item.warehouse_product.update_stock_from_batches()
-            #    old_wp_id = form.initial.get('warehouse_product')
-            #    if old_wp_id:
-            #        try:
-            #            old_wp = NewAggregateWarehouseProduct.objects.get(pk=old_wp_id)
-            #            if hasattr(old_wp, 'update_stock_from_batches'):
-            #                old_wp.update_stock_from_batches()
-            #        except NewAggregateWarehouseProduct.DoesNotExist:
-            #            pass # Old WP might have been deleted or is invalid
+            with transaction.atomic():
+                if set_as_default:
+                    InventoryBatchItem.objects.filter(
+                        warehouse_product=updated_batch_item.warehouse_product,
+                        pick_priority=0
+                    ).exclude(pk=updated_batch_item.pk).update(pick_priority=None)
+                    updated_batch_item.pick_priority = 0
+                elif updated_batch_item.pick_priority == 0:
+                    updated_batch_item.pick_priority = None
 
-            expiry_date_formatted = updated_batch_item.expiry_date.strftime('%d/%m/%Y') if updated_batch_item.expiry_date else 'N/A'
-            date_received_formatted = updated_batch_item.date_received.strftime('%d/%m/%Y') if updated_batch_item.date_received else '-'
-            location_label_display = updated_batch_item.location_label if updated_batch_item.location_label else '-'
+                updated_batch_item.save()
 
             return JsonResponse({
                 'success': True,
                 'message': 'Batch updated successfully!',
-                'batch_item': {
-                    'pk': updated_batch_item.pk,
-                    'batch_number': updated_batch_item.batch_number or "N/A",
-                    'location_label': location_label_display,
-                    'expiry_date_formatted': expiry_date_formatted,
-                    'quantity': updated_batch_item.quantity,
-                    'cost_price': str(updated_batch_item.cost_price) if updated_batch_item.cost_price is not None else '-',
-                    'date_received_formatted': date_received_formatted,
-                }
+                'batch_item': {'pk': updated_batch_item.pk}
             })
-        except Exception as e:
-            return JsonResponse({'success': False, 'error': f'Error updating batch: {str(e)}'}, status=500)
-    else:
-        errors = {field: error[0] for field, error in form.errors.items()}
-        return JsonResponse({'success': False, 'errors': errors, 'message': 'Please correct the form errors.'}, status=400)
+        else:
+            errors = {field: error[0] for field, error in form.errors.items()}
+            return JsonResponse({'success': False, 'message': 'Please correct the form errors.', 'errors': errors}, status=400)
 
-@login_required
-def supplier_list(request):
-    user = request.user
-    if not user.is_superuser and user.warehouse:
-        suppliers_qs = Supplier.objects.filter(
-            products__warehouseproduct__warehouse=user.warehouse
-        ).distinct().order_by('name')
-    else:
-        suppliers_qs = Supplier.objects.all().order_by('name')
+    except Exception as e:
+        logger.error(f"Error in edit_inventory_batch view for pk={batch_pk}: {str(e)}", exc_info=True)
+        return JsonResponse({'success': False, 'message': f'An unexpected server error occurred. Please check the logs.'}, status=500)
 
-    return render(request, 'inventory/supplier_list.html', {'suppliers': suppliers_qs})
 
 @login_required
 def stock_take_operator_view(request):
@@ -1266,32 +1217,36 @@ def set_default_pick_view(request, batch_pk):
 
 
 @login_required
-@require_GET # This view only fetches data
-def get_default_pick_items_view(request):
-    user = request.user
-    default_pick_items_qs = InventoryBatchItem.objects.filter(pick_priority=0).select_related(
-        'warehouse_product__product',
-        'warehouse_product__warehouse'
-    ).order_by('warehouse_product__warehouse__name', 'warehouse_product__product__name', 'location_label')
+def get_default_pick_items(request):
+    """
+    Fetches all inventory items that are currently designated as a
+    default pick location (priority 0).
+    """
+    try:
+        # CORRECTED: Added a filter to only get items with a pick_priority of 0
+        default_picks = InventoryBatchItem.objects.filter(
+            pick_priority=0
+        ).select_related(
+            'warehouse_product__product',
+            'warehouse_product__warehouse'
+        ).order_by('warehouse_product__product__name')
 
-    if not user.is_superuser and user.warehouse:
-        default_pick_items_qs = default_pick_items_qs.filter(warehouse_product__warehouse=user.warehouse)
-
-    default_picks_data = []
-    for item in default_pick_items_qs:
-        default_picks_data.append({
-            'id': item.pk,
-            'warehouse_product_id': item.warehouse_product.pk,
+        # Serialize the data into a list of dictionaries
+        data = [{
+            'id': item.id,
             'location_label': item.location_label,
             'product_name': item.warehouse_product.product.name,
-            'product_sku': item.warehouse_product.product.sku, # Added SKU
-            'warehouse_name': item.warehouse_product.warehouse.name, # Added Warehouse Name
             'batch_number': item.batch_number,
-            'expiry_date': item.expiry_date.isoformat() if item.expiry_date else None,
+            'expiry_date': item.expiry_date,
             'quantity': item.quantity,
-        })
+            'warehouse_product_id': item.warehouse_product.id,
+        } for item in default_picks]
 
-    return JsonResponse({'success': True, 'default_picks': default_picks_data})
+        return JsonResponse({'success': True, 'default_picks': data})
+
+    except Exception as e:
+        logger.error(f"Error in get_default_pick_items: {e}", exc_info=True)
+        return JsonResponse({'success': False, 'message': 'An error occurred on the server.'}, status=500)
 
 
 @login_required
@@ -1474,11 +1429,6 @@ def update_default_pick_items_view(request):
                         messages.error(request, f"Permission denied for item {batch_item.warehouse_product.product.name} ({batch_item.batch_number}).")
                         continue
 
-                    if batch_item.pick_priority == 1: # Cannot set a secondary pick as default here
-                        messages.warning(request, f"Item {batch_item.warehouse_product.product.name} ({batch_item.batch_number}) is currently a Secondary Pick. Please remove it from Secondary Picks before making it Default. Skipped.")
-                        logger.warning(f"Default Picks - Batch ID {batch_item.pk} is Secondary (1), cannot be set to Default (0) directly. Skipped.")
-                        continue
-
                     if batch_item.pick_priority != 0: # Only update if not already default
                         logger.info(f"Default Picks - Attempting to set pick_priority=0 for batch ID {batch_item.pk}")
                         batch_item.pick_priority = 0
@@ -1571,225 +1521,3 @@ def update_default_pick_items_view(request):
             }, status=400)
         return redirect('inventory:inventory_batch_list_view')
 
-@login_required
-@require_GET # This view only fetches data
-def get_secondary_pick_items_view(request):
-    user = request.user
-    # Query for items with pick_priority = 1 (Secondary Pick)
-    secondary_pick_items_qs = InventoryBatchItem.objects.filter(pick_priority=1).select_related(
-        'warehouse_product__product',
-        'warehouse_product__warehouse'
-    ).order_by('warehouse_product__warehouse__name', 'warehouse_product__product__name', 'location_label')
-
-    if not user.is_superuser and user.warehouse:
-        secondary_pick_items_qs = secondary_pick_items_qs.filter(warehouse_product__warehouse=user.warehouse)
-    elif not user.is_superuser and not user.warehouse: # User not superuser and no warehouse assigned
-        secondary_pick_items_qs = InventoryBatchItem.objects.none()
-
-
-    secondary_picks_data = []
-    for item in secondary_pick_items_qs:
-        secondary_picks_data.append({
-            'id': item.pk, # This is InventoryBatchItem.id
-            'form_id': item.pk, # For consistency if formset needs an 'id' for existing items not from initial
-            'inventory_batch_item_id': item.pk, # Explicitly for clarity
-            'warehouse_product_id': item.warehouse_product.pk,
-            'location_label': item.location_label,
-            'product_name': item.warehouse_product.product.name,
-            'product_sku': item.warehouse_product.product.sku,
-            'warehouse_name': item.warehouse_product.warehouse.name,
-            'batch_number': item.batch_number,
-            'expiry_date': item.expiry_date.isoformat() if item.expiry_date else None,
-            'quantity': item.quantity,
-            # 'pick_priority_value': item.pick_priority # This will be 1
-        })
-
-    return JsonResponse({'success': True, 'secondary_picks': secondary_picks_data})
-
-
-@login_required
-@require_POST
-@db_transaction.atomic
-def update_secondary_pick_items_view(request):
-    user = request.user
-    user_warehouse = user.warehouse if hasattr(user, 'warehouse') and user.warehouse else None
-
-    # Use the same DefaultPickItemFormSet, but with a different prefix for this modal
-    formset = DefaultPickItemFormSet(request.POST, prefix='secondary_picks', warehouse=user_warehouse)
-
-    if formset.is_valid():
-        logger.info(f"--- Secondary Picks Update: Formset is valid ---")
-        logger.info(f"User: {user.email}, Warehouse: {user_warehouse.name if user_warehouse else 'N/A'}")
-
-        items_newly_set_secondary_count = 0
-        items_cleared_from_secondary_count = 0
-
-        batch_ids_to_clear_priority = []
-        batch_ids_to_set_priority_1 = [] # Target priority is 1 for secondary
-
-        # Pass 1: Collect batch_ids based on DELETE flag and form data
-        for form_idx, form in enumerate(formset.forms):
-            if not form.is_valid():
-                logger.warning(f"Secondary Picks - Form {form_idx}: Not valid. Errors: {form.errors.as_json()}")
-                # Add errors to messages framework to inform user if needed
-                for field, errors in form.errors.items():
-                    for error in errors:
-                        messages.error(request, f"Error in secondary pick form (row {form_idx + 1}), field '{field}': {error}")
-                continue # Skip invalid forms
-
-            cleaned_data = form.cleaned_data
-            batch_id = cleaned_data.get('inventory_batch_item_id')
-            # The hidden input 'pick_priority_value' in the template is set to "1" for secondary picks.
-            # We don't strictly need to read it here if we always set to 1, but good for consistency.
-            # pick_priority_from_form = cleaned_data.get('pick_priority_value')
-
-            delete_field_key_in_post = form.add_prefix('DELETE')
-            raw_delete_value_from_post = request.POST.get(delete_field_key_in_post)
-            cleaned_should_delete_flag = cleaned_data.get('DELETE', False)
-
-            logger.debug(
-                f"Secondary Picks - Form {form_idx}: Batch ID: {batch_id}, "
-                f"Raw POST for '{delete_field_key_in_post}': '{raw_delete_value_from_post}', "
-                f"Cleaned 'DELETE' flag: {cleaned_should_delete_flag}"
-            )
-
-            if batch_id:
-                try:
-                    # Minimal check to ensure batch_id is plausible before adding to lists
-                    if not InventoryBatchItem.objects.filter(pk=batch_id).exists():
-                        raise InventoryBatchItem.DoesNotExist
-                except InventoryBatchItem.DoesNotExist:
-                    messages.warning(request, f"Secondary Picks - Batch item with ID {batch_id} (form {form_idx}) not found. Skipped.")
-                    logger.warning(f"Secondary Picks - Batch item ID {batch_id} (form {form_idx}) not found during collection.")
-                    continue
-
-                if cleaned_should_delete_flag:
-                    batch_ids_to_clear_priority.append(batch_id)
-                    logger.info(f"Secondary Picks - Collected batch ID {batch_id} for CLEARING priority.")
-                else:
-                    batch_ids_to_set_priority_1.append(batch_id)
-                    logger.info(f"Secondary Picks - Collected batch ID {batch_id} for SETTING priority to 1.")
-            else:
-                logger.debug(f"Secondary Picks - Form {form_idx} skipped: no batch_id.")
-
-        logger.info(f"--- Secondary Picks - End Pass 1 ---")
-        logger.info(f"Collected for clearing (secondary): {batch_ids_to_clear_priority}")
-        logger.info(f"Collected for setting secondary (priority 1): {batch_ids_to_set_priority_1}")
-
-        # Pass 2: Process items to clear secondary status (set pick_priority to None)
-        # This happens if the row was marked for DELETE.
-        if batch_ids_to_clear_priority:
-            logger.info(f"--- Secondary Picks - Pass 2: Clearing Secondary Picks ---")
-            for batch_id_to_clear in batch_ids_to_clear_priority:
-                try:
-                    item_to_clear = InventoryBatchItem.objects.select_related('warehouse_product__warehouse').get(pk=batch_id_to_clear)
-                    if not user.is_superuser and user_warehouse and item_to_clear.warehouse_product.warehouse != user_warehouse:
-                        logger.warning(f"Secondary Picks - Permission DENIED for user {user.email} on batch ID {batch_id_to_clear} (WH mismatch). Skipping clear.")
-                        messages.error(request, f"Permission denied for item in warehouse {item_to_clear.warehouse_product.warehouse.name}.")
-                        continue
-
-                    if item_to_clear.pick_priority == 1: # Only clear if it was indeed a secondary pick
-                        item_to_clear.pick_priority = None
-                        item_to_clear.save() # Model's save handles uniqueness
-                        items_cleared_from_secondary_count += 1
-                        logger.info(f"Secondary Picks - SUCCESS: Cleared pick_priority for batch ID {batch_id_to_clear}. Was: 1, Now: None.")
-                    else:
-                        logger.info(f"Secondary Picks - INFO: Batch ID {batch_id_to_clear} was marked for delete but its pick_priority was {item_to_clear.pick_priority}, not 1. No change made to priority.")
-                except InventoryBatchItem.DoesNotExist:
-                    logger.warning(f"Secondary Picks - ERROR: Batch ID {batch_id_to_clear} not found in DB during clearing pass.")
-                except Exception as e:
-                    logger.error(f"Secondary Picks - EXCEPTION during clearing batch ID {batch_id_to_clear}: {str(e)}", exc_info=True)
-                    messages.error(request, f"Error processing removal for secondary pick item ID {batch_id_to_clear}: {str(e)}")
-            logger.info(f"--- Secondary Picks - End Pass 2: items_cleared_from_secondary_count = {items_cleared_from_secondary_count} ---")
-
-        # Pass 3: Process items to set as secondary (pick_priority = 1)
-        if batch_ids_to_set_priority_1:
-            logger.info(f"--- Secondary Picks - Pass 3: Setting Secondary Picks (Priority 1) ---")
-            logger.info(f"Batch IDs collected for setting secondary: {batch_ids_to_set_priority_1}")
-            for batch_id_to_set in batch_ids_to_set_priority_1:
-                if batch_id_to_set in batch_ids_to_clear_priority:
-                    logger.debug(f"Secondary Picks - Batch ID {batch_id_to_set} was in clear list, skipping set secondary.")
-                    continue
-                try:
-                    batch_item = InventoryBatchItem.objects.select_related('warehouse_product__warehouse', 'warehouse_product__product').get(pk=batch_id_to_set)
-                    logger.info(f"Secondary Picks - Processing batch ID {batch_item.pk}. Current DB pick_priority: {batch_item.pick_priority}")
-
-                    if not user.is_superuser and user_warehouse and batch_item.warehouse_product.warehouse != user_warehouse:
-                        logger.warning(f"Secondary Picks - Permission DENIED setting secondary for batch ID {batch_id_to_set} (WH mismatch).")
-                        messages.error(request, f"Permission denied for item {batch_item.warehouse_product.product.name} ({batch_item.batch_number}).")
-                        continue
-
-                    if batch_item.pick_priority == 0: # Cannot set a default pick as secondary here
-                        messages.warning(request, f"Item {batch_item.warehouse_product.product.name} ({batch_item.batch_number}) is already a Default Pick. Cannot also be Secondary. Skipped.")
-                        logger.warning(f"Secondary Picks - Batch ID {batch_item.pk} is Default (0), cannot be set to Secondary (1) directly. Skipped.")
-                        continue
-
-                    if batch_item.pick_priority != 1: # Only update if not already secondary
-                        logger.info(f"Secondary Picks - Attempting to set pick_priority=1 for batch ID {batch_item.pk}")
-                        batch_item.pick_priority = 1
-                        batch_item.save()
-                        items_newly_set_secondary_count += 1
-                        logger.info(f"Secondary Picks - SUCCESS: Set pick_priority=1 for batch ID {batch_item.pk} (WP: {batch_item.warehouse_product_id}).")
-                    else: # Already pick_priority == 1
-                        logger.info(f"Secondary Picks - INFO: Batch ID {batch_item.pk} was already pick_priority=1. No change made.")
-                except InventoryBatchItem.DoesNotExist:
-                    logger.warning(f"Secondary Picks - ERROR: Batch ID {batch_id_to_set} not found for setting secondary.")
-                except IntegrityError as e: # Should be caught by model's save if it tries to create duplicate (0 or 1)
-                    logger.error(f"Secondary Picks - IntegrityError setting secondary for batch ID {batch_id_to_set}: {str(e)}", exc_info=True)
-                    messages.error(request, f"Could not set item (ID: {batch_id_to_set}) as secondary due to a conflict: {str(e)}")
-                except Exception as e:
-                    logger.error(f"Secondary Picks - EXCEPTION setting secondary for batch ID {batch_id_to_set}: {str(e)}", exc_info=True)
-                    messages.error(request, f"Error setting secondary pick for item ID {batch_id_to_set}: {str(e)}")
-            logger.info(f"--- Secondary Picks - End Pass 3: items_newly_set_secondary_count = {items_newly_set_secondary_count} ---")
-
-        # Message generation
-        if items_newly_set_secondary_count > 0 or items_cleared_from_secondary_count > 0:
-            success_msg = "Secondary pick locations updated: "
-            if items_newly_set_secondary_count > 0: success_msg += f"{items_newly_set_secondary_count} item(s) set/confirmed as secondary. "
-            if items_cleared_from_secondary_count > 0: success_msg += f"{items_cleared_from_secondary_count} item(s) cleared from secondary."
-            messages.success(request, success_msg.strip())
-        else:
-            # Check if any valid items were submitted at all
-            submitted_forms_with_batch_ids = [form for form in formset.forms if form.is_valid() and form.cleaned_data.get('inventory_batch_item_id')]
-            if not submitted_forms_with_batch_ids:
-                messages.info(request, "No valid items were submitted for secondary pick location changes.")
-            else: # Valid items submitted, but no DB changes made
-                messages.info(request, "No effective changes were made to secondary pick locations (items may have already been in the desired state or no valid actions performed).")
-
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            return JsonResponse({'success': True, 'message': 'Secondary picks processed.'}) # Simplified message for AJAX
-        return redirect('inventory:inventory_batch_list_view')
-    else:
-        # Formset is not valid
-        logger.error(f"Secondary Picks - Formset is not valid. Raw errors: {formset.errors}")
-        logger.error(f"Secondary Picks - Formset non-form errors: {formset.non_form_errors()}")
-
-        error_messages_for_display = []
-        for i, error_dict in enumerate(formset.errors): # formset.errors is a list of dicts
-            if error_dict: # If errors for this specific form
-                for field, errors_in_field in error_dict.items():
-                    error_messages_for_display.append(f"Row {i+1} ({field}): {', '.join(errors_in_field)}")
-        if formset.non_form_errors(): # General formset errors
-            error_messages_for_display.append(f"General errors: {', '.join(formset.non_form_errors())}")
-
-        error_message_str = "Please correct the errors in the secondary pick form: " + "; ".join(error_messages_for_display) if error_messages_for_display else "Invalid data submitted for secondary picks."
-        messages.error(request, error_message_str)
-
-        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            # Send structured errors back for potential JS handling
-            json_errors = []
-            if hasattr(formset, 'errors') and isinstance(formset.errors, list):
-                 for i, error_dict_item in enumerate(formset.errors):
-                    if error_dict_item: # If there are errors for this form in the formset
-                        simple_error_dict = {field: [str(e) for e in elist] for field, elist in error_dict_item.items()}
-                        json_errors.append({f"form-{i}": simple_error_dict})
-
-            json_non_form_errors = list(formset.non_form_errors()) if hasattr(formset, 'non_form_errors') and callable(formset.non_form_errors) else []
-
-            return JsonResponse({
-                'success': False,
-                'message': error_message_str,
-                'errors': json_errors, # Errors for individual forms
-                'formset_errors': json_non_form_errors # Non-form errors
-            }, status=400)
-        return redirect('inventory:inventory_batch_list_view')

@@ -1,43 +1,39 @@
 {# Sticky Filter Panel - Refactored to a 12-column grid layout #}
-<div class="sticky top-24 z-30 bg-base-100 shadow px-4 py-2 rounded mb-4">
-    <div class="grid grid-cols-12 gap-x-4 items-start">
-        {# --- ROW 1: Filters and Buttons --- #}
+<div class="warehouseproduct-filter sticky top-8 md:top-24 bg-base-200 shadow px-4 py-2 rounded-lg z-40 mb-4">
+  <div class="grid grid-cols-12 gap-2">
+    {# --- ROW 1: Filters and Buttons --- #}
 
         {# Total Products Count - 2 columns #}
-        <div class="col-span-12 md:col-span-2">
-            <h2 class="text-lg font-semibold text-gray-700">
-                Total:
-                <br><span class="font-normal text-gray-500">
-                    ({{ products.count|default:0 }} products)
-                </span>
+        <div class="col-span-12 md:col-span-1 items-start">
+          <h2 class="text-lg text-gray-700">
+            <span id="product-count-display" class="font-bold text-xl">{{ products.paginator.count|default:0 }}</span>
+            <span class="font-normal text-gray-500">products</span>
             </h2>
         </div>
 
-        {# Warehouse Filters - 3 columns #}
-        <div class="col-span-12 md:col-span-3">
-            <div class="flex flex-wrap gap-1 justify-end">
+        {# Warehouse Filters - 2 columns #}
+        <div class="col-span-12 md:col-span-2 md:mr-6">
+          <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch">
                 {% if user.is_superuser %}
-                    <button type="button" class="btn btn-xs sm:btn-sm btn-outline" data-filter="warehouse" data-value="">All</button>
                     {% for w_obj in warehouses %}
-                    <button type="button" class="btn btn-xs sm:btn-sm btn-outline" data-filter="warehouse" data-value="{{ w_obj.id }}">
+                    <button type="button" class="btn btn-sm sm:btn-sm btn-outline" data-filter="warehouse" data-value="{{ w_obj.id }}">
                         {{ w_obj.name }}
                     </button>
                     {% endfor %}
                 {% else %}
                     {% if user.warehouse %}
-                        <button type="button" class="btn btn-sm sm:btn-sm btn-neutral text-white">{{ user.warehouse.name }}</button>
+                        <button type="button" class="btn btn-sm md:btn-sm btn-neutral text-white">{{ user.warehouse.name }}</button>
                         <input type="hidden" id="user-assigned-warehouse-id" value="{{ user.warehouse.id }}">
                     {% else %}
-                        <button type="button" class="btn btn-xs sm:btn-sm btn-error text-white" disabled>No Warehouse Assigned</button>
+                        <button type="button" class="btn btn-sm md:btn-sm btn-neutral text-white" disabled>No Warehouse Assigned</button>
                     {% endif %}
                 {% endif %}
-            </div>
+          </div>
         </div>
 
         {# Supplier Filters - 5 columns #}
-        <div class="col-span-12 md:col-span-5">
-            <div class="flex flex-wrap gap-2 items-center">
-                <button type="button" class="btn btn-sm btn-outline" data-filter="supplier" data-value="">All</button>
+        <div class="col-span-12 md:col-span-7 flex flex-col gap-2 md:mr-8">
+            <div class="grid grid-flow-col auto-cols-fr gap-2">
                 {% for s_obj in suppliers %}
                 <button type="button" class="btn btn-sm btn-outline" data-filter="supplier" data-value="{{ s_obj.id }}">
                     {{ s_obj.code }}
@@ -45,10 +41,10 @@
                 {% endfor %}
             </div>
 
-            <div class="col-span-12 md:col-span-3 mt-2">
-              <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="flex items-center gap-x-2">
-                  <input type="text" name="q" placeholder="Search SKU or Product Name" class="input input-sm input-bordered w-[70%]" value="{{ query|default:'' }}" />
-                  <button type="button" class="btn btn-sm btn-outline bg-gray-300" onclick="resetWarehouseProductFilters()">
+            <div class="flex items-center gap-2">
+              <form id="warehouse-search-form" method="get" action="{% url 'warehouse:search' %}" class="w-full">
+                  <input type="text" name="q" placeholder="Search SKU or Product Name" class="input input-sm input-bordered w-[80%]" value="{{ query|default:'' }}" />
+                  <button type="button" class="btn btn-sm btn-outline bg-gray-300 w-[18%]" onclick="resetWarehouseProductFilters()">
                       Reset
                   </button>
               </form>
@@ -56,19 +52,19 @@
         </div>
 
         {# Action Buttons - 2 columns #}
-        <div class="col-span-12 md:col-span-2">
-            <div class="flex flex-col items-end gap-y-2">
-                <div class="flex items-center space-x-2">
-                    <label class="label text-sm">H. Lvl:</label>
-                    <select id="healthy-level" class="select select-sm select-bordered w-32">
-                        <option value="1.2">1.2x</option>
-                        <option value="1.3">1.3x</option>
-                        <option value="1.4">1.4x</option>
-                        <option value="1.5" selected>1.5x</option>
-                    </select>
-                </div>
+        <div class="col-span-12 md:col-span-2 flex flex-col gap-2">
+          <div class="flex items-center gap-2">
+              <label class="label text-sm">H. Lvl:</label>
+              <select id="healthy-level" class="select select-sm select-bordered w-32">
+                  <option value="1.2">1.2x</option>
+                  <option value="1.3">1.3x</option>
+                  <option value="1.4">1.4x</option>
+                  <option value="1.5" selected>1.5x</option>
+              </select>
+          </div>
+          <div class="flex items-center gap-2">
                 {% if user.is_superuser %}
-                    <button id="create-po-btn" class="btn btn-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300">
+                    <button id="create-po-btn" class="btn btn-sm bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full">
                         Create PO
                     </button>
                 {% endif %}
@@ -77,72 +73,38 @@
     </div>
 </div>
 
-<div class="overflow-x-auto">
-  <table class="table table-zebra w-full">
-    <thead>
+{# Main Product Table #}
+<table class="table w-full">
+  <thead>
       <tr>
-        <th><input type="checkbox" id="select-all" class="checkbox" /></th>
-        <th>SKU</th>
-        <th>Item Name</th>
-        <th>Warehouse</th>
-        <th>Qty</th>
-        <th>Threshold</th>
-        <th>Qty vs H.Lvl</th>
-        <th>Gap</th>
-        <th>Incoming</th>
-        <th>Details</th>
-      </tr>
-    </thead>
-    <tbody id="search-results">
-      {% for item in products %}
-      <tr>
-        <td><input type="checkbox" class="select-item checkbox" value="{{ item.id }}" /></td>
-        <td>{{ item.product.sku }}</td>
-        <td>{{ item.product.name }}</td> {# Changed from item.product to item.product.name #}
-        <td>{{ item.warehouse.name }}</td>
-        <td>{{ item.quantity }}</td>
-        <td>{{ item.threshold }}</td>
-        <td class="text-center">
-          <div class="flex items-center gap-2">
-            <div class="w-10 md:w-20">
-              <progress class="progress progress-primary w-full qty-progress" data-quantity="{{ item.quantity }}" data-threshold="{{ item.threshold|default_if_none:1 }}" value="{{ item.quantity }}" max="{{ item.threshold|default_if_none:1 }}"></progress>
-            </div>
-            <div class="text-sm text-gray-600 qty-text" data-quantity="{{ item.quantity }}" data-threshold="{{ item.threshold|default_if_none:1 }}"></div>
-          </div>
-        </td>
-        <td class="gap-info" data-quantity="{{ item.quantity }}" data-threshold="{{ item.threshold|default_if_none:1 }}"></td>
-        <td>
-          {% if item.pending_arrival > 0 %}
-            <label for="incoming-modal-{{ item.id }}"
-                   class="btn btn-sm btn-outline">
-              +{{ item.pending_arrival }}
-            </label>
-          {% else %}
-            <span class="badge badge-ghost badge-sm opacity-50">0</span>
-          {% endif %}
-        </td>
-        <td><button onclick="openDetails('{{ item.pk }}')" class="btn btn-sm btn-outline">Details</button></td>
-      </tr>
-      {% empty %} {# Added empty case for the loop #}
-      <tr>
-        <td colspan="10" class="text-center py-4">🔍 No Products Found</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+          <th><input type="checkbox" id="select-all" class="checkbox checkbox-sm"></th>
+          <th>Product</th>
+          <th>Supplier</th>
+          <th>Warehouse</th>
+          <th class="text-right">Threshold</th>
+          <th class="text-right">Stock / H. Lvl</th>
+          <th id="gap-header" class="text-right cursor-pointer">Gap</th>
+          <th>Incoming PO</th>
+          <th>Stats</th>
 
-<input type="checkbox" id="details-modal" class="modal-toggle" />
-<div class="modal" role="dialog">
-  <div class="modal-box">
-    <h3 class="font-bold text-lg mb-4" id="modal-product-name">Details</h3>
-    <div class="space-y-2">
-      <p><strong>Warehouse:</strong> <span id="modal-warehouse-name"></span></p>
-      <p><strong>Quantity:</strong> <span id="modal-quantity"></span></p>
-      <p><strong>Threshold:</strong> <span id="modal-threshold"></span></p>
+      </tr>
+  </thead>
+  <tbody id="search-results">
+      {% include "warehouse/_warehouse_product_rows.html" with products=products %}
+  </tbody>
+</table>
+
+<input type="checkbox" id="stats-modal" class="modal-toggle" />
+<div class="modal">
+  <div class="modal-box w-11/12 max-w-4xl">
+    <h3 class="font-bold text-lg" id="stats-modal-title">Statistics</h3>
+    <div id="stats-modal-content" class="py-4">
+        <div class="text-center">
+            <span class="loading loading-lg loading-spinner"></span>
+        </div>
     </div>
     <div class="modal-action">
-      <label for="details-modal" class="btn">Close</label>
+      <label for="stats-modal" class="btn">Close</label>
     </div>
   </div>
 </div>
@@ -161,62 +123,6 @@
 </div>
 {% endif %}
 
-{% for item in products %}
-  {% if item.pending_arrival > 0 %}
-    <input type="checkbox" id="incoming-modal-{{ item.id }}" class="modal-toggle" />
-    <div class="modal" role="dialog">
-      <div class="modal-box max-w-5xl">
-        <h3 class="font-bold text-lg mb-4">Incoming POs for {{ item.product.name }}</h3>
-        {% with incoming_po_items=item.incoming_po_items %}
-          {% if incoming_po_items %}
-            {% regroup incoming_po_items by purchase_order.supplier as supplier_list %}
-            {% for supplier_group in supplier_list %}
-              <div class="mb-4">
-                <h4 class="text-md font-semibold text-primary mb-2">
-                  Supplier: {{ supplier_group.grouper.name }}
-                </h4>
-                <div class="overflow-x-auto">
-                  <table class="table w-full table-sm">
-                    <thead>
-                      <tr>
-                        <th>PO ID</th>
-                        <th>Status</th>
-                        <th>Ordered Qty</th>
-                        <th>Stock Received</th>
-                        <th>Balance</th>
-                        <th>ETA</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {% for po_item in supplier_group.list %}
-                        <tr {% if po_item.purchase_order.eta and po_item.purchase_order.eta < today %}class="text-red-500"{% endif %}>
-                          <td>PO #{{ po_item.purchase_order.id }}</td>
-                          <td>{{ po_item.purchase_order.get_status_display }}</td>
-                          <td>{{ po_item.quantity }}</td>
-                          <td>{{ po_item.received_quantity|default:0 }}</td>
-                          <td>{{ po_item.balance_quantity|default:0 }}</td>
-                          <td>
-                            {% if po_item.purchase_order.eta %}
-                              {{ po_item.purchase_order.eta|date:"d/m/Y" }}
-                            {% else %}
-                              N/A
-                            {% endif %}
-                          </td>
-                        </tr>
-                      {% endfor %}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            {% endfor %}
-          {% else %}
-            <p class="text-gray-500">No incoming POs found.</p>
-          {% endif %}
-        {% endwith %}
-        <div class="modal-action mt-6">
-          <label for="incoming-modal-{{ item.id }}" class="btn btn-outline">Close</label>
-        </div>
-      </div>
-    </div>
-  {% endif %}
-{% endfor %}
+<div id="product-modals-container">
+  {% include "warehouse/_warehouse_product_modals.html" with products=products today=today %}
+</div>
