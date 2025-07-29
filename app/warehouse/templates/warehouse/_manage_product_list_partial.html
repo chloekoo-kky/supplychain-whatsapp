@@ -1,0 +1,109 @@
+{% comment %}
+This template contains only the product table and pagination.
+It's fetched by JavaScript to dynamically update the list.
+{% endcomment %}
+
+<div class="overflow-x-auto bg-base-100 rounded-lg shadow-md">
+    <table class="table w-full">
+        <thead>
+            <tr>
+                <th class="w-1"><input type="checkbox" class="checkbox checkbox-sm" id="select-all-checkbox"></th>
+                <th>SKU</th>
+                <th>Product Name</th>
+                {% if user.is_superuser %}
+                    <th>Warehouse</th>
+                {% endif %}
+                <th>Photo</th>
+                <th>Dimensions (cm)</th>
+                <th class="text-center">Cond. A (Combo)</th>
+                <th class="text-center">Cond. B (Single)</th>
+                {% if user.is_superuser %}
+                    <th class="text-right">Unit Price (PO)</th>
+                    <th class="text-right">Selling Price</th>
+                {% endif %}
+                <th class="text-right">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for wp in page_obj %}
+            <tr class="hover" id="product-row-{{ wp.id }}">
+                <td><input type="checkbox" class="checkbox checkbox-sm product-checkbox" value="{{ wp.id }}"></td>
+                <td class="font-mono text-sm">{{ wp.product.sku }}</td>
+                <td>{{ wp.product.name }}</td>
+                {% if user.is_superuser %}
+                    <td><span class="badge badge-ghost">{{ wp.warehouse.name }}</span></td>
+                {% endif %}
+                <td>
+                    {% if wp.photo %}
+                        <div class="avatar">
+                            <div class="w-12 rounded">
+                                <img src="{{ wp.photo.url }}" alt="{{ wp.product.name }} thumbnail" />
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="avatar placeholder">
+                            <div class="bg-neutral-focus text-neutral-content rounded w-12">
+                                <span>-</span>
+                            </div>
+                        </div>
+                    {% endif %}
+                </td>
+                 <td class="text-sm">
+                    {% if wp.length and wp.width and wp.height %}
+                        {{ wp.length|floatformat:"-1" }} x {{ wp.width|floatformat:"-1" }} x {{ wp.height|floatformat:"-1" }}
+                    {% else %}
+                        <span class="text-gray-400">N/A</span>
+                    {% endif %}
+                </td>
+                <td class="text-center">
+                    {{ wp.max_ship_qty_a|default_if_none:"-" }}
+                </td>
+                <td class="text-center">
+                    {{ wp.max_ship_qty_b|default_if_none:"-" }}
+                </td>
+                {% if user.is_superuser %}
+                    <td class="text-right font-mono text-sm">
+                        {% if wp.avg_po_price %}
+                            ${{ wp.avg_po_price|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                    <td class="text-right font-mono text-sm">
+                        {% if wp.selling_price %}
+                            RM{{ wp.selling_price|floatformat:2 }}
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                {% endif %}
+                <td class="text-right">
+                    <button data-wpid="{{ wp.id }}" class="btn btn-sm btn-primary js-manage-btn">Manage</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="{% if user.is_superuser %}11{% else %}8{% endif %}" class="text-center py-8">No products found matching your criteria.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if page_obj.has_other_pages %}
+<div class="mt-6 flex justify-center">
+    <div class="btn-group">
+        {% if page_obj.has_previous %}
+            <a href="?page=1&q={{ search_query }}" class="btn" aria-label="First page">«</a>
+            <a href="?page={{ page_obj.previous_page_number }}&q={{ search_query }}" class="btn" aria-label="Previous page">‹</a>
+        {% endif %}
+
+        <button class="btn btn-disabled">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</button>
+
+        {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}&q={{ search_query }}" class="btn" aria-label="Next page">›</a>
+            <a href="?page={{ page_obj.paginator.num_pages }}&q={{ search_query }}" class="btn" aria-label="Last page">»</a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}

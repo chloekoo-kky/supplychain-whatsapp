@@ -467,6 +467,22 @@ class AirwayBillForm(forms.ModelForm):
             'estimated_cost': 'Estimated Cost (MYR)',
         }
 
+    def clean_tracking_number(self):
+        """
+        Validates that the tracking number is unique, excluding the current parcel instance.
+        """
+        tracking_number = self.cleaned_data.get('tracking_number')
+
+        # We only validate if the user has entered a tracking number.
+        if tracking_number:
+            # Check for other parcels with the same tracking number.
+            # We exclude the current parcel's pk so it doesn't fail validation against itself.
+            if Parcel.objects.filter(tracking_number__iexact=tracking_number).exclude(pk=self.instance.pk).exists():
+                raise forms.ValidationError(
+                    "This tracking number is already in use by another parcel. Please enter a unique number."
+                )
+        return tracking_number
+
 class CourierInvoiceForm(forms.ModelForm):
     """
     Form for uploading a new courier invoice.
@@ -490,9 +506,56 @@ class CourierInvoiceItemForm(forms.ModelForm):
         fields = ['tracking_number', 'actual_cost']
 
 
+class CourierInvoiceFilterForm(forms.Form):
+    courier_company = forms.ModelChoiceField(
+        queryset=CourierCompany.objects.filter(is_active=True),
+        required=False,
+        label="Courier",
+        widget=forms.Select(attrs={'class': 'select select-bordered select-sm w-full'})
+    )
+    payment_status = forms.ChoiceField(
+        choices=[('', 'All Statuses')] + CourierInvoice.PAYMENT_STATUS_CHOICES,
+        required=False,
+        label="Payment Status",
+        widget=forms.Select(attrs={'class': 'select select-bordered select-sm w-full'})
+    )
+    q = forms.CharField(
+        required=False,
+        label="Search",
+        widget=forms.TextInput(attrs={'class': 'input input-bordered input-sm w-full', 'placeholder': 'Invoice #'})
+    )
+
 class DisputeUpdateForm(forms.Form):
-    update_date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date', 'class': 'input input-sm input-bordered w-full'}))
-    remarks = forms.CharField(widget=forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 1}), required=False)
+    update_date = forms.DateField(
+        widget=forms.DateInput(attrs={'type': 'date', 'class': 'input input-sm input-bordered w-full'}),
+        required=False
+    )
+    remarks = forms.CharField(
+        widget=forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 1, 'placeholder': 'Required if date is set...'}),
+        required=False
+    )
+
+    # --- MODIFICATION START ---
+    def clean(self):
+        """
+        Custom validation to ensure that if one field in the "Add New Update"
+        section is filled, the other is also required.
+        """
+        cleaned_data = super().clean()
+        update_date = cleaned_data.get('update_date')
+        remarks = cleaned_data.get('remarks')
+
+        # Scenario 1: Date is provided, but remarks are missing.
+        if update_date and not remarks:
+            self.add_error('remarks', 'Remarks are required when an update date is provided.')
+
+        # Scenario 2: Remarks are provided, but date is missing.
+        if remarks and not update_date:
+            self.add_error('update_date', 'An update date is required when remarks are provided.')
+
+        return cleaned_data
+
+
 
 class DisputeForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
@@ -500,12 +563,17 @@ class DisputeForm(forms.ModelForm):
         instance = kwargs.get('instance')
 
         if instance:
-            # Lock dispute date if it exists, otherwise default to today
+            # Always make the dispute date field readonly to prevent user changes.
+            self.fields['dispute_date'].widget.attrs['readonly'] = True
+
+            # --- MODIFICATION START ---
             if instance.dispute_date:
-                self.fields['dispute_date'].widget.attrs['disabled'] = True
-                self.fields['dispute_date'].widget.attrs['class'] += ' bg-gray-200'
+                # This is an EXISTING dispute. Add the grey background to show it's locked.
+                self.fields['dispute_date'].widget.attrs['class'] += ' bg-gray-100 text-gray-500'
             else:
+                # This is a NEW dispute. Set today's date but keep the white background.
                 self.initial['dispute_date'] = timezone.now().date()
+            # --- MODIFICATION END ---
 
             # FIX: Lock final amount if it exists
             if instance.final_amount_after_dispute is not None:
@@ -518,9 +586,10 @@ class DisputeForm(forms.ModelForm):
                 self.fields['final_amount_date'].widget.attrs['class'] += ' bg-gray-200'
 
     def clean_dispute_date(self):
-        if self.instance and self.instance.pk and self.instance.dispute_date:
-            return self.instance.dispute_date
+        # The field is readonly, so we just return the value.
+        # The old validation for future dates is no longer needed.
         return self.cleaned_data.get('dispute_date')
+
 
     # FIX: Add clean methods to preserve final amount fields when disabled
     def clean_final_amount_after_dispute(self):
@@ -542,3 +611,33 @@ class DisputeForm(forms.ModelForm):
             'final_amount_date': forms.DateInput(attrs={'type': 'date', 'class': 'input input-sm input-bordered w-full'}),
         }
 
+
+class ParcelEditForm(forms.ModelForm):
+    """
+    A comprehensive form for editing key parcel details in the modal,
+    including the courier company.
+    """
+    def __init__(self, *args, **kwargs):
+        # The declarations_queryset is passed in from the view
+        declarations_queryset = kwargs.pop('declarations_queryset', None)
+        super().__init__(*args, **kwargs)
+        if declarations_queryset is not None:
+            self.fields['customs_declaration'].queryset = declarations_queryset
+
+    class Meta:
+        model = Parcel
+        fields = [
+            'customs_declaration', 'weight', 'length',
+            'width', 'height', 'dimensional_weight_kg', 'declared_value',
+            'declared_value_myr'
+        ]
+        widgets = {
+            'customs_declaration': forms.RadioSelect(),
+            'weight': forms.NumberInput(attrs={'class': 'input input-bordered w-full', 'placeholder': 'e.g., 0.5'}),
+            'length': forms.NumberInput(attrs={'class': 'input input-bordered w-full dimensional-input', 'placeholder': 'L (cm)'}),
+            'width': forms.NumberInput(attrs={'class': 'input input-bordered w-full dimensional-input', 'placeholder': 'W (cm)'}),
+            'height': forms.NumberInput(attrs={'class': 'input input-bordered w-full dimensional-input', 'placeholder': 'H (cm)'}),
+            'dimensional_weight_kg': forms.HiddenInput(),
+            'declared_value': forms.NumberInput(attrs={'class': 'input input-bordered w-full', 'placeholder': 'e.g., 10.00'}),
+            'declared_value_myr': forms.NumberInput(attrs={'class': 'input input-bordered w-full', 'readonly': True}),
+        }

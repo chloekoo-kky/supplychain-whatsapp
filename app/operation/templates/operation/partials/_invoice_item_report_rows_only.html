@@ -37,7 +37,7 @@
     {# Col 4: State/City #}
     <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm">
         <p class="text-gray-900 whitespace-no-wrap">{{ item.receiver_state|default_if_none:"" }}</p>
-        <p class="text-gray-600 whitespace-no-wrap text-xs pt-0">{{ item.destination_name|title_case|default_if_none:"" }}</p>
+        <p class="text-gray-600 whitespace-no-wrap text-xs pt-0">{{ item.destination_name|title|default_if_none:"" }}</p>
     </td>
     {# Col 5: Est. Cost #}
     <td class="px-3 py-4 border-b border-gray-200 bg-white text-sm text-right">

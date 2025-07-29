@@ -6,16 +6,18 @@
 
     <div class="grid grid-cols-12 gap-2">
 
-        <div class="col-span-12 md:col-span-1 items-start">
-            <h2 class="text-xl font-semibold text-gray-900 mb-2">
-                <span class="font-normal customer-order-count">
-                    {% if orders.paginator %}{{ orders.paginator.count }} orders
-                    {% else %}{{ total_orders_count|default:0 }} orders{% endif %}
-                </span>
-            </h2>
+        <div class="col-span-12 md:col-span-2 items-start"> {# Increased column span for more space #}
+            <div class="text-lg">
+                <div class="font-semibold text-gray-800">
+                    New: <span class="text-orange-500 font-bold customer-new-order-count">{{ new_orders_count|default:0 }}</span>
+                </div>
+                <div class="font-semibold text-gray-800">
+                    Partial: <span class="text-blue-600 font-bold customer-partial-order-count">{{ partial_orders_count|default:0 }}</span>
+                </div>
+            </div>
         </div>
-
-        <div class="col-span-12 md:col-span-2 mb-2 md:mr-4">
+        {# Note: Reduced the md:col-span of the next div to make space #}
+        <div class="col-span-12 md:col-span-1 mb-2 md:mr-4">
             <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch" id="warehouse-filter-container">
                 {% if request.user.is_superuser %}
                     {% for wh in warehouses %}
@@ -58,5 +60,5 @@
 
 {# This container's content will be replaced by AJAX #}
 <div id="customer-orders-dynamic-content">
-    {% include 'operation/partials/_customer_orders_table_with_pagination.html' with orders=orders %}
+    {% include 'operation/partials/_customer_orders_table_with_pagination.html' with orders=orders_page_obj customer_parcel_counts=customer_parcel_counts active_orders_count=active_orders_count %}
 </div>

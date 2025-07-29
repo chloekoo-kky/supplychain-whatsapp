@@ -1,0 +1,101 @@
+<!-- warehouse/templates/warehouse/manage_product_details.html -->
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <!-- If you have custom DaisyUI styles, link them here -->
+  <!-- <link rel="stylesheet" href="{% static 'css/your-daisyui-styles.css' %}"> -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link
+    href="https://cdn.jsdelivr.net/npm/daisyui@latest/dist/full.css"
+    rel="stylesheet"
+    type="text/css"
+  />
+{% endblock %}
+
+{% block title %}
+  Manage Details for {{ warehouse_product.product.name }}
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto p-4 md:p-6">
+    <div class="prose mb-4">
+      <h1>Manage Product Details</h1>
+      <p class="lead">For product <strong>{{ warehouse_product.product.name }}</strong> ({{ warehouse_product.product.sku }}) in <strong>{{ warehouse_product.warehouse.name }}</strong>.</p>
+    </div>
+
+    <div class="divider"></div>
+
+    <form method="post" enctype="multipart/form-data" class="mt-4 space-y-8">
+        {% csrf_token %}
+
+        <!-- Product Image Section -->
+        <div class="card bg-base-100 shadow-lg">
+            <div class="card-body">
+                <h3 class="card-title text-lg">Product Image</h3>
+                {% if warehouse_product.photo %}
+                    <div class="mb-4">
+                        <p class="text-sm font-medium">Current Image:</p>
+                        <img src="{{ warehouse_product.photo.url }}" alt="Current product image" class="mt-2 max-h-48 rounded-lg shadow">
+                    </div>
+                {% endif %}
+                <div class="form-control w-full max-w-xs">
+                    <label class="label" for="{{ form.photo.id_for_label }}"><span class="label-text">Upload New Image</span></label>
+                    {{ form.photo }}
+                    <div class="label">
+                      {% if form.photo.errors %}<span class="label-text-alt text-error">{{ form.photo.errors|join:", " }}</span>{% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dimensions Section -->
+        <div class="card bg-base-100 shadow-lg">
+            <div class="card-body">
+                <h3 class="card-title text-lg">Dimensions (cm)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {% for field in form %}
+                        {% if field.name in "length,width,height" %}
+                        <div class="form-control">
+                            <label class="label" for="{{ field.id_for_label }}"><span class="label-text">{{ field.label }}</span></label>
+                            {{ field }}
+                             <div class="label">
+                              {% if field.errors %}<span class="label-text-alt text-error">{{ field.errors|join:", " }}</span>{% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Shipping Section -->
+        <div class="card bg-base-100 shadow-lg">
+             <div class="card-body">
+                <h3 class="card-title text-lg">Maximum Shipping Quantities</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {% for field in form %}
+                        {% if field.name in "max_ship_qty_a,max_ship_qty_b" %}
+                         <div class="form-control">
+                            <label class="label" for="{{ field.id_for_label }}"><span class="label-text">{{ field.label }}</span></label>
+                            {{ field }}
+                             <div class="label">
+                              {% if field.errors %}<span class="label-text-alt text-error">{{ field.errors|join:", " }}</span>{% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="mt-8 flex justify-end gap-4">
+            <!-- ++ FIX: Use the 'warehouse' namespace for the URL ++ -->
+            <a href="{% url 'warehouse:manage_product_list' %}" class="btn btn-ghost">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

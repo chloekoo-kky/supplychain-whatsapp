@@ -126,7 +126,8 @@
             <table class="table table-xs w-full">
                 <thead>
                     <tr>
-                        <th class="w-[300px] py-1 px-1 text-left">Product (SKU)</th>
+                        <th class="w-1/12 py-1 px-2 text-left">SKU</th>
+                        <th class="w-[300px] py-1 px-1 text-left">Product Name</th>
                         <th class="w-1/12 py-1 px-1 text-center">Qty</th>
                         <th class="w-2/5 py-1 px-1 text-left">{{ item_formset.empty_form.customs_description.label_tag }}</th>
                         <th class="w-1/12 py-1 px-1 text-left">{{ item_formset.empty_form.declared_value.label_tag }}</th>
@@ -137,7 +138,10 @@
                         <tr id="{{ form.prefix }}-row">
                             {{ form.id }}
                             <td class="py-1 px-1 align-middle">
-                                <div>{{ form.sku_display }}{{ form.product_name_display }}</div>
+                                <div>{{ form.sku_display }}</div>
+                            </td>
+                            <td class="py-1 px-1 align-middle">
+                                <div>{{ form.product_name_display }}</div>
                             </td>
                             <td class="py-1 px-1 align-middle text-center">
                                 {{ form.quantity_shipped_display }}
@@ -166,6 +170,10 @@
     </div>
 
     <div class="modal-action mt-6">
+        <button type="button" id="remove-parcel-btn" class="btn btn-error btn-outline" data-parcel-pk="{{ parcel.pk }}">
+            Remove Parcel
+        </button>
+
         <label for="view-edit-parcel-modal-toggle" class="btn btn-ghost modal-close-button">Cancel</label>
         <button type="submit" class="btn btn-primary">Save Customs Details</button>
     </div>

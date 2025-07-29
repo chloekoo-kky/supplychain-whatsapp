@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.urls import reverse
 
 from django.db import transaction, IntegrityError, models
-from django.db.models import Q, Count, Prefetch, F, Value, Case, When, Sum, ExpressionWrapper, DurationField
+from django.db.models import Q, Count, Avg, Prefetch, F, Value, Case, When, Sum, ExpressionWrapper, DurationField
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
 from django.http import JsonResponse, Http404, HttpResponse, HttpResponseForbidden
@@ -22,8 +22,12 @@ import traceback
 import datetime
 import calendar
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from openpyxl import Workbook
+from collections import Counter
+from dateutil.relativedelta import relativedelta
+
+
 
 import openpyxl
 import xlrd
@@ -34,7 +38,7 @@ from .forms import (
     RemoveOrderItemForm, RemoveOrderItemFormSet,
     ParcelCustomsDetailForm, ParcelItemCustomsDetailFormSet, CustomsDeclarationForm,
     PackagingTypeForm, PackagingMaterialForm, AirwayBillForm, CourierInvoiceForm,
-    DisputeForm, DisputeUpdateForm
+    DisputeForm, DisputeUpdateForm, ParcelEditForm, CourierInvoiceFilterForm
 )
 from .models import (Order,
                      OrderItem,
@@ -55,14 +59,13 @@ from customers.models import Customer
 from .services import update_parcel_tracking_from_api, parse_invoice_file
 
 
-
 logger = logging.getLogger(__name__)
 DEFAULT_CUSTOMER_ORDERS_TAB = "customer_orders"
 DEFAULT_PARCELS_TAB = "parcels_details"
 
 
 @login_required
-def order_list_view(request):
+def order_list(request):
     logger.debug(f"[OrderListView] Request GET params: {request.GET}")
     user = request.user
 
@@ -91,44 +94,56 @@ def order_list_view(request):
         page_number = request.GET.get('page', 1)
         logger.debug(f"[CustomerOrdersTab] Filters: warehouse='{selected_warehouse_id}', status='{selected_status}', q='{query}', page='{page_number}'")
 
-        orders_qs = Order.objects.select_related(
+        # 1. Create a base queryset that only considers user permissions.
+        base_orders_qs = Order.objects.all()
+        if not user.is_superuser:
+            if user.warehouse:
+                base_orders_qs = base_orders_qs.filter(warehouse=user.warehouse)
+            else:
+                base_orders_qs = base_orders_qs.none()
+
+        # 2. Calculate the static counts from this base queryset. These will not change with filters.
+        new_orders_count = base_orders_qs.filter(status='NEW_ORDER').count()
+        partial_orders_count = base_orders_qs.filter(status='PARTIALLY_SHIPPED').count()
+
+        # 3. Create a separate queryset for filtering and displaying in the table.
+        # This starts from the same base but will have more filters applied.
+        filtered_orders_qs = base_orders_qs.select_related(
             'warehouse', 'imported_by', 'customer'
         ).prefetch_related(
             Prefetch('items', queryset=OrderItem.objects.select_related('product', 'suggested_batch_item', 'warehouse_product').order_by('product__name')),
-            # FIX: Added select_related('courier_company') to efficiently fetch the courier name.
             Prefetch('parcels', queryset=Parcel.objects.select_related('courier_company').order_by('-created_at'))
-        ).all()
+        )
 
+
+        # 4. Apply user-selected filters (warehouse, query, status) to the 'filtered_orders_qs'.
         warehouses_for_co_filters = all_warehouses_qs
         if not user.is_superuser:
-            if user.warehouse:
+             if user.warehouse:
                 warehouses_for_co_filters = Warehouse.objects.filter(pk=user.warehouse.pk)
-                orders_qs = orders_qs.filter(warehouse=user.warehouse)
                 selected_warehouse_id = str(user.warehouse.pk)
-            else:
+             else:
                 warehouses_for_co_filters = Warehouse.objects.none()
-                orders_qs = orders_qs.none()
-        context['warehouses'] = warehouses_for_co_filters # Keep this for customer orders tab
+        context['warehouses'] = warehouses_for_co_filters
+
 
         if selected_warehouse_id and user.is_superuser:
-            orders_qs = orders_qs.filter(warehouse_id=selected_warehouse_id)
+            filtered_orders_qs = filtered_orders_qs.filter(warehouse_id=selected_warehouse_id)
 
-        if selected_status:
-            orders_qs = orders_qs.filter(status=selected_status)
         if query:
-            orders_qs = orders_qs.filter(
-                Q(erp_order_id__icontains=query) |
-                Q(order_display_code__icontains=query) |
-                Q(customer__customer_name__icontains=query) |
-                Q(customer__company_name__icontains=query) |
-                Q(items__product__sku__icontains=query) |
-                Q(items__product__name__icontains=query) |
-                Q(parcels__parcel_code_system__icontains=query) |
-                Q(parcels__tracking_number__icontains=query)
+            filtered_orders_qs = filtered_orders_qs.filter(
+                Q(erp_order_id__icontains=query) | Q(order_display_code__icontains=query) |
+                Q(customer__customer_name__icontains=query) | Q(customer__company_name__icontains=query) |
+                Q(items__product__sku__icontains=query) | Q(items__product__name__icontains=query) |
+                Q(parcels__parcel_code_system__icontains=query) | Q(parcels__tracking_number__icontains=query)
             ).distinct()
 
-        orders_qs = orders_qs.order_by('-order_date', '-imported_at')
-        paginator = Paginator(orders_qs, 30)
+        if selected_status:
+            filtered_orders_qs = filtered_orders_qs.filter(status=selected_status)
+
+        filtered_orders_qs = filtered_orders_qs.order_by('-order_date', '-imported_at')
+        paginator = Paginator(filtered_orders_qs, 30)
+
         try:
             orders_page_obj = paginator.page(page_number)
         except PageNotAnInteger:
@@ -164,6 +179,8 @@ def order_list_view(request):
             'orders_page_obj': orders_page_obj,
             'customer_parcel_counts': customer_parcel_counts,
             'total_orders_count': paginator.count,
+            'new_orders_count': new_orders_count,
+            'partial_orders_count': partial_orders_count,
             'selected_warehouse': selected_warehouse_id,
             'selected_status': selected_status,
             'query': query,
@@ -178,6 +195,9 @@ def order_list_view(request):
                 template_to_render = 'operation/partials/customer_orders_table.html'
             response = render(request, template_to_render, context)
             response['X-Total-Orders-Count'] = paginator.count
+            response['X-New-Orders-Count'] = new_orders_count
+            response['X-Partial-Orders-Count'] = partial_orders_count
+
             if orders_page_obj.has_next():
                 response['HX-Trigger-After-Swap'] = 'loadMoreCustomerOrdersAvailable'
             else:
@@ -187,16 +207,27 @@ def order_list_view(request):
 
 
     elif active_tab == DEFAULT_PARCELS_TAB:
-        # Check for the specific parcel list fetch parameter for AJAX
         fetch_parcel_list_only = request.GET.get('fetch_parcel_list_only') == 'true'
 
-        parcels_qs = Parcel.objects.select_related(
+        base_parcels_qs = Parcel.objects.all()
+        if not user.is_superuser:
+            if user.warehouse:
+                base_parcels_qs = base_parcels_qs.filter(order__warehouse=user.warehouse)
+            else:
+                base_parcels_qs = base_parcels_qs.none()
+
+        to_pack_count = base_parcels_qs.filter(status='PREPARING_TO_PACK').count()
+        ready_to_ship_count = base_parcels_qs.filter(status='READY_TO_SHIP').count()
+        in_transit_count = base_parcels_qs.filter(status='IN_TRANSIT').count()
+        delivered_count = base_parcels_qs.filter(status='DELIVERED').count()
+
+        filtered_parcels_qs = base_parcels_qs.select_related(
             'order__warehouse', 'order__imported_by', 'created_by', 'courier_company', 'billing_item'
         ).prefetch_related(
             Prefetch('items_in_parcel', queryset=ParcelItem.objects.select_related(
                 'order_item__product', 'shipped_from_batch'
             ).order_by('order_item__product__name'))
-        ).all()
+        )
 
         courier_companies_for_filter = CourierCompany.objects.all().order_by('name')
         context['courier_companies'] = courier_companies_for_filter
@@ -204,67 +235,80 @@ def order_list_view(request):
         warehouses_for_parcel_filters_ui = all_warehouses_qs
         actual_selected_warehouse_id_for_query_and_ui = request.GET.get('parcel_warehouse')
         selected_parcel_courier_name = request.GET.get('parcel_courier')
-
         start_date_str = request.GET.get('parcel_start_date')
         end_date_str = request.GET.get('parcel_end_date')
 
+        # --- START: CORRECTION ---
+        # This section was causing the error. It now correctly modifies 'filtered_parcels_qs'.
         if not user.is_superuser:
             if user.warehouse:
                 warehouses_for_parcel_filters_ui = Warehouse.objects.filter(pk=user.warehouse.pk)
-                parcels_qs = parcels_qs.filter(order__warehouse=user.warehouse)
+                # The queryset is already filtered by the base_parcels_qs logic, so we just set the UI variable.
                 actual_selected_warehouse_id_for_query_and_ui = str(user.warehouse.pk)
             else:
                 warehouses_for_parcel_filters_ui = Warehouse.objects.none()
-                parcels_qs = parcels_qs.none()
+                # The queryset is already .none() from the base_parcels_qs logic.
                 actual_selected_warehouse_id_for_query_and_ui = None
+        # --- END: CORRECTION ---
+
         context['warehouses'] = warehouses_for_parcel_filters_ui
         selected_parcel_status = request.GET.get('parcel_status', None)
 
-        if selected_parcel_status:
-            # This now works for ANY status passed from the buttons
-            parcels_qs = parcels_qs.filter(status=selected_parcel_status)
+        not_billed_only = request.GET.get('not_billed_only') == 'true'
+
+        # Make status and "not billed" filters mutually exclusive
+        if not_billed_only:
+            selected_parcel_status = '' # De-select status filter
+            # Filter for parcels where the link to a billing item does not exist
+            filtered_parcels_qs = filtered_parcels_qs.filter(billing_item__isnull=True)
+        elif selected_parcel_status:
+            not_billed_only = False # De-select not_billed filter
+            filtered_parcels_qs = filtered_parcels_qs.filter(status=selected_parcel_status)
+        # --- END OF THE FIX ---
 
         if user.is_superuser and actual_selected_warehouse_id_for_query_and_ui:
-            parcels_qs = parcels_qs.filter(order__warehouse_id=actual_selected_warehouse_id_for_query_and_ui)
+            filtered_parcels_qs = filtered_parcels_qs.filter(order__warehouse_id=actual_selected_warehouse_id_for_query_and_ui)
 
         if selected_parcel_courier_name:
-            parcels_qs = parcels_qs.filter(courier_company__code=selected_parcel_courier_name)
+            filtered_parcels_qs = filtered_parcels_qs.filter(courier_company__code=selected_parcel_courier_name)
 
         if start_date_str:
             try:
-                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-                # Filter parcels created on or after the start date
-                parcels_qs = parcels_qs.filter(created_at__gte=start_date)
-            except ValueError:
-                pass # Ignore invalid date format
+                start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Use '__date' to correctly filter a DateTimeField with a date object
+                filtered_parcels_qs = filtered_parcels_qs.filter(created_at__date__gte=start_date)
+            except (ValueError, TypeError):
+                # Silently ignore invalid date formats instead of crashing
+                pass
 
+        # Filter by end date only if a valid date string is provided
         if end_date_str:
             try:
-                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-                # To include the entire end day, filter up to the end of that day
-                end_of_day = datetime.combine(end_date, time.max)
-                parcels_qs = parcels_qs.filter(created_at__lte=end_of_day)
-            except ValueError:
-                pass # Ignore invalid date format
+                end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # Use '__date' to correctly filter a DateTimeField with a date object
+                filtered_parcels_qs = filtered_parcels_qs.filter(created_at__date__lte=end_date)
+            except (ValueError, TypeError):
+                # Silently ignore invalid date formats
+                pass
 
         parcel_query_param = request.GET.get('parcel_q', '').strip()
         page_number = request.GET.get('page', 1)
         logger.debug(f"[ParcelTab] Filters: parcel_warehouse='{actual_selected_warehouse_id_for_query_and_ui}', parcel_courier='{selected_parcel_courier_name}', parcel_q='{parcel_query_param}', page='{page_number}'")
 
         if parcel_query_param:
-            parcels_qs = parcels_qs.filter(
-                Q(parcel_code_system__icontains=parcel_query_param) |
-                Q(tracking_number__icontains=parcel_query_param) |
-                Q(order__erp_order_id__icontains=parcel_query_param) |
-                Q(order__customer__customer_name__icontains=parcel_query_param) |
-                Q(items_in_parcel__order_item__product__name__icontains=parcel_query_param) |
-                Q(items_in_parcel__order_item__product__sku__icontains=parcel_query_param) |
-                Q(items_in_parcel__shipped_from_batch__batch_number__icontains=parcel_query_param) |
-                Q(items_in_parcel__shipped_from_batch__location_label__icontains=parcel_query_param)
+            filtered_parcels_qs = filtered_parcels_qs.filter(
+                Q(parcel_code_system__icontains=parcel_query_param) | Q(tracking_number__icontains=parcel_query_param) |
+                Q(order__erp_order_id__icontains=parcel_query_param) | Q(order__customer__customer_name__icontains=parcel_query_param) |
+                Q(items_in_parcel__order_item__product__name__icontains=parcel_query_param) | Q(items_in_parcel__order_item__product__sku__icontains=parcel_query_param) |
+                Q(items_in_parcel__shipped_from_batch__batch_number__icontains=parcel_query_param) | Q(items_in_parcel__shipped_from_batch__location_label__icontains=parcel_query_param)
             ).distinct()
 
-        parcels_qs = parcels_qs.order_by('-created_at')
-        parcel_paginator = Paginator(parcels_qs, 30)
+        # --- START: CORRECTION ---
+        # Use the correct variable 'filtered_parcels_qs' for ordering and pagination.
+        filtered_parcels_qs = filtered_parcels_qs.order_by('-created_at')
+        parcel_paginator = Paginator(filtered_parcels_qs, 30)
+        # --- END: CORRECTION ---
+
         try:
             parcels_page = parcel_paginator.page(page_number)
         except PageNotAnInteger:
@@ -275,8 +319,14 @@ def order_list_view(request):
         context.update({
             'parcels': parcels_page,
             'total_parcels_count': parcel_paginator.count,
+            'to_pack_count': to_pack_count,
+            'ready_to_ship_count': ready_to_ship_count,
+            'in_transit_count': in_transit_count,
+            'delivered_count': delivered_count,
             'selected_parcel_warehouse': actual_selected_warehouse_id_for_query_and_ui,
             'selected_parcel_courier': selected_parcel_courier_name,
+            'selected_parcel_status': selected_parcel_status,
+            'not_billed_only': not_billed_only,
             'parcel_query': parcel_query_param,
             'page_title': "Parcel Details",
             'start_date': start_date_str,
@@ -291,59 +341,94 @@ def order_list_view(request):
 
             response = render(request, template_to_render, context)
             response['X-Total-Parcels-Count'] = parcel_paginator.count
+            response['X-To-Pack-Count'] = to_pack_count
+            response['X-Ready-To-Ship-Count'] = ready_to_ship_count
+            response['X-In-Transit-Count'] = in_transit_count
+            response['X-Delivered-Count'] = delivered_count
             return response
 
     return render(request, 'operation/order_management_base.html', context)
 
+
 @login_required
 def load_more_customer_orders(request):
-    logger.debug(f"[LoadMoreCustomerOrders] Request GET params: {request.GET}")
+    # --- START: Added extensive logging ---
+    logger.debug("--- [load_more_customer_orders] Function Called ---")
+    logger.debug(f"Request GET params: {request.GET}")
+
     user = request.user
 
     orders_qs = Order.objects.select_related(
-        'warehouse',
-        'imported_by'
+        'warehouse', 'imported_by', 'customer'
     ).prefetch_related(
         Prefetch('items', queryset=OrderItem.objects.select_related('product', 'suggested_batch_item', 'warehouse_product').order_by('product__name')),
-        # FIX: Added select_related('courier_company') to efficiently fetch the courier name.
         Prefetch('parcels', queryset=Parcel.objects.select_related('courier_company').order_by('-created_at'))
     ).all()
 
+    initial_count = orders_qs.count()
+    logger.debug(f"Initial queryset count: {initial_count}")
+
     if not user.is_superuser and user.warehouse:
         orders_qs = orders_qs.filter(warehouse=user.warehouse)
-    elif not user.is_superuser: # Non-superuser with no warehouse
+        logger.debug(f"Filtered for non-superuser warehouse '{user.warehouse.name}'. New count: {orders_qs.count()}")
+    elif not user.is_superuser:
         orders_qs = orders_qs.none()
+        logger.debug("Non-superuser with no warehouse. Queryset is now empty.")
 
     selected_warehouse_id = request.GET.get('warehouse')
     selected_status = request.GET.get('status')
     query = request.GET.get('q', '').strip()
-    page_number = request.GET.get('page', 1) # Default to page 1 if not provided
+    page_number = request.GET.get('page', 1)
+    logger.debug(f"Extracted Filters -> Warehouse: '{selected_warehouse_id}', Status: '{selected_status}', Query: '{query}', Page: {page_number}")
 
     if user.is_superuser and selected_warehouse_id:
         orders_qs = orders_qs.filter(warehouse_id=selected_warehouse_id)
+        logger.debug(f"Filtered for warehouse ID '{selected_warehouse_id}'. New count: {orders_qs.count()}")
 
     if selected_status:
         orders_qs = orders_qs.filter(status=selected_status)
+        logger.debug(f"Filtered for status '{selected_status}'. New count: {orders_qs.count()}")
+
     if query:
+        # This uses the corrected and more complete filtering logic
         orders_qs = orders_qs.filter(
             Q(erp_order_id__icontains=query) |
-            Q(customer_name__icontains=query) |
-            Q(items__product__sku__icontains=query)
+            Q(order_display_code__icontains=query) |
+            Q(customer__customer_name__icontains=query) |
+            Q(customer__company_name__icontains=query) |
+            Q(items__product__sku__icontains=query) |
+            Q(items__product__name__icontains=query) |
+            Q(parcels__parcel_code_system__icontains=query) |
+            Q(parcels__tracking_number__icontains=query)
         ).distinct()
+        logger.debug(f"Filtered for query '{query}'. New (distinct) count: {orders_qs.count()}")
 
     orders_qs = orders_qs.order_by('-order_date', '-imported_at')
 
-    paginator = Paginator(orders_qs, 10)
+    paginator = Paginator(orders_qs, 30) # Using 10 for "load more" is fine
+    logger.debug(f"Paginator created. Total items for pagination: {paginator.count}. Requesting page: {page_number}")
+
     try:
         orders_page_obj = paginator.page(page_number)
+        logger.debug(f"Successfully fetched page {page_number}. Items on this page: {len(orders_page_obj.object_list)}")
     except PageNotAnInteger:
-        logger.warning(f"PageNotAnInteger for page '{page_number}' in load_more_customer_orders. Defaulting to page 1.")
+        logger.warning(f"PageNotAnInteger error for page '{page_number}'. Defaulting to page 1.")
         orders_page_obj = paginator.page(1)
         if not orders_page_obj.object_list:
+            logger.debug("Defaulted to page 1, but it is empty. Returning empty response.")
             return HttpResponse("")
     except EmptyPage:
-        logger.info(f"EmptyPage for page '{page_number}' in load_more_customer_orders. No more items.")
-        return HttpResponse("")
+        logger.info(f"EmptyPage error for page '{page_number}'. No more items to load. Returning empty response.")
+        return HttpResponse("") # This is expected when all items are loaded
+
+    # --- This part for fetching related customer parcel counts is new and useful for the template ---
+    customer_ids_on_page = {order.customer.id for order in orders_page_obj.object_list if order.customer}
+    customer_parcel_counts = {
+        customer.id: customer.total_parcel_count
+        for customer in Customer.objects.filter(id__in=customer_ids_on_page).annotate(total_parcel_count=Count('orders__parcels'))
+    }
+    logger.debug(f"Fetched total parcel counts for {len(customer_parcel_counts)} customers on this page.")
+    # ---
 
     for order_instance in orders_page_obj.object_list:
         for item_instance in order_instance.items.all():
@@ -351,6 +436,7 @@ def load_more_customer_orders(request):
 
     context = {
         'orders': orders_page_obj.object_list,
+        'customer_parcel_counts': customer_parcel_counts, # Pass this to the template
         'request': request,
     }
 
@@ -359,8 +445,13 @@ def load_more_customer_orders(request):
     response = HttpResponse(html_rows)
     if orders_page_obj.has_next():
         response['HX-Trigger'] = 'loadMoreCustomerOrdersAvailable'
+        logger.debug("Sending response with HX-Trigger: loadMoreCustomerOrdersAvailable")
     else:
         response['HX-Trigger'] = 'loadMoreCustomerOrdersUnavailable'
+        logger.debug("Sending response with HX-Trigger: loadMoreCustomerOrdersUnavailable")
+
+    logger.debug("--- [load_more_customer_orders] Response Sent ---")
+    # --- END: Added extensive logging ---
     return response
 
 
@@ -808,8 +899,7 @@ def import_orders_from_excel(request):
 def get_order_items_for_packing(request, order_pk):
     """
     Gets all data needed to populate the 'Pack Order' modal.
-    This version now always includes all active couriers in the daily counts,
-    showing 0 for those with no parcels today.
+    This version uses a more robust method to count parcels for the courier dashboard.
     """
     try:
         order = get_object_or_404(
@@ -827,7 +917,6 @@ def get_order_items_for_packing(request, order_pk):
         if not request.user.is_superuser and (not request.user.warehouse or order.warehouse != request.user.warehouse):
             return JsonResponse({'success': False, 'message': 'Permission denied for this order.'}, status=403)
 
-        # Prepare initial data for the packing formset
         initial_form_data = []
         for item in order.items.all():
             total_removed_for_this_item = order.get_total_removed_quantity_for_item(item.id)
@@ -835,12 +924,19 @@ def get_order_items_for_packing(request, order_pk):
 
             if quantity_remaining_to_pack_for_this_item > 0:
                 best_suggested_batch = get_suggested_batch_for_order_item(item, quantity_remaining_to_pack_for_this_item)
+
+                # ++ MODIFICATION: Get the warehouse_product to access shipping limits ++
+                wp = item.warehouse_product
+
                 initial_form_data.append({
                     'order_item_id': item.pk,
                     'product_name': item.product.name if item.product else item.erp_product_name,
                     'sku': item.product.sku if item.product else "N/A",
                     'quantity_to_pack': quantity_remaining_to_pack_for_this_item,
                     'selected_batch_item_id': best_suggested_batch.pk if best_suggested_batch else None,
+                    # ++ ADDED: Pass the shipping quantity limits to the form's initial data ++
+                    'max_ship_qty_a': wp.max_ship_qty_a if wp else None,
+                    'max_ship_qty_b': wp.max_ship_qty_b if wp else None,
                 })
 
         formset_html_content = ""
@@ -861,32 +957,25 @@ def get_order_items_for_packing(request, order_pk):
             environment_type=env_type, is_active=True
         ).values('id', 'name', 'type_code'))
 
-        # --- REVISED LOGIC FOR "ALWAYS-ON" COURIER DASHBOARD ---
-        # 1. Get today's actual parcel counts
         now = timezone.now()
         start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        todays_parcel_counts_query = Parcel.objects.filter(
+        todays_parcels = Parcel.objects.filter(
             created_at__range=(start_of_day, end_of_day),
             courier_company__isnull=False
-        ).values('courier_company__name').annotate(count=Count('id'))
+        ).select_related('courier_company')
 
-        todays_parcel_counts = {
-            entry['courier_company__name']: entry['count']
-            for entry in todays_parcel_counts_query
-        }
+        courier_names = [p.courier_company.name for p in todays_parcels]
+        todays_parcel_counts = Counter(courier_names)
 
-        # 2. Get all active couriers
         active_couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
 
-        # 3. Combine them, ensuring all active couriers are present with a count (defaulting to 0)
         final_daily_courier_counts = {
             courier.name: todays_parcel_counts.get(courier.name, 0)
             for courier in active_couriers
         }
 
-        # Prepare list of courier details for the main dropdown
         courier_list_for_modal = [
             {'id': c.id, 'name': c.name, 'code': c.code or ''}
             for c in active_couriers
@@ -903,7 +992,7 @@ def get_order_items_for_packing(request, order_pk):
             'message': message_for_modal,
             'shipping_notes_for_parcel': order.shipping_notes or '',
             'is_cold_chain': order.is_cold_chain,
-            'daily_courier_counts_object': final_daily_courier_counts, # Send the final, complete list
+            'daily_courier_counts_object': final_daily_courier_counts,
             'available_couriers': courier_list_for_modal,
             'available_packaging': available_packaging
         })
@@ -915,116 +1004,180 @@ def get_order_items_for_packing(request, order_pk):
         logger.error(f"Unexpected error in get_order_items_for_packing for order_pk {order_pk}: {e}\n{traceback.format_exc()}")
         return JsonResponse({'success': False, 'message': 'An unexpected server error occurred while preparing packing information.'}, status=500)
 
+
+
 @login_required
 @require_POST # Ensures this view only accepts POST requests
 @transaction.atomic # Ensures all database operations are atomic
 def process_packing_for_order(request, order_pk):
     """
-    Processes the packing form submission to create a new Parcel,
-    update stock levels, and update the parent Order status.
-    This is the complete, updated version.
+    Processes the packing form submission to create a new Parcel.
+    This version is redesigned to handle a single OrderItem being packed
+    from MULTIPLE inventory batches within the same parcel.
     """
-    try:
-        order = get_object_or_404(Order.objects.select_related('warehouse'), pk=order_pk)
+    order = get_object_or_404(Order.objects.select_related('warehouse'), pk=order_pk)
 
+    logger.info("=====================================================")
+    logger.info(f"Initiating packing process for Order PK: {order_pk}")
+
+    # Log the entire raw POST data from the form
+    # This is the MOST IMPORTANT log to check.
+    logger.info("--- RAW REQUEST.POST DATA ---")
+    for key, value in request.POST.items():
+        logger.info(f"  {key}: {value}")
+    logger.info("-----------------------------")
+
+
+    try:
         # 1. Permission Check
         if not request.user.is_superuser and (not request.user.warehouse or order.warehouse != request.user.warehouse):
-            logger.warning(f"Permission denied for order {order_pk} by user {request.user.username}.")
             return JsonResponse({'success': False, 'message': 'Permission denied for this order.'}, status=403)
 
-        # 2. Get and Sanitize Form Data
-        parcel_notes_from_form = request.POST.get('parcel-notes', order.shipping_notes or '')
-        # MODIFIED: Get Courier ID from the form
-        courier_id_from_form = request.POST.get('parcel-courier_id', '').strip()
-        packaging_type_id_from_form = request.POST.get('parcel-packaging_type', '').strip()
+        # 2. Get and Validate Parcel-Level Data
+        courier_id = request.POST.get('parcel-courier_id')
+        packaging_id = request.POST.get('parcel-packaging_type')
+        if not courier_id or not packaging_id:
+            return JsonResponse({'success': False, 'message': 'A Courier and Packaging selection are required.'}, status=400)
 
-        # 3. Validate Form Data
-        if not courier_id_from_form or not courier_id_from_form.isdigit():
-            return JsonResponse({'success': False, 'message': 'Courier selection is required.'}, status=400)
-        if not packaging_type_id_from_form or not packaging_type_id_from_form.isdigit():
-            return JsonResponse({'success': False, 'message': 'Packaging selection is required.'}, status=400)
+        courier_instance = get_object_or_404(CourierCompany, pk=courier_id)
+        packaging_type = get_object_or_404(PackagingType, pk=packaging_id)
+        parcel_notes = request.POST.get('parcel-notes', order.shipping_notes or '')
 
-        # Fetch related objects
-        courier_instance = get_object_or_404(CourierCompany, pk=courier_id_from_form)
-        packaging_type = get_object_or_404(PackagingType, pk=packaging_type_id_from_form)
+        # 3. Aggregate and Pre-validate Item Data from Formset
+        items_to_pack_grouped = {}
+        batch_pack_requests = {}
+        total_forms = int(request.POST.get('packitems-TOTAL_FORMS', 0))
 
-        # 4. Process Packed Items from the Formset
-        num_item_forms = int(request.POST.get('packitems-TOTAL_FORMS', 0))
-        items_to_pack_data = []
-        any_item_actually_packed_this_session = False
+        logger.info(f"Found 'packitems-TOTAL_FORMS': {total_forms}. Looping through forms...")
 
-        for i in range(num_item_forms):
-            qty_to_pack_str = request.POST.get(f'packitems-{i}-quantity_to_pack')
-            if not qty_to_pack_str or int(qty_to_pack_str) <= 0:
-                continue
+        for i in range(total_forms):
+            prefix = f'packitems-{i}-'
 
-            any_item_actually_packed_this_session = True
-            order_item_id_str = request.POST.get(f'packitems-{i}-order_item_id')
-            batch_id_str = request.POST.get(f'packitems-{i}-selected_batch_item_id')
+            # Use .get() to avoid errors if a field is missing for some reason
+            quantity_str = request.POST.get(f'{prefix}quantity_to_pack', '0')
+            order_item_id = request.POST.get(f'{prefix}order_item_id')
+            # IMPORTANT: The name of your batch select might be different!
+            # I am using `selected_batch_item_id` based on previous context.
+            # Double-check this name in your HTML template.
+            batch_id_str = request.POST.get(f'{prefix}selected_batch_item_id')
+
+            logger.info(f"--- Processing Form Index {i} ('{prefix}') ---")
+            logger.info(f"  Extracted quantity_to_pack: '{quantity_str}'")
+            logger.info(f"  Extracted order_item_id: '{order_item_id}'")
+            logger.info(f"  Extracted selected_batch_item_id: '{batch_id_str}'")
 
             try:
-                order_item = OrderItem.objects.get(pk=int(order_item_id_str), order=order)
-                qty_to_pack = int(qty_to_pack_str)
-                if not batch_id_str or not batch_id_str.isdigit():
-                    return JsonResponse({'success': False, 'message': f"A batch selection is required for {order_item.product.sku}."}, status=400)
-                batch_item = InventoryBatchItem.objects.get(pk=int(batch_id_str))
+                quantity_to_pack = int(quantity_str)
+                if quantity_to_pack <= 0:
+                    logger.info("  Quantity is 0 or less, skipping this form.")
+                    continue
+            except (ValueError, TypeError):
+                logger.warning(f"  Could not parse quantity '{quantity_str}' to an integer. Skipping.")
+                continue
 
-                # Validation checks for the selected batch
-                if batch_item.warehouse_product.warehouse != order.warehouse:
-                    return JsonResponse({'success': False, 'message': f"Batch for {order_item.product.sku} is from a different warehouse than the order."}, status=400)
-                if batch_item.warehouse_product != order_item.warehouse_product:
-                    return JsonResponse({'success': False, 'message': f"Product mismatch for batch {batch_item.batch_number}."}, status=400)
-                if qty_to_pack > batch_item.quantity:
-                    return JsonResponse({'success': False, 'message': f"Not enough stock in batch {batch_item.batch_number}."}, status=400)
+            if not order_item_id or not batch_id_str:
+                logger.warning("  Missing order_item_id or batch_id_str. Skipping.")
+                continue
 
-                total_removed_for_item = order.get_total_removed_quantity_for_item(order_item.id)
-                quantity_remaining_on_order_item = (order_item.quantity_ordered - total_removed_for_item) - order_item.quantity_packed
-                if qty_to_pack > quantity_remaining_on_order_item:
-                    return JsonResponse({'success': False, 'message': f"Cannot pack {qty_to_pack} of {order_item.product.sku}. Only {quantity_remaining_on_order_item} left."}, status=400)
+            batch_id = int(batch_id_str)
 
-                items_to_pack_data.append({'order_item': order_item, 'quantity': qty_to_pack, 'batch': batch_item})
-            except (OrderItem.DoesNotExist, InventoryBatchItem.DoesNotExist, ValueError) as e:
-                logger.error(f"Error processing item data for packing order {order_pk}: {e}", exc_info=True)
-                return JsonResponse({'success': False, 'message': f'Invalid item data submitted: {str(e)}'}, status=400)
+            # Aggregate total quantity requested per batch
+            batch_pack_requests[batch_id] = batch_pack_requests.get(batch_id, 0) + quantity_to_pack
 
-        if not any_item_actually_packed_this_session:
-            return JsonResponse({'success': False, 'message': 'No items were specified with a quantity greater than 0.'}, status=400)
+            # Group items for creating ParcelItem objects later
+            if order_item_id not in items_to_pack_grouped:
+                items_to_pack_grouped[order_item_id] = {
+                    'order_item_obj': get_object_or_404(OrderItem, pk=order_item_id, order=order),
+                    'total_quantity_to_pack': 0,
+                    'packs_from_batches': []
+                }
+
+            items_to_pack_grouped[order_item_id]['packs_from_batches'].append({
+                'batch_id': batch_id,
+                'quantity': quantity_to_pack
+            })
+            items_to_pack_grouped[order_item_id]['total_quantity_to_pack'] += quantity_to_pack
+
+        # =========================================================================
+        # START: AGGREGATION LOGGING
+        # =========================================================================
+        logger.info("--- AGGREGATION RESULTS ---")
+        logger.info(f"Final `batch_pack_requests` dictionary: {batch_pack_requests}")
+        logger.info(f"Final `items_to_pack_grouped` dictionary: {items_to_pack_grouped}")
+        logger.info("---------------------------")
+        # =========================================================================
+
+        if not items_to_pack_grouped:
+            logger.error("Validation failed: No items with a quantity to pack were found after processing.")
+            return JsonResponse({'success': False, 'message': 'No items were submitted with a quantity to pack.'}, status=400)
+
+        # 4. Comprehensive Stock Validation (Post-Aggregation)
+        logger.info("--- PERFORMING STOCK VALIDATION ---")
+        for batch_id, requested_qty in batch_pack_requests.items():
+            batch_item = get_object_or_404(InventoryBatchItem, pk=batch_id)
+            logger.info(f"  Validating Batch ID {batch_id} ('{batch_item.batch_number}'): Requested {requested_qty}, Available {batch_item.quantity}")
+            if requested_qty > batch_item.quantity:
+                sku = batch_item.warehouse_product.product.sku
+                error_msg = f"Not enough stock for {sku} in batch {batch_item.batch_number}. Requested: {requested_qty}, Available: {batch_item.quantity}"
+                logger.error(f"  STOCK VALIDATION FAILED: {error_msg}")
+                return JsonResponse({'success': False, 'message': error_msg}, status=400)
+        logger.info("--- STOCK VALIDATION PASSED ---")
+
+        for data in items_to_pack_grouped.values():
+            order_item = data['order_item_obj']
+            total_packed = data['total_quantity_to_pack']
+            total_removed_for_item = order.get_total_removed_quantity_for_item(order_item.id)
+            quantity_remaining_on_order = (order_item.quantity_ordered - total_removed_for_item) - order_item.quantity_packed
+
+            if total_packed > quantity_remaining_on_order:
+                sku = order_item.product.sku
+                return JsonResponse({'success': False, 'message': f"Cannot pack a total of {total_packed} for {sku}. Only {quantity_remaining_on_order} are remaining on the order."}, status=400)
 
         # 5. Create the Parcel
         new_parcel = Parcel.objects.create(
             order=order,
             created_by=request.user,
-            notes=parcel_notes_from_form,
-            courier_company=courier_instance,  # MODIFIED: Assign the CourierCompany object
+            notes=parcel_notes,
+            courier_company=courier_instance,
             packaging_type=packaging_type
         )
-        logger.info(f"Parcel {new_parcel.pk} ({new_parcel.parcel_code_system}) created for order {order_pk}.")
+        logger.info(f"Parcel {new_parcel.pk} created for order {order_pk}.")
 
-        # 6a. Create ParcelItems and Update Item Stock
-        for item_data in items_to_pack_data:
-            oi = item_data['order_item']
-            batch = item_data['batch']
-            qty = item_data['quantity']
-            ParcelItem.objects.create(
-                parcel=new_parcel,
-                order_item=oi,
-                quantity_shipped_in_this_parcel=qty,
-                shipped_from_batch=batch
-            )
-            batch.quantity = F('quantity') - qty
-            batch.save(update_fields=['quantity'])
+        # 6. Create ParcelItems and Update Stock
+        for data in items_to_pack_grouped.values():
+            order_item_obj = data['order_item_obj']
 
-            StockTransaction.objects.create(
-                warehouse=batch.warehouse_product.warehouse,
-                transaction_type=StockTransaction.TransactionTypes.SALE_PACKED_OUT,
-                warehouse_product=batch.warehouse_product,
-                product=batch.warehouse_product.product,
-                batch_item_involved=batch,
-                quantity=-qty,
-                reference_note=f"LWA Order {order.erp_order_id}, Parcel {new_parcel.parcel_code_system}, Batch {batch.batch_number}",
-                related_order=order,
-                recorded_by=request.user
-            )
+            for pack_info in data['packs_from_batches']:
+                batch = get_object_or_404(InventoryBatchItem, pk=pack_info['batch_id'])
+                qty = pack_info['quantity']
+
+                ParcelItem.objects.create(
+                    parcel=new_parcel,
+                    order_item=order_item_obj,
+                    quantity_shipped_in_this_parcel=qty,
+                    shipped_from_batch=batch
+                )
+
+                # Deduct stock from both the specific batch AND the parent WarehouseProduct
+                batch.quantity = F('quantity') - qty
+                batch.save(update_fields=['quantity'])
+
+                if batch.warehouse_product:
+                    warehouse_product = batch.warehouse_product
+                    warehouse_product.quantity = F('quantity') - qty
+                    warehouse_product.save(update_fields=['quantity'])
+
+                StockTransaction.objects.create(
+                    warehouse=batch.warehouse_product.warehouse,
+                    transaction_type=StockTransaction.TransactionTypes.SALE_PACKED_OUT,
+                    warehouse_product=batch.warehouse_product,
+                    product=batch.warehouse_product.product,
+                    batch_item_involved=batch,
+                    quantity=-qty,
+                    reference_note=f"LWA Order {order.erp_order_id}, Parcel {new_parcel.parcel_code_system}, Batch {batch.batch_number}",
+                    related_order=order,
+                    recorded_by=request.user
+                )
 
         # 6b. Deduct Packaging Material Stock
         packaging_components = PackagingTypeMaterialComponent.objects.filter(packaging_type=packaging_type)
@@ -1051,6 +1204,7 @@ def process_packing_for_order(request, order_pk):
     except Exception as e:
         logger.error(f"Critical error in process_packing_for_order for order_pk {order_pk}: {e}\n{traceback.format_exc()}")
         return JsonResponse({'success': False, 'message': f'An unexpected server error occurred: {str(e)}'}, status=500)
+
 
 
 @login_required
@@ -1124,6 +1278,7 @@ def get_available_batches_for_order_item(request, order_item_pk):
     except Exception as e:
         logger.error(f"[get_available_batches] Unexpected error for OI PK {order_item_pk}: {str(e)}", exc_info=True)
         return JsonResponse({'success': False, 'message': f'An unexpected server error occurred: {str(e)}'}, status=500)
+
 
 @login_required
 def get_order_items_for_editing(request, order_pk):
@@ -1228,6 +1383,7 @@ def get_order_items_for_editing(request, order_pk):
         'removed_items_log': removed_items_log_display, # Send the log
         'message': 'Items loaded for editing/removal.'
     })
+
 
 @login_required
 @transaction.atomic
@@ -1364,6 +1520,100 @@ def process_order_item_removal(request, order_pk):
         return JsonResponse({'success': False, 'message': 'Invalid form data submitted.'}, status=400)
 
 
+@require_POST
+@login_required
+@transaction.atomic
+def remove_parcel(request, parcel_pk):
+    """
+    Removes a parcel, returns its items to inventory, updates the
+    OrderItem's packed quantity, and recalculates the order status.
+    """
+    logger.info(f"User {request.user.email} initiated removal for Parcel PK: {parcel_pk}")
+    parcel = get_object_or_404(Parcel.objects.select_related('order', 'order__warehouse'), pk=parcel_pk)
+    order = parcel.order
+
+    # --- Permission & Status Checks ---
+    if not request.user.is_superuser and (not request.user.warehouse or order.warehouse != request.user.warehouse):
+        logger.warning(f"Permission denied for user {request.user.email} on Parcel PK: {parcel_pk}")
+        return JsonResponse({'success': False, 'message': 'Permission denied.'}, status=403)
+
+    if parcel.status not in ['PREPARING_TO_PACK', 'READY_TO_SHIP']:
+        logger.warning(f"Attempted to remove parcel {parcel.parcel_code_system} with invalid status: {parcel.get_status_display()}")
+        return JsonResponse({
+            'success': False,
+            'message': f'Parcel cannot be removed as it is already {parcel.get_status_display()}.'
+        }, status=400)
+
+    try:
+        logger.debug(f"Starting stock return process for parcel {parcel.parcel_code_system}")
+
+        parcel_items_to_process = parcel.items_in_parcel.select_related(
+            'order_item',
+            'shipped_from_batch',
+            'shipped_from_batch__warehouse_product'
+        ).all()
+
+        for parcel_item in parcel_items_to_process:
+            order_item = parcel_item.order_item
+            batch_item = parcel_item.shipped_from_batch
+            quantity_to_return = parcel_item.quantity_shipped_in_this_parcel
+
+            logger.debug(f"Processing ParcelItem PK: {parcel_item.pk}. Qty to return: {quantity_to_return}")
+
+            if order_item:
+                order_item.quantity_packed = F('quantity_packed') - quantity_to_return
+                order_item.save(update_fields=['quantity_packed'])
+
+            if batch_item:
+                # --- START: THE FIX ---
+                # Add stock back to both the specific batch AND the parent WarehouseProduct
+                batch_item.quantity = F('quantity') + quantity_to_return
+                batch_item.save(update_fields=['quantity'])
+
+                warehouse_product = batch_item.warehouse_product
+                if warehouse_product:
+                    warehouse_product.quantity = F('quantity') + quantity_to_return
+                    warehouse_product.save(update_fields=['quantity'])
+                # --- END: THE FIX ---
+
+                if not warehouse_product:
+                    error_message = f"Data integrity error: BatchItem {batch_item.pk} is missing its WarehouseProduct link."
+                    logger.error(error_message)
+                    raise IntegrityError(error_message)
+
+                StockTransaction.objects.create(
+                    warehouse=order.warehouse,
+                    warehouse_product=warehouse_product,
+                    product=order_item.product,
+                    transaction_type=StockTransaction.TransactionTypes.RETURN_IN,
+                    quantity=quantity_to_return,
+                    batch_item_involved=batch_item,
+                    reference_note=f"Return from deleted parcel {parcel.parcel_code_system} for Order {order.erp_order_id}",
+                    related_order=order,
+                    recorded_by=request.user
+                )
+            else:
+                logger.warning(f"ParcelItem PK: {parcel_item.pk} has no associated batch. Cannot return stock automatically.")
+
+        parcel_code_system = parcel.parcel_code_system
+        parcel.delete()
+        logger.info(f"Parcel {parcel_code_system} (PK: {parcel_pk}) deleted successfully.")
+
+        order.update_status_based_on_items_and_parcels()
+        order.save()
+        logger.info(f"Order {order.erp_order_id} status updated to '{order.get_status_display()}' after parcel removal.")
+
+        messages.success(request, f"Parcel {parcel_code_system} has been removed.")
+        return JsonResponse({
+            'success': True,
+            'message': 'Parcel removed successfully!',
+            'redirect_url': reverse('operation:order_list') + f"?tab={DEFAULT_PARCELS_TAB}"
+        })
+
+    except Exception as e:
+        logger.error(f"Error removing parcel {parcel_pk}: {str(e)}", exc_info=True)
+        return JsonResponse({'success': False, 'message': 'An unexpected server error occurred.'}, status=500)
+
 # --- NEW VIEWS FOR PARCEL CUSTOMS DETAILS ---
 @login_required
 def get_parcel_details_for_editing(request, parcel_pk):
@@ -1387,6 +1637,7 @@ def get_parcel_details_for_editing(request, parcel_pk):
     courier_filter = Q(courier_companies__isnull=True)
     if parcel.courier_company:
         courier_filter |= Q(courier_companies=parcel.courier_company)
+
     effective_env_type = None
     if parcel.packaging_type and parcel.packaging_type.environment_type in ['COLD', 'AMBIENT']:
         effective_env_type = parcel.packaging_type.environment_type
@@ -1452,15 +1703,12 @@ def get_parcel_details_for_editing(request, parcel_pk):
     })
 
 
-
-
-
 @login_required
 @transaction.atomic
 def update_parcel_customs_details(request, parcel_pk):
     """
     Handles the AJAX POST request from the parcel edit modal to save customs details.
-    This view now includes the corrected filtering logic for form validation.
+    This view now includes the corrected filtering logic and automatic status update.
     """
     if request.method != 'POST':
         logger.warning(f"update_parcel_customs_details received non-POST request for parcel {parcel_pk}")
@@ -1472,19 +1720,14 @@ def update_parcel_customs_details(request, parcel_pk):
     )
     logger.info(f"Updating customs details for Parcel PK: {parcel_pk}, System Code: {parcel.parcel_code_system}")
 
-    # Permission Check
     if not request.user.is_superuser and (not request.user.warehouse or parcel.order.warehouse != request.user.warehouse):
         logger.warning(f"User {request.user.email} permission denied for parcel {parcel_pk}.")
         return JsonResponse({'success': False, 'message': 'Permission denied.'}, status=403)
 
-    # --- START: Corrected Filtering Logic ---
-    # This block must be here to ensure the form can validate the submitted data.
-    # It mirrors the logic used to display the options in the first place.
     courier_filter = Q(courier_companies__isnull=True)
     if parcel.courier_company:
         courier_filter |= Q(courier_companies=parcel.courier_company)
 
-    # Step 1: Determine the single, effective environment type for the parcel.
     effective_env_type = None
     if parcel.packaging_type and parcel.packaging_type.environment_type in ['COLD', 'AMBIENT']:
         effective_env_type = parcel.packaging_type.environment_type
@@ -1493,7 +1736,6 @@ def update_parcel_customs_details(request, parcel_pk):
     else:
         effective_env_type = 'AMBIENT'
 
-    # Step 2: Build the filter based on the determined type.
     shipment_type_filter = Q()
     if effective_env_type == 'COLD':
         shipment_type_filter = Q(applies_to_cold_chain=True) | Q(applies_to_mix=True)
@@ -1504,17 +1746,12 @@ def update_parcel_customs_details(request, parcel_pk):
         courier_filter & shipment_type_filter
     ).distinct()
 
-    # --- END: Corrected Filtering Logic ---
-
-
-    # Pass the filtered queryset to the form for proper validation
     parcel_form = ParcelCustomsDetailForm(request.POST, instance=parcel, declarations_queryset=valid_declarations_qs)
     item_formset = ParcelItemCustomsDetailFormSet(request.POST, instance=parcel, prefix='parcelitems')
 
     if parcel_form.is_valid() and item_formset.is_valid():
         logger.info(f"Forms are valid for parcel {parcel_pk}.")
 
-        # Your existing logic for saving the data is correct.
         updated_parcel = parcel_form.save(commit=False)
 
         length = parcel_form.cleaned_data.get('length')
@@ -1533,11 +1770,18 @@ def update_parcel_customs_details(request, parcel_pk):
         updated_parcel.save()
         item_formset.save()
 
+        # --- START: NEW LOGIC FOR STATUS UPDATE ---
+        # If the status is 'PREPARING_TO_PACK', update it to 'READY_TO_SHIP'
+        if updated_parcel.status == 'PREPARING_TO_PACK':
+            updated_parcel.status = 'READY_TO_SHIP'
+            updated_parcel.save(update_fields=['status'])
+            logger.info(f"Parcel {updated_parcel.pk} status automatically updated to 'READY_TO_SHIP'.")
+        # --- END: NEW LOGIC ---
+
         logger.info(f"Successfully updated customs details for parcel {parcel_pk}.")
         messages.success(request, f"Customs details for Parcel {parcel.parcel_code_system} updated successfully.")
         return JsonResponse({'success': True, 'message': 'Customs details updated successfully.'})
     else:
-        # Your existing error handling logic is correct.
         errors = {}
         if parcel_form.errors:
             errors['parcel_form'] = parcel_form.errors.as_json()
@@ -1552,6 +1796,51 @@ def update_parcel_customs_details(request, parcel_pk):
             errors['item_formset_non_form'] = item_formset.non_form_errors()
 
         return JsonResponse({'success': False, 'message': "Validation failed. Please check the form details.", 'errors': errors}, status=400)
+
+@login_required
+def get_declarations_for_courier(request, parcel_pk):
+    """
+    Returns a JSON list of suitable customs declarations for a given parcel
+    and a newly selected courier company.
+    """
+    courier_id = request.GET.get('courier_id')
+    if not courier_id:
+        return JsonResponse({'success': False, 'message': 'Courier ID is required.'}, status=400)
+
+    try:
+        parcel = get_object_or_404(Parcel.objects.select_related('order', 'packaging_type'), pk=parcel_pk)
+        courier = get_object_or_404(CourierCompany, pk=courier_id)
+
+        # Re-use the same reliable filtering logic from get_parcel_details_for_editing
+        courier_filter = Q(courier_companies=courier) | Q(courier_companies__isnull=True)
+
+        effective_env_type = None
+        if parcel.packaging_type and parcel.packaging_type.environment_type in ['COLD', 'AMBIENT']:
+            effective_env_type = parcel.packaging_type.environment_type
+        elif parcel.order.is_cold_chain:
+            effective_env_type = 'COLD'
+        else:
+            effective_env_type = 'AMBIENT'
+
+        shipment_type_filter = Q()
+        if effective_env_type == 'COLD':
+            shipment_type_filter = Q(applies_to_cold_chain=True) | Q(applies_to_mix=True)
+        else: # AMBIENT
+            shipment_type_filter = Q(applies_to_ambient=True) | Q(applies_to_mix=True)
+
+        declarations_queryset = CustomsDeclaration.objects.filter(
+            courier_filter & shipment_type_filter
+        ).distinct().order_by('description')
+
+        declarations_json = list(declarations_queryset.values('pk', 'description', 'hs_code'))
+
+        return JsonResponse({'success': True, 'declarations': declarations_json})
+
+    except (Parcel.DoesNotExist, CourierCompany.DoesNotExist):
+        return JsonResponse({'success': False, 'message': 'Invalid Parcel or Courier.'}, status=404)
+    except Exception as e:
+        logger.error(f"Error fetching declarations for courier {courier_id}: {e}")
+        return JsonResponse({'success': False, 'message': 'An unexpected error occurred.'}, status=500)
 
 @login_required
 def manage_customs_declarations(request):
@@ -1747,6 +2036,7 @@ def packaging_management(request):
     }
     return render(request, 'operation/packaging_management.html', context)
 
+
 @login_required
 def load_edit_packaging_type_form(request, pk):
     """
@@ -1775,6 +2065,7 @@ def load_edit_packaging_type_form(request, pk):
         'materials_data': materials_data, # Pass this new, pre-processed list
     }
     return render(request, 'operation/partials/_edit_packaging_type_form.html', context)
+
 
 @login_required
 def edit_packaging_type(request, pk):
@@ -1844,8 +2135,6 @@ def edit_packaging_type(request, pk):
     return redirect('operation:packaging_management')
 
 
-
-
 @login_required
 def get_customer_shipment_history(request, customer_pk):
     """
@@ -1886,31 +2175,31 @@ def get_airway_bill_details(request, parcel_pk):
     }
     return render(request, 'operation/partials/_airway_bill_modal_content.html', context)
 
-@require_POST # Ensures this view only accepts POST requests
+
+@require_POST
 @login_required
 def save_airway_bill(request, parcel_pk):
     """
     Saves the Tracking ID and Estimated Cost from the Air Waybill modal.
-    Includes a resilient call to the background tracking task.
+    The parcel status is automatically updated by the model's save method.
     """
     parcel = get_object_or_404(Parcel, pk=parcel_pk)
     form = AirwayBillForm(request.POST, instance=parcel)
 
     if form.is_valid():
+        # The form.save() call will trigger the Parcel model's save() method,
+        # which correctly updates the status to READY_TO_SHIP if a tracking
+        # number was just added.
         updated_parcel = form.save()
 
-        # Check if we need to update status and trigger tracking
-        if updated_parcel.tracking_number and updated_parcel.status == 'READY_TO_SHIP':
-            updated_parcel.status = 'READY_TO_SHIP'
-            updated_parcel.shipped_at = timezone.now()
-            updated_parcel.save(update_fields=['status', 'shipped_at'])
-
-        return JsonResponse({'success': True, 'message': 'Air Waybill details saved successfully.'})
+        return JsonResponse({
+            'success': True,
+            'message': 'Air Waybill details saved successfully.',
+            'parcel_pk': updated_parcel.pk  # Return parcel PK for JavaScript
+        })
     else:
         error_message = ". ".join([f"{field}: {error[0]}" for field, error in form.errors.items()])
         return JsonResponse({'success': False, 'message': error_message or "Invalid data submitted."}, status=400)
-
-
 
 @login_required
 def get_parcel_tracking_history(request, parcel_pk):
@@ -1924,18 +2213,6 @@ def get_parcel_tracking_history(request, parcel_pk):
     # The tracking logs are already ordered by timestamp due to the model's Meta ordering
     return render(request, 'operation/partials/_parcel_tracking_history_modal.html', {'parcel': parcel})
 
-# @login_required
-# def manual_trigger_tracking_update(request, parcel_pk):
-#     """
-#     A simple view to manually trigger the tracking update task for a given parcel.
-#     This is for testing and debugging purposes.
-#     """
-#     from .tasks import update_parcel_tracking_status
-
-#     # We call the function directly, bypassing the Celery .delay() method.
-#     result_message = update_parcel_tracking_status(parcel_pk)
-
-#     return HttpResponse(f"Tracking update task executed for Parcel ID {parcel_pk}.<br>Result: {result_message}<br><br><a href='/operation/list/?tab=parcels_details'>Go back to Parcels List</a>")
 
 @require_POST
 @login_required
@@ -1990,6 +2267,7 @@ def trace_selected_parcels(request):
         logger.error(f"[TraceParcels] Critical error in view: {e}", exc_info=True)
         return JsonResponse({'success': False, 'message': 'A critical server error occurred.'}, status=500)
 
+
 @login_required
 def print_selected_parcels(request):
     parcel_ids_str = request.GET.get('ids', '')
@@ -2040,18 +2318,65 @@ def print_selected_parcels(request):
     return render(request, 'operation/printable_parcels.html', context)
 
 
-
 # 3. Edit Invoice (for payment date)
 @login_required
-def edit_courier_invoice(request, invoice_id):
-    invoice = get_object_or_404(CourierInvoice, pk=invoice_id)
-    if request.method == 'POST':
-        payment_date = request.POST.get('payment_date')
-        if payment_date:
-            invoice.payment_date = payment_date
-            invoice.save()
-            messages.success(request, 'Payment date updated.')
+def edit_courier_invoice(request, pk):
+    """
+    Updates an invoice's payment details, but only if changes are detected.
+    """
+    invoice = get_object_or_404(CourierInvoice, pk=pk)
+    has_changed = False
+    update_fields = []
+
+    # Get new values from the form
+    payment_date_str = request.POST.get('payment_date')
+    payment_amount_str = request.POST.get('payment_amount')
+
+    # --- Check and update Payment Date ---
+    new_payment_date = None
+    if payment_date_str:
+        new_payment_date = datetime.datetime.strptime(payment_date_str, '%Y-%m-%d').date()
+
+    if new_payment_date != invoice.payment_date:
+        invoice.payment_date = new_payment_date
+        invoice.payment_status = 'PAID' if new_payment_date else 'UNPAID'
+        update_fields.extend(['payment_date', 'payment_status'])
+        has_changed = True
+
+    # --- Check and update Payment Amount ---
+    new_payment_amount = None
+    if payment_amount_str:
+        try:
+            # Clean up the string just in case, then convert to Decimal
+            new_payment_amount = Decimal(payment_amount_str.strip())
+        except (InvalidOperation, TypeError):
+            messages.error(request, "Invalid payment amount format.")
+            return redirect('operation:courier_invoice_list')
+
+    # Compare new amount with the existing one (handle None cases)
+    # The 'or Decimal('0.00')' handles cases where the amount is None or 0
+    if new_payment_amount != invoice.payment_amount:
+        invoice.payment_amount = new_payment_amount
+        update_fields.append('payment_amount')
+        has_changed = True
+
+    # --- Save and show message only if there were changes ---
+    if has_changed:
+        # Recalculate discount if payment amount was part of the change
+        if 'payment_amount' in update_fields:
+            if invoice.invoice_amount is not None and invoice.payment_amount is not None:
+                invoice.discount_amount = invoice.invoice_amount - invoice.payment_amount
+            else:
+                invoice.discount_amount = Decimal('0.00')
+            update_fields.append('discount_amount')
+
+        # Save all accumulated changes to the database
+        invoice.save(update_fields=update_fields)
+        messages.success(request, f"Invoice #{invoice.invoice_number} updated successfully.")
+
     return redirect('operation:courier_invoice_list')
+
+
 
 
 # 4. Display Billed Parcels
@@ -2082,11 +2407,10 @@ def generate_client_invoice(request, parcel_id):
     return render(request, 'operation/client_invoice_template.html', {'parcel': parcel})
 
 
-@login_required
 def courier_invoice_list(request):
     """
     Handles both displaying the list of invoices and uploading a new one.
-    Now separates success toasts from error messages.
+    Now validates the uploaded file against the selected courier.
     """
     if request.method == 'POST':
         form = CourierInvoiceForm(request.POST, request.FILES)
@@ -2095,14 +2419,20 @@ def courier_invoice_list(request):
             invoice.uploaded_by = request.user
             invoice.save()
 
-            # The view now expects four return values from the parsing function
-            created_count, errors, updated_count, successes = parse_invoice_file(invoice)
+            # The orchestrator now returns the detected courier and parsing results
+            detected_courier, created_count, errors, updated_count, successes = parse_invoice_file(invoice)
 
-            # Display success messages as green toasts
+            # If the detected_courier is None, it means validation failed or the file is unsupported
+            if not detected_courier:
+                invoice.delete() # Delete the placeholder invoice
+                for error in errors:
+                    messages.error(request, error)
+                return redirect('operation:courier_invoice_list')
+
+            # --- Process success and error messages as before ---
             for msg in successes:
                 messages.success(request, msg)
 
-            # Display informational and error messages
             has_critical_error = False
             if errors:
                 for error in errors:
@@ -2113,7 +2443,6 @@ def courier_invoice_list(request):
                         if "Critical" in error:
                             has_critical_error = True
 
-            # This provides a final summary of items created/updated
             if not errors or not has_critical_error:
                 summary_parts = []
                 if created_count > 0:
@@ -2127,14 +2456,48 @@ def courier_invoice_list(request):
 
             return redirect('operation:courier_invoice_list')
         else:
-             for field, field_errors in form.errors.items():
-                 for error in field_errors:
-                     messages.error(request, f"{field.capitalize()}: {error}")
-             return redirect('operation:courier_invoice_list')
+            for field, field_errors in form.errors.items():
+                for error in field_errors:
+                    messages.error(request, f"{field.capitalize()}: {error}")
+            return redirect('operation:courier_invoice_list')
 
+    filter_form = CourierInvoiceFilterForm(request.GET)
     invoices = CourierInvoice.objects.select_related('courier_company').prefetch_related('items').all().order_by('-invoice_date')
-    form = CourierInvoiceForm()
-    return render(request, 'operation/courier_invoice_list.html', {'invoices': invoices, 'form': form})
+
+    if filter_form.is_valid():
+        courier_company = filter_form.cleaned_data.get('courier_company')
+        payment_status = filter_form.cleaned_data.get('payment_status')
+        query = filter_form.cleaned_data.get('q')
+
+        if courier_company:
+            invoices = invoices.filter(courier_company=courier_company)
+        if payment_status:
+            invoices = invoices.filter(payment_status=payment_status)
+        if query:
+            invoices = invoices.filter(invoice_number__icontains=query)
+
+    paginator = Paginator(invoices, 20)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    upload_form = CourierInvoiceForm()
+
+    # Get all active couriers for the filter buttons
+    all_couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
+
+    context = {
+        'invoices': page_obj,
+        'form': upload_form,
+        'filter_form': filter_form,
+        # Pass data for the new button filters
+        'all_couriers': all_couriers,
+        'payment_status_choices': CourierInvoice.PAYMENT_STATUS_CHOICES,
+    }
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return render(request, 'operation/partials/_courier_invoice_list_content.html', context)
+
+    return render(request, 'operation/courier_invoice_list.html', context)
 
 
 @login_required
@@ -2168,13 +2531,20 @@ def invoice_item_report(request):
 
     # --- Filter Logic ---
     selected_dispute_status = request.GET.get('dispute_status', '')
+    unlinked_only = request.GET.get('unlinked_only') == 'true'
 
-    if selected_dispute_status == 'pending':
-        # FIX: Changed 'items' to 'items_query'
-        items_query = items_query.filter(dispute_date__isnull=False, final_amount_date__isnull=True)
-    elif selected_dispute_status == 'finalized':
-        # FIX: Changed 'items' to 'items_query'
-        items_query = items_query.filter(final_amount_date__isnull=False)
+
+    if unlinked_only:
+        selected_dispute_status = ''  # De-select the other filter
+        items_query = items_query.filter(parcel__isnull=True)
+    elif selected_dispute_status:
+        unlinked_only = False  # Ensure this filter is off
+        if selected_dispute_status == 'pending':
+            items_query = items_query.filter(dispute_date__isnull=False, final_amount_date__isnull=True)
+        elif selected_dispute_status == 'finalized':
+            items_query = items_query.filter(final_amount_date__isnull=False)
+        elif selected_dispute_status == 'not_disputed':
+            items_query = items_query.filter(dispute_date__isnull=True)
 
     courier_id = request.GET.get('courier')
     if courier_id:
@@ -2241,6 +2611,7 @@ def invoice_item_report(request):
 
     return render(request, 'operation/invoice_item_report.html', context)
 
+
 @login_required
 def load_more_invoice_items(request):
     """
@@ -2264,6 +2635,21 @@ def load_more_invoice_items(request):
             default=Value(None)
         )
     ).order_by(sort_by)
+
+    # --- START OF THE FIX ---
+    selected_dispute_status = request.GET.get('dispute_status', '')
+    unlinked_only = request.GET.get('unlinked_only') == 'true'
+
+    if unlinked_only:
+        items_query = items_query.filter(parcel__isnull=True)
+    elif selected_dispute_status:
+        if selected_dispute_status == 'pending':
+            items_query = items_query.filter(dispute_date__isnull=False, final_amount_date__isnull=True)
+        elif selected_dispute_status == 'finalized':
+            items_query = items_query.filter(final_amount_date__isnull=False)
+        elif selected_dispute_status == 'not_disputed':
+            items_query = items_query.filter(dispute_date__isnull=True)
+    # --- END OF THE FIX ---
 
     courier_id = request.GET.get('courier')
     if courier_id:
@@ -2315,6 +2701,7 @@ def load_more_invoice_items(request):
 
     return JsonResponse({'html': html_rows, 'has_next': page_obj.has_next()})
 
+
 @login_required
 def view_parcel_items(request, item_id):
     """
@@ -2344,131 +2731,124 @@ def view_parcel_items(request, item_id):
 def get_dispute_details(request, item_id):
     """
     Handles the AJAX request to fetch and render the dispute form for the modal.
+    This version pre-processes the dispute history to ensure dates are formatted correctly.
     """
     invoice_item = get_object_or_404(CourierInvoiceItem, pk=item_id)
     form = DisputeForm(instance=invoice_item)
-    # This is now for a single new entry
     new_update_form = DisputeUpdateForm(prefix='new_update')
+
+    # --- MODIFICATION START ---
+    # Pre-process the dispute history to ensure dates can be filtered.
+    processed_history = []
+    if invoice_item.dispute_history:
+        for entry in invoice_item.dispute_history:
+            try:
+                # Attempt to parse the date string from the JSON field.
+                # This handles the 'YYYY-MM-DD' format.
+                parsed_date = datetime.datetime.strptime(entry['update_date'], '%Y-%m-%d').date()
+                processed_history.append({
+                    'update_date': parsed_date,
+                    'remarks': entry['remarks']
+                })
+            except (ValueError, TypeError):
+                # If parsing fails, keep the original entry to avoid crashing.
+                # This can happen if old data is in a different format.
+                processed_history.append(entry)
+    # --- MODIFICATION END ---
 
     context = {
         'item': invoice_item,
         'form': form,
         'new_update_form': new_update_form,
+        # Pass the pre-processed history to the template instead of the raw one.
+        'processed_history': processed_history,
     }
     return render(request, 'operation/partials/_dispute_modal_content.html', context)
+
 
 @login_required
 @require_POST
 def save_dispute_details(request, item_id):
     """
     Handles the POST request to save dispute details from the modal form.
+    This version reliably adds the initialization record to the history.
     """
     invoice_item = get_object_or_404(CourierInvoiceItem, pk=item_id)
+
+    # --- MODIFICATION START ---
+    # The most reliable way to check if it's a new dispute is to see if the
+    # date is already set on the database object BEFORE processing the form.
+    is_new_dispute = invoice_item.dispute_date is None
+    # --- MODIFICATION END ---
+
     form = DisputeForm(request.POST, instance=invoice_item)
-    new_update_form = DisputeUpdateForm(request.POST, prefix='new_update')
 
-    if form.is_valid():
-        dispute_item = form.save()
+    if not form.is_valid():
+        errors = form.errors.as_json()
+        logger.error(f"Main dispute form save failed for item {item_id}: {errors}")
+        return JsonResponse({'success': False, 'message': 'Please correct the main form errors.', 'errors': errors}, status=400)
 
-        # Check if a new update was submitted
-        if new_update_form.is_valid() and new_update_form.cleaned_data.get('update_date'):
-            # Get existing history, or start a new list
-            history = dispute_item.dispute_history or []
+    # Save the main form data. This will set the dispute_date on new disputes.
+    dispute_item = form.save()
 
-            # Append the new entry
+    # Get the history list to modify it.
+    history = dispute_item.dispute_history or []
+
+    # If it was a new dispute, add the initialization record.
+    if is_new_dispute:
+        history.insert(0, {
+            'update_date': dispute_item.dispute_date.isoformat(),
+            'remarks': 'Dispute Initialized.'
+        })
+
+    # Check for and process the optional "Add New Update" form.
+    update_date_from_post = request.POST.get('new_update-update_date')
+    remarks_from_post = request.POST.get('new_update-remarks')
+
+    if update_date_from_post or remarks_from_post:
+        new_update_form = DisputeUpdateForm(request.POST, prefix='new_update')
+        if new_update_form.is_valid():
             history.append({
-                'update_date': new_update_form.cleaned_data['update_date'].strftime('%Y-%m-%d'),
+                'update_date': new_update_form.cleaned_data['update_date'].isoformat(),
                 'remarks': new_update_form.cleaned_data.get('remarks', '')
             })
+        else:
+            errors = new_update_form.errors.as_json()
+            logger.error(f"New update form validation failed for item {item_id}: {errors}")
+            return JsonResponse({'success': False, 'message': 'Please correct the errors in the New Update section.', 'errors': errors}, status=400)
 
-            # Save the updated history list
-            dispute_item.dispute_history = sorted(history, key=lambda x: x['update_date'])
-            dispute_item.save(update_fields=['dispute_history'])
+    # Save the history list back to the object and update the database.
+    dispute_item.dispute_history = sorted(history, key=lambda x: x['update_date'])
+    dispute_item.save(update_fields=['dispute_history'])
 
-        return JsonResponse({'success': True, 'message': 'Dispute details saved successfully.'})
-    else:
-        errors = form.errors.as_json()
-        logger.error(f"Dispute form save failed for item {item_id}: {errors}")
-        return JsonResponse({'success': False, 'message': 'Please correct the errors.', 'errors': errors}, status=400)
+    return JsonResponse({'success': True, 'message': 'Dispute details saved successfully.'})
 
-# @login_required
-# def export_parcels_to_excel(request):
-#     """
-#     Generates and serves an Excel file of selected parcels with calculated shipment charges.
-#     This view is for superusers only.
-#     """
-#     if not request.user.is_superuser:
-#         return HttpResponseForbidden("You do not have permission to access this resource.")
 
-#     # 1. Get data from query parameters
-#     parcel_ids_str = request.GET.get('ids', '')
-#     margin_str = request.GET.get('margin', '0')
-#     rate_str = request.GET.get('rate', '1')
+@login_required
+@require_POST
+def cancel_dispute(request, item_id):
+    """
+    Allows a superuser to cancel an existing dispute, clearing all
+    dispute-related fields for the invoice item.
+    """
+    # 1. Check for superuser permission
+    if not request.user.is_superuser:
+        return HttpResponseForbidden("You do not have permission to perform this action.")
 
-#     if not parcel_ids_str:
-#         return HttpResponse("No parcel IDs provided.", status=400)
+    # 2. Get the invoice item
+    invoice_item = get_object_or_404(CourierInvoiceItem, pk=item_id)
 
-#     # 2. Validate and process input data
-#     try:
-#         parcel_ids = [int(id) for id in parcel_ids_str.split(',')]
-#         margin_multiplier = 1 + (Decimal(margin_str) / Decimal('100'))
-#         exchange_rate = Decimal(rate_str)
-#         if exchange_rate == 0:
-#             return HttpResponse("Exchange rate cannot be zero.", status=400)
-#     except (ValueError, TypeError):
-#         return HttpResponse("Invalid margin or exchange rate provided.", status=400)
+    # 3. Clear all dispute-related fields
+    invoice_item.dispute_date = None
+    invoice_item.final_amount_after_dispute = None
+    invoice_item.final_amount_date = None
+    invoice_item.dispute_history = []  # Reset the history to an empty list
 
-#     # 3. Fetch data from the database
-#     parcels = Parcel.objects.filter(id__in=parcel_ids).select_related(
-#         'order__warehouse',
-#         'packaging_type',
-#         'billing_item'
-#     ).order_by('created_at')
+    # 4. Save the changes to the database
+    invoice_item.save()
 
-#     # 4. Create the Excel workbook in memory
-#     workbook = openpyxl.Workbook()
-#     sheet = workbook.active
-#     sheet.title = "Parcels Export"
-
-#     # Write headers
-#     headers = [
-#         "Order#",
-#         "Tracking Number",
-#         "Shipment Date",
-#         "Warehouse",
-#         "Type",
-#         "Shipment cost"
-#     ]
-#     sheet.append(headers)
-
-#     # 5. Write data rows
-#     for parcel in parcels:
-#         # Calculate shipment charges
-#         shipment_charges = Decimal('0.00')
-#         if parcel.billing_item and parcel.billing_item.actual_cost is not None:
-#             billing_cost = parcel.billing_item.actual_cost
-#             shipment_charges = (billing_cost / exchange_rate) * margin_multiplier
-
-#         # Prepare row data
-#         row_data = [
-#             parcel.order.erp_order_id,
-#             parcel.tracking_number,
-#             parcel.created_at.strftime('%Y-%m-%d'),
-#             parcel.order.warehouse.name if parcel.order and parcel.order.warehouse else 'N/A',
-#             parcel.packaging_type.name if parcel.packaging_type else 'N/A',
-#             round(shipment_charges, 2)
-#         ]
-#         sheet.append(row_data)
-
-#     # 6. Prepare the HTTP response
-#     response = HttpResponse(
-#         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-#     )
-#     response['Content-Disposition'] = 'attachment; filename="parcels_export.xlsx"'
-#     workbook.save(response)
-
-#     return response
-
+    # 5. Return a success response
+    return JsonResponse({'success': True, 'message': 'Dispute has been successfully canceled.'})
 
 STATE_MAP = {
     'AL': 'ALABAMA', 'AK': 'ALASKA', 'AZ': 'ARIZONA', 'AR': 'ARKANSAS', 'CA': 'CALIFORNIA',
@@ -2485,17 +2865,22 @@ STATE_MAP = {
     'PR': 'PUERTO RICO', 'VI': 'VIRGIN ISLANDS'
 }
 
+
+
+# Add this import at the top of your views.py file if you don't have it
+from dateutil.relativedelta import relativedelta
+
 @login_required
 def generate_report(request):
     """
     Handles the 'Generate Report' page.
-    - GET: Displays dashboards for state and courier statistics.
+    - GET: Displays both a single-month and a consolidated 6-month performance report.
     - POST: Generates and serves an Excel file based on the selected month.
     """
     if not request.user.is_superuser:
         return HttpResponseForbidden("You do not have permission to access this resource.")
 
-    # --- POST: Handle Excel Report Generation ---
+    # --- POST: Handle Excel Report Generation (No changes needed here) ---
     if request.method == 'POST':
         month_str = request.POST.get('month')
         margin_str = request.POST.get('margin', '20')
@@ -2552,80 +2937,139 @@ def generate_report(request):
         selected_date = today
 
     months_for_selector = []
-    current_month = today.replace(day=1)
+    current_month_for_selector = today.replace(day=1)
     for _ in range(12):
-        months_for_selector.append(current_month.strftime('%Y-%m'))
-        last_month = current_month - datetime.timedelta(days=1)
-        current_month = last_month.replace(day=1)
+        months_for_selector.append(current_month_for_selector.strftime('%Y-%m'))
+        last_month = current_month_for_selector - datetime.timedelta(days=1)
+        current_month_for_selector = last_month.replace(day=1)
 
-    # Dashboard 1: State Statistics
-    stats_query_state = Parcel.objects.filter(created_at__year=selected_date.year, created_at__month=selected_date.month).values(
+    all_couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
+
+    # --- Reusable function to calculate stats for any given month ---
+    def get_performance_stats_for_month(month_date):
+        parcels_in_month = Parcel.objects.filter(
+            created_at__year=month_date.year,
+            created_at__month=month_date.month
+        )
+
+        monthly_stats = []
+        for courier in all_couriers:
+            courier_parcels = parcels_in_month.filter(courier_company=courier)
+
+            simple_stats = courier_parcels.aggregate(
+                total_parcels=Count('id'),
+                total_successful=Count('id', filter=Q(status='DELIVERED')),
+                total_billing_cost=Sum('billing_item__actual_cost'),
+                total_cold_chain=Count('id', filter=Q(order__is_cold_chain=True)),
+                total_ambient=Count('id', filter=Q(order__is_cold_chain=False)),
+                avg_cold_chain_cost=Avg('billing_item__actual_cost', filter=Q(order__is_cold_chain=True)),
+                avg_ambient_cost=Avg('billing_item__actual_cost', filter=Q(order__is_cold_chain=False))
+            )
+
+            duration_stats = courier_parcels.filter(
+                status='DELIVERED',
+                shipped_at__isnull=False,
+                delivered_at__isnull=False
+            ).aggregate(average_duration=Avg(F('delivered_at') - F('shipped_at')))
+
+            total_parcels = simple_stats.get('total_parcels', 0)
+            total_successful = simple_stats.get('total_successful', 0)
+            success_rate = (total_successful / total_parcels * 100) if total_parcels > 0 else 0
+
+            avg_days = 0.0
+            avg_duration_timedelta = duration_stats.get('average_duration')
+            if isinstance(avg_duration_timedelta, datetime.timedelta):
+                avg_days = avg_duration_timedelta.total_seconds() / (24 * 3600)
+
+            monthly_stats.append({
+                'courier_name': courier.name,
+                'total_parcels': total_parcels,
+                'total_successful': total_successful,
+                'success_rate': success_rate,
+                'avg_delivery_days': avg_days,
+                'total_billing_cost': simple_stats.get('total_billing_cost') or 0,
+                'total_cold_chain': simple_stats.get('total_cold_chain', 0),
+                'total_ambient': simple_stats.get('total_ambient', 0),
+                'avg_cold_chain_cost': simple_stats.get('avg_cold_chain_cost') or 0,
+                'avg_ambient_cost': simple_stats.get('avg_ambient_cost') or 0,
+            })
+        return monthly_stats
+
+    # --- START OF THE FIX ---
+
+    # 1. Calculate stats for the single selected month
+    courier_performance_stats = get_performance_stats_for_month(selected_date)
+
+    # 2. Calculate and consolidate stats for the past 6 months
+    consolidated_courier_stats = {courier.name: [] for courier in all_couriers}
+
+    for i in range(6):
+        month_to_calculate = selected_date - relativedelta(months=i)
+        monthly_stats = get_performance_stats_for_month(month_to_calculate)
+
+        for stat in monthly_stats:
+            courier_name = stat['courier_name']
+            if courier_name in consolidated_courier_stats:
+                # Append the entire dictionary of this month's stats to the courier's list
+                stat['month'] = month_to_calculate.strftime('%B %Y')
+                consolidated_courier_stats[courier_name].append(stat)
+
+    # --- END OF THE FIX ---
+
+    # --- State statistics (for selected month only) ---
+    stats_query_state = Parcel.objects.filter(
+        created_at__year=selected_date.year, created_at__month=selected_date.month
+    ).order_by().values(
         'billing_item__receiver_state', 'courier_company__name'
     ).annotate(total=Count('id')).order_by('billing_item__receiver_state', '-total')
+
     state_courier_counts = {}
     for item in stats_query_state:
         raw_state = item['billing_item__receiver_state']
-        courier = item['courier_company__name']
+        courier_name_from_query = item['courier_company__name']
         count = item['total']
-        if not raw_state or not courier:
-            continue
+        if not raw_state or not courier_name_from_query: continue
         state = STATE_MAP.get(raw_state.upper(), raw_state.upper())
         if state not in state_courier_counts:
             state_courier_counts[state] = {'total': 0, 'couriers': {}}
-        state_courier_counts[state]['couriers'][courier] = count
+        state_courier_counts[state]['couriers'][courier_name_from_query] = count
         state_courier_counts[state]['total'] += count
 
-    # Dynamically generate the list of all couriers
-    all_couriers = list(CourierCompany.objects.values_list('name', flat=True))
+    chart_labels = []
+    chart_datasets = []
+    colors = ['rgba(255, 99, 132, 0.2)', 'rgba(54, 162, 235, 0.2)', 'rgba(255, 206, 86, 0.2)', 'rgba(75, 192, 192, 0.2)', 'rgba(153, 102, 255, 0.2)', 'rgba(255, 159, 64, 0.2)']
+    border_colors = ['rgba(255, 99, 132, 1)', 'rgba(54, 162, 235, 1)', 'rgba(255, 206, 86, 1)', 'rgba(75, 192, 192, 1)', 'rgba(153, 102, 255, 1)', 'rgba(255, 159, 64, 1)']
 
-    # Dashboard 2: Courier Performance Statistics
-    # **FIXED**: Using the direct 'courier_company__name' and correct status logic
-    courier_stats_query = Parcel.objects.filter(
-        created_at__year=selected_date.year, created_at__month=selected_date.month
-    ).values('courier_company__name').annotate(
-        total_parcels=Count('id'),
-        total_successful=Count('id', filter=Q(status='DELIVERED')),
-        total_billing_cost=Sum('actual_shipping_cost'), # Using direct field from Parcel
-        total_delivery_duration=Sum(
-            ExpressionWrapper(F('delivered_at') - F('shipped_at'), output_field=DurationField()),
-            filter=Q(status='DELIVERED')
-        )
-    )
+    # Get the month labels (in reverse chronological order)
+    if consolidated_courier_stats:
+        first_courier = next(iter(consolidated_courier_stats.values()), None)
+        if first_courier:
+            chart_labels = [stat['month'] for stat in first_courier]
 
-    monthly_stats_dict = {
-        stat['courier_company__name']: stat
-        for stat in courier_stats_query if stat['courier_company__name']
+    color_index = 0
+    for courier_name, monthly_stats_list in consolidated_courier_stats.items():
+        dataset = {
+            'label': courier_name,
+            'data': [stat.get('total_billing_cost', 0) or 0 for stat in monthly_stats_list], # handle None
+            'backgroundColor': colors[color_index % len(colors)],
+            'borderColor': border_colors[color_index % len(border_colors)],
+            'borderWidth': 1
+        }
+        chart_datasets.append(dataset)
+        color_index += 1
+
+    chart_data = {
+        'labels': chart_labels,
+        'datasets': chart_datasets
     }
-
-    courier_performance_stats = []
-    for courier_name in all_couriers:
-        stat = monthly_stats_dict.get(courier_name)
-
-        if stat:
-            total_parcels = stat['total_parcels']
-            total_successful = stat['total_successful']
-            success_rate = (total_successful / total_parcels * 100) if total_parcels > 0 else 0
-            avg_days = 0
-            if total_successful > 0 and stat['total_delivery_duration']:
-                avg_days = stat['total_delivery_duration'].total_seconds() / (3600 * 24) / total_successful
-            total_billing_cost = stat['total_billing_cost'] or 0
-        else:
-            total_parcels, total_successful, success_rate, avg_days, total_billing_cost = 0, 0, 0, 0, 0
-
-        courier_performance_stats.append({
-            'courier_name': courier_name,
-            'total_parcels': total_parcels,
-            'total_successful': total_successful,
-            'success_rate': success_rate,
-            'avg_delivery_days': avg_days,
-            'total_billing_cost': total_billing_cost,
-        })
 
     context = {
         'state_courier_counts': state_courier_counts,
         'courier_performance_stats': courier_performance_stats,
+        'consolidated_courier_stats': consolidated_courier_stats,
         'months': months_for_selector,
-        'selected_month': selected_date.strftime('%Y-%m')
+        'selected_month': selected_month_str,
+        'chart_data': json.dumps(chart_data, cls=DjangoJSONEncoder) # Use DjangoJSONEncoder for Decimals
     }
 
     return render(request, 'operation/generate_report.html', context)

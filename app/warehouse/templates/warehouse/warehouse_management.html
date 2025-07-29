@@ -5,6 +5,9 @@
 
 
 {% block content %}
+{# ++ ADDED: Ensure a CSRF token is always on the page for JavaScript to find ++ #}
+{% csrf_token %}
+
 <div class="shrink-0 mb-2 sticky top-1 md:top-16 h-fit bg-base-100 rounded shadow z-10">
   <div class="tabs max-w-7xl mx-auto">
     <a href="?tab=warehouseproduct" class="tab tab-lifted text-lg transition bg-gray-200 hover:bg-gray-300 text-gray-700" data-tab="warehouseproduct">
@@ -29,6 +32,36 @@
 
 {% block extra_js %}
 <script>
+
+  // All other JavaScript functions remain the same...
+
+  // ++ MODIFIED: This section is now more robust ++
+  let CSRF_TOKEN = null;
+
+  function getCsrfToken() {
+      if (!CSRF_TOKEN) {
+          const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+          if (csrfInput) {
+              CSRF_TOKEN = csrfInput.value;
+          } else {
+              console.error("CRITICAL: CSRF Token input field not found in DOM!");
+          }
+      }
+      return CSRF_TOKEN;
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+      // Initialize the token on page load
+      getCsrfToken();
+
+      // The rest of your DOMContentLoaded function...
+      enableModalBackdropClosing();
+      initTabs();
+      // ...etc
+  });
+
+  // --- No changes are needed to your existing functions like 'saveForm' ---
+  // They will now work correctly because getCsrfToken() can always find the token.
 
   const TAB_SPECIFIC_PARAMS = {
       'warehouseproduct': ['warehouse', 'supplier', 'q', 'page'], // URL keys
@@ -1735,19 +1768,6 @@ function initWarehouseTab() {
     }
   }
 
-  function getCsrfToken() {
-      if (CSRF_TOKEN) {
-          return CSRF_TOKEN;
-      }
-      const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
-      if (csrfInput) {
-          console.warn("getCsrfToken: Had to re-query DOM for CSRF token.");
-          return csrfInput.value;
-      }
-      console.error("getCsrfToken: CSRF Token is null and input field not found in DOM!");
-      return "";
-  }
-
   function getNowDatetimeStr() {
     const now = new Date();
     return now.getFullYear() + "-" +
@@ -1938,16 +1958,8 @@ function initWarehouseTab() {
     console.log(`🎨 Tab highlighting updated. Active tab: ${activeTabName}`);
   }
 
-  let CSRF_TOKEN = null;
-
   document.addEventListener("DOMContentLoaded", function () {
-    const csrfInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
-      if (csrfInput) {
-          CSRF_TOKEN = csrfInput.value;
-      } else {
-          console.error("CSRF Token input field not found on DOMContentLoaded!");
-      }
-
+      getCsrfToken(); // Initialize on page load
     enableModalBackdropClosing();
     initTabs(); // Initialize tab click listeners
 

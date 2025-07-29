@@ -257,7 +257,12 @@ class Parcel(models.Model):
         blank=True,
         related_name='parcels'
     )
-    tracking_number = models.CharField(max_length=100, blank=True, null=True)
+    tracking_number = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        unique=True,
+        )
 
     packaging_type = models.ForeignKey(
         'operation.PackagingType',
@@ -316,6 +321,20 @@ class Parcel(models.Model):
 
     def __str__(self):
         return f"Parcel {self.parcel_code_system} ({self.get_status_display()}) for Order {self.order.erp_order_id}"
+
+
+    @property
+    def total_delivery_days_precise(self):
+        """
+        Calculates the precise number of days between shipment and delivery.
+        Returns a float, or 0.0 if timestamps are missing.
+        """
+        if self.shipped_at and self.delivered_at:
+            # Calculate the difference as a timedelta object
+            duration = self.delivered_at - self.shipped_at
+            # Convert the duration to total seconds and divide by seconds in a day
+            return duration.total_seconds() / (24 * 3600)
+        return 0.0
 
     @property
     def simplified_tracking_status(self):
@@ -663,15 +682,41 @@ class CourierInvoice(models.Model):
     """
     Represents an uploaded invoice from a courier company.
     """
+
+    PAYMENT_STATUS_CHOICES = [
+        ('UNPAID', 'Unpaid'),
+        ('PAID', 'Paid'),
+    ]
+
     courier_company = models.ForeignKey(CourierCompany, on_delete=models.PROTECT)
     # MODIFIED: These fields are now optional, as they will be parsed from the file.
     invoice_number = models.CharField(max_length=100, unique=True, null=True, blank=True)
     invoice_date = models.DateField(null=True, blank=True)
     invoice_amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     payment_date = models.DateField(null=True, blank=True)
+    payment_status = models.CharField(max_length=10, choices=PAYMENT_STATUS_CHOICES, default='UNPAID')
     invoice_file = models.FileField(upload_to='courier_invoices/')
     uploaded_at = models.DateTimeField(auto_now_add=True)
     uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    payment_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="The actual amount paid for this invoice."
+    )
+    discount_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0.00,
+        help_text="Calculated as Invoice Amount - Payment Amount. Can be negative for overpayments."
+    )
+
+    def save(self, *args, **kwargs):
+        # --- START OF THE FIX ---
+        # Automatically calculate the discount amount on save
+        if self.invoice_amount is not None and self.payment_amount is not None:
+            self.discount_amount = self.invoice_amount - self.payment_amount
+        else:
+            self.discount_amount = Decimal('0.00')
+        # --- END OF THE FIX ---
+        super().save(*args, **kwargs)
+
 
     def __str__(self):
         if self.invoice_number:

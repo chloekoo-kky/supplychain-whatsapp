@@ -65,7 +65,7 @@ class OrderAdmin(admin.ModelAdmin):
         'is_cold_chain',
         'imported_at_formatted',
         'item_count',
-        'parcel_count_display'
+        'parcel_count_display',
     )
     list_filter = ('status', 'warehouse', 'is_cold_chain', 'order_date')
     search_fields = (
@@ -222,20 +222,19 @@ class ParcelAdmin(admin.ModelAdmin):
         'tracking_number',
         'status',
         'estimated_cost',
-        'shipped_at_formatted',
         'created_at_formatted',
         'item_in_parcel_count',
-        'created_by_display' # Added
+        'shipped_at_formatted',
+        'delivered_at_formatted',
     )
     list_filter = ('courier_company', 'shipped_at', 'order__warehouse', 'created_at', 'created_by')
     search_fields = (
-        'order__erp_order_id',
-        'order__order_display_code', # Changed
         'parcel_code_system',
         'tracking_number',
-        'courier_company'
+        'order__erp_order_id',
+        'order__customer__customer_name',
     )
-    readonly_fields = ('created_at','parcel_code_system', 'created_by') # parcel_code_system is auto-gen
+    readonly_fields = ('created_at','parcel_code_system', 'created_by', 'shipped_at', 'delivered_at') # parcel_code_system is auto-gen
     autocomplete_fields = ['order'] # created_by is set automatically in view
     inlines = [ParcelItemInline]
     date_hierarchy = 'created_at'
@@ -266,6 +265,11 @@ class ParcelAdmin(admin.ModelAdmin):
         return obj.shipped_at.strftime("%Y-%m-%d %H:%M") if obj.shipped_at else "-"
     shipped_at_formatted.short_description = 'Shipped At'
     shipped_at_formatted.admin_order_field = 'shipped_at'
+
+    def delivered_at_formatted(self, obj):
+        return obj.delivered_at.strftime("%Y-%m-%d %H:%M") if obj.delivered_at else "-"
+    delivered_at_formatted.short_description = 'Delivered At'
+    delivered_at_formatted.admin_order_field = 'delivered_at'
 
     def created_at_formatted(self, obj):
         return obj.created_at.strftime("%Y-%m-%d %H:%M") if obj.created_at else "-"

@@ -164,20 +164,30 @@
     <label class="modal-backdrop modal-close-button-edit" for="edit-order-modal-toggle">Close</label>
 </div>
 
-{# --- NEW MODAL FOR VIEW/EDIT PARCEL DETAILS --- #}
+{# --- VIEW/EDIT PARCEL MODAL --- #}
 <input type="checkbox" id="view-edit-parcel-modal-toggle" class="modal-toggle" />
 <div class="modal" role="dialog" id="view-edit-parcel-modal-container">
-    <div class="modal-box max-w-4xl"> {# Increased max-width for more content #}
+    <div class="modal-box max-w-4xl">
         <label for="view-edit-parcel-modal-toggle" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2 modal-close-button">✕</label>
         <h3 class="font-bold text-xl mb-4" id="view-edit-parcel-modal-title">View/Edit Parcel Details</h3>
         <div id="view-edit-parcel-modal-content-area">
-            {# Static info and form will be loaded here by JS #}
             <p class="text-center py-8">Loading parcel details...</p>
         </div>
     </div>
     <label class="modal-backdrop modal-close-button" for="view-edit-parcel-modal-toggle">Close</label>
 </div>
-{# --- END NEW MODAL --- #}
+
+{# --- CONFIRMATION MODAL (for Remove Parcel) --- #}
+<div id="confirmation-modal" class="modal">
+    <div class="modal-box">
+        <h3 class="font-bold text-lg" id="confirmation-modal-title">Confirm Action</h3>
+        <p class="py-4" id="confirmation-modal-message">Are you sure?</p>
+        <div class="modal-action">
+            <button id="confirmation-modal-cancel" class="btn btn-ghost">Cancel</button>
+            <button id="confirmation-modal-confirm" class="btn btn-error">Confirm</button>
+        </div>
+    </div>
+</div>
 
 {# --- START: New Modal for Customer's Shipment History --- #}
 <input type="checkbox" id="customer-shipments-modal-toggle" class="modal-toggle" />
@@ -411,9 +421,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (searchInput && searchInput.value !== (currentCustomerOrderFilters.q || "")) {
             searchInput.value = currentCustomerOrderFilters.q || "";
         }
-        const orderCountSpan = filterPanel.querySelector('.customer-order-count');
-         if (orderCountSpan && currentCustomerOrderFilters.total_orders_count !== undefined) {
-            orderCountSpan.textContent = `${currentCustomerOrderFilters.total_orders_count} orders`;
+        const newOrderCountSpan = filterPanel.querySelector('.customer-new-order-count');
+        const partialOrderCountSpan = filterPanel.querySelector('.customer-partial-order-count');
+
+        if (newOrderCountSpan && currentCustomerOrderFilters.new_orders_count !== undefined) {
+            newOrderCountSpan.textContent = currentCustomerOrderFilters.new_orders_count;
+        }
+        if (partialOrderCountSpan && currentCustomerOrderFilters.partial_orders_count !== undefined) {
+            partialOrderCountSpan.textContent = currentCustomerOrderFilters.partial_orders_count;
         }
     }
 
@@ -459,7 +474,13 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => {
                 if (!response.ok) throw new Error(`Network error: ${response.statusText}`);
                 const totalCountHeader = response.headers.get('X-Total-Orders-Count');
+                const newCountHeader = response.headers.get('X-New-Orders-Count');
+                const partialCountHeader = response.headers.get('X-Partial-Orders-Count');
+
                 if (totalCountHeader !== null) currentCustomerOrderFilters.total_orders_count = totalCountHeader;
+                if (newCountHeader !== null) currentCustomerOrderFilters.new_orders_count = newCountHeader;
+                if (partialCountHeader !== null) currentCustomerOrderFilters.partial_orders_count = partialCountHeader;
+
                 const hxTrigger = response.headers.get('HX-Trigger-After-Swap');
                 const loadMoreContainer = document.getElementById('load-more-customer-orders-container');
                 if (loadMoreContainer) loadMoreContainer.style.display = (hxTrigger === 'loadMoreCustomerOrdersAvailable') ? '' : 'none';
@@ -612,6 +633,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             if (packForm) packForm.action = `/operation/order/${orderPk}/process-packing/`;
                             if (orderPkHiddenInput) orderPkHiddenInput.value = orderPk;
                             if (notesTextarea) notesTextarea.value = data.shipping_notes_for_parcel || '';
+
+                            setupDynamicBatchDropdowns(); // This fetches batch data for dropdowns
+                            setupDynamicPackingForm(); // This attaches all the new logic for adding/removing/validating rows.
 
                             const isCold = data.is_cold_chain === true;
                             const coldStatusEl = document.getElementById('order-cold-chain-status-display');
@@ -843,6 +867,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+
     function updateParcelFiltersUI() {
         const parcelFilterPanel = tabContainer.querySelector('.parcel-filters');
         if (!parcelFilterPanel || !tabContainer.querySelector('#parcels-list-tbody')) return;
@@ -860,21 +885,36 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.classList.toggle('btn-outline', btn.dataset.value !== activeCourier);
         });
 
-        // --- START: FIX ---
-        // This new block ensures the status filter buttons are correctly highlighted.
         const activeStatus = currentParcelFilters.parcel_status || "";
+        const notBilledIsActive = currentParcelFilters.not_billed_only === 'true';
+
         parcelFilterPanel.querySelectorAll('.parcel-status-filter-btn').forEach(btn => {
-            btn.classList.toggle('btn-active', btn.dataset.value === activeStatus);
-            // Assuming 'btn-active' is your highlight class. Adjust if necessary.
-            // If you use other classes like 'btn-neutral' or 'text-white' for active state, add them here too.
+            // A status button is active only if its value matches and 'not_billed' is NOT active.
+            btn.classList.toggle('btn-active', btn.dataset.value === activeStatus && !notBilledIsActive);
         });
-        // --- END: FIX ---
+
+        parcelFilterPanel.querySelectorAll('.parcel-not-billed-filter-btn').forEach(btn => {
+            // The 'not_billed' button is active only if its filter is on.
+            btn.classList.toggle('btn-active', notBilledIsActive);
+        });
 
         const searchInput = parcelFilterPanel.querySelector('.parcel-dynamic-search-input');
         if (searchInput && searchInput.value !== (currentParcelFilters.parcel_q || "")) searchInput.value = currentParcelFilters.parcel_q || "";
 
-        const parcelCountSpan = parcelFilterPanel.querySelector('.parcel-count-display');
-        if (parcelCountSpan && currentParcelFilters.total_parcels_count !== undefined) parcelCountSpan.textContent = `${currentParcelFilters.total_parcels_count} parcels`;
+        // --- START: MODIFICATION ---
+        // Update the four separate count spans instead of the single total
+        const toPackSpan = parcelFilterPanel.querySelector('.parcel-topack-count');
+        if (toPackSpan && currentParcelFilters.to_pack_count !== undefined) toPackSpan.textContent = currentParcelFilters.to_pack_count;
+
+        const readySpan = parcelFilterPanel.querySelector('.parcel-ready-count');
+        if (readySpan && currentParcelFilters.ready_to_ship_count !== undefined) readySpan.textContent = currentParcelFilters.ready_to_ship_count;
+
+        const inTransitSpan = parcelFilterPanel.querySelector('.parcel-intransit-count');
+        if (inTransitSpan && currentParcelFilters.in_transit_count !== undefined) inTransitSpan.textContent = currentParcelFilters.in_transit_count;
+
+        const deliveredSpan = parcelFilterPanel.querySelector('.parcel-delivered-count');
+        if (deliveredSpan && currentParcelFilters.delivered_count !== undefined) deliveredSpan.textContent = currentParcelFilters.delivered_count;
+        // --- END: MODIFICATION ---
     }
 
     function loadInitialParcelFilters(urlParams) {
@@ -905,8 +945,12 @@ document.addEventListener('DOMContentLoaded', function() {
             params.set('parcel_status', currentParcelFilters.parcel_status);
         }
         if (currentParcelFilters.parcel_q) params.set('parcel_q', currentParcelFilters.parcel_q);
-        if (currentParcelFilters.parcel_start_date) params.set('parcel_start_date', currentParcelFilters.parcel_start_date); // NEW
-        if (currentParcelFilters.parcel_end_date) params.set('parcel_end_date', currentParcelFilters.parcel_end_date);       // NEW
+        if (currentParcelFilters.parcel_start_date) params.set('parcel_start_date', currentParcelFilters.parcel_start_date);
+        if (currentParcelFilters.parcel_end_date) params.set('parcel_end_date', currentParcelFilters.parcel_end_date);
+
+        if (currentParcelFilters.not_billed_only === 'true') {
+        params.set('not_billed_only', 'true');
+        }
 
         params.set('page', currentParcelFilters.page);
         params.set('fetch_parcel_list_only', 'true');
@@ -928,8 +972,24 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch(fetchUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'HX-Request': 'true' }})
             .then(response => {
                 if (!response.ok) throw new Error('Network error fetching parcels.');
+
+                // --- START: MODIFICATION ---
                 const totalCountHeader = response.headers.get('X-Total-Parcels-Count');
                 if (totalCountHeader !== null) currentParcelFilters.total_parcels_count = totalCountHeader;
+
+                const toPackCount = response.headers.get('X-To-Pack-Count');
+                if (toPackCount !== null) currentParcelFilters.to_pack_count = toPackCount;
+
+                const readyCount = response.headers.get('X-Ready-To-Ship-Count');
+                if (readyCount !== null) currentParcelFilters.ready_to_ship_count = readyCount;
+
+                const inTransitCount = response.headers.get('X-In-Transit-Count');
+                if (inTransitCount !== null) currentParcelFilters.in_transit_count = inTransitCount;
+
+                const deliveredCount = response.headers.get('X-Delivered-Count');
+                if (deliveredCount !== null) currentParcelFilters.delivered_count = deliveredCount;
+                // --- END: MODIFICATION ---
+
                 return response.text();
             })
             .then(html => {
@@ -946,6 +1006,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => { if (parcelTableContainer) parcelTableContainer.innerHTML = '<p class="text-red-500">Error loading parcels.</p>';})
             .finally(() => { isFetchingParcels = false; });
     }
+
     const debouncedApplyParcelFilters = debounce(applyParcelFilters, 400);
 
     function bindParcelPaginationButtons() {
@@ -987,6 +1048,87 @@ document.addEventListener('DOMContentLoaded', function() {
             if (parcelPk) {
                 openViewEditParcelModal(parcelPk);
             }
+        }
+    }
+
+    const confirmationModal = document.getElementById('confirmation-modal');
+    const confirmBtn = document.getElementById('confirmation-modal-confirm');
+    const cancelBtn = document.getElementById('confirmation-modal-cancel');
+    let confirmCallback = null;
+
+    function showConfirmationModal(title, message, onConfirm) {
+        if (confirmationModal) {
+            document.getElementById('confirmation-modal-title').textContent = title;
+            document.getElementById('confirmation-modal-message').textContent = message;
+            confirmCallback = onConfirm;
+            confirmationModal.classList.add('modal-open');
+        } else { // Fallback if modal is missing
+            if (confirm(message)) {
+                onConfirm();
+            }
+        }
+    }
+
+    function hideConfirmationModal() {
+        if (confirmationModal) {
+            confirmationModal.classList.remove('modal-open');
+        }
+        confirmCallback = null;
+    }
+
+    if (confirmBtn) {
+        confirmBtn.addEventListener('click', () => {
+            if (typeof confirmCallback === 'function') {
+                confirmCallback();
+            }
+            hideConfirmationModal();
+        });
+    }
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', hideConfirmationModal);
+    }
+
+    // 2. This function attaches the listener to the remove button.
+    function attachRemoveButtonListener() {
+        const removeBtn = document.getElementById('remove-parcel-btn');
+        if (removeBtn && !removeBtn.dataset.listenerAttached) {
+            removeBtn.dataset.listenerAttached = 'true';
+            removeBtn.addEventListener('click', function() {
+                const parcelPk = this.dataset.parcelPk;
+
+                showConfirmationModal(
+                    'Remove Parcel?',
+                    'Are you sure you want to remove this parcel? This action cannot be undone and will return items to stock.',
+                    () => { // This function runs only if the user clicks "Confirm"
+                        fetch(`/operation/parcel/${parcelPk}/remove/`, {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRFToken': getCsrfToken(), // Using your helper function
+                                'Content-Type': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                showSuccessToast(data.message || 'Parcel removed!');
+                                document.getElementById('view-edit-parcel-modal-toggle').checked = false;
+                                if (typeof applyParcelFilters === 'function') {
+                                    applyParcelFilters(false, "Parcel Removed");
+                                } else {
+                                    window.location.reload(); // Fallback
+                                }
+                            } else {
+                                showErrorToast(data.message || 'An unknown error occurred.');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            showErrorToast('A critical error occurred.');
+                        });
+                    }
+                );
+            });
         }
     }
 
@@ -1054,6 +1196,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(data => {
                 if (data.success) {
                     modalContentArea.innerHTML = data.form_html;
+                    attachRemoveButtonListener();
 
                     const usdInput = document.getElementById('id_declared_value_usd');
                     const myrInput = document.getElementById('id_declared_value_myr');
@@ -1099,6 +1242,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 modalContentArea.innerHTML = `<p class="text-red-500 text-center p-4">Error fetching details: ${error.message}</p>`;
             });
     }
+
 
     function handleParcelCustomsFormSubmit(event, parcelPk) {
         event.preventDefault();
@@ -1216,6 +1360,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (modalToggle) {
                         modalToggle.checked = false;
                     }
+
+                    // Immediately disable the button on the page
+                    if (data.parcel_pk) {
+                        const parcelRow = document.querySelector(`.parcel-row[data-parcel-id="${data.parcel_pk}"]`);
+                        if (parcelRow) {
+                            const viewEditBtn = parcelRow.querySelector('.view-edit-parcel-btn');
+                            if (viewEditBtn) {
+                                viewEditBtn.disabled = true;
+                                viewEditBtn.setAttribute('title', 'Details can no longer be edited.');
+                            }
+                        }
+                    }
+
+                    // The filter refresh will then replace the row, reinforcing the disabled state
                     if (typeof applyParcelFilters === "function") {
                         applyParcelFilters(false);
                     }
@@ -1432,7 +1590,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // This is the most crucial call. It resets the buttons to their correct initial state
     // every time this function is run (which happens after every filter action).
     updateButtonsState();
-}
+    }
 
 
 
@@ -1507,55 +1665,282 @@ document.addEventListener('DOMContentLoaded', function() {
             }).catch(error => { if (tabContainer) tabContainer.innerHTML = `<p class="text-red-500">Error loading ${tabName}: ${error.message}</p>`;});
     }
 
-    if (tabContainer && !tabContainer.dataset.parcelFilterDelegationAttached) {
-        tabContainer.addEventListener('click', function(event) {
-            const target = event.target.closest('button');
-            if (!target || !target.closest('.parcel-filters') || getCurrentTabNameFromUrl() !== DEFAULT_PARCELS_TAB) return;
-            let filtersChanged = false;
-            if (target.classList.contains('parcel-warehouse-filter-btn')) { currentParcelFilters.parcel_warehouse = target.dataset.value; filtersChanged = true; }
-            else if (target.classList.contains('parcel-courier-filter-btn')) { currentParcelFilters.parcel_courier = target.dataset.value; filtersChanged = true; }
-            else if (target.classList.contains('parcel-status-filter-btn')) { currentParcelFilters.parcel_status = target.dataset.value; filtersChanged = true; }
-            else if (target.classList.contains('parcel-reset-filters-btn')) {
-                // FIX 1: Reset the complete state object, including the new date fields
-                currentParcelFilters = { page: '1', parcel_warehouse: '', parcel_courier: '', parcel_status: '', parcel_q: '', parcel_start_date: '', parcel_end_date: '' };
+        /**
+     * ✅ FIXED: Clones a row in the packing table to allow picking from another batch.
+     * This now correctly updates formset management data and attributes.
+     * @param {HTMLElement} button - The '+' button that was clicked.
+     */
+     function addBatchRow(button) {
+    const currentRow = button.closest('tr.pack-item-row');
+    if (!currentRow) return;
 
-                // FIX 2: Find the filter panel correctly to clear all visible inputs
-                const filterPanel = target.closest('.parcel-filters');
-                if (filterPanel) {
-                    const searchInput = filterPanel.querySelector('.parcel-dynamic-search-input');
-                    const startDateInput = filterPanel.querySelector('input[name="parcel_start_date"]');
-                    const endDateInput = filterPanel.querySelector('input[name="parcel_end_date"]');
+    // Correctly find the formset prefix and the management form data
+    const formsetPrefix = 'packitems';
+    const totalFormsInput = document.querySelector(`input[name="${formsetPrefix}-TOTAL_FORMS"]`);
+    if (!totalFormsInput) {
+        console.error("Fatal: Could not find TOTAL_FORMS input.");
+        return;
+    }
+    const newIndex = parseInt(totalFormsInput.value, 10);
 
-                    if (searchInput) searchInput.value = "";
-                    if (startDateInput) startDateInput.value = "";
-                    if (endDateInput) endDateInput.value = "";
+    // Clone the row, including all its content and event listeners
+    const newRow = currentRow.cloneNode(true);
+
+    // ---
+    // ✨ CRITICAL FIX: Remove the hidden 'id' field from the NEW row.
+    // ---
+    // This is the most important step. A new row must not have an 'id' field,
+    // as this tells Django to create a new object instance rather than update an existing one.
+    const idInput = newRow.querySelector(`input[name$="-id"]`); // Selects the input like 'packitems-0-id'
+    if (idInput) {
+        idInput.remove(); // Remove it completely from the cloned row.
+    }
+
+    // Update the 'name' and 'id' attributes for all inputs in the new row to use the new index
+    newRow.querySelectorAll('input, select').forEach(input => {
+        const currentName = input.getAttribute('name');
+        if (currentName) {
+            // This regex correctly finds and replaces the index, e.g., turns "packitems-0-..." to "packitems-1-..."
+            input.setAttribute('name', currentName.replace(/-(\d+)-/, `-${newIndex}-`));
+        }
+        const currentId = input.getAttribute('id');
+        if (currentId) {
+            input.setAttribute('id', currentId.replace(/-(\d+)-/, `-${newIndex}-`));
+        }
+    });
+
+    // Clean up the new row's values and state for the user
+    newRow.querySelector('input[name*="quantity_to_pack"]').value = ''; // Clear quantity
+    const batchSelect = newRow.querySelector('select[name*="available_batches"]');
+    if (batchSelect) {
+        batchSelect.selectedIndex = 0; // Reset batch selection
+    }
+    const errorPlaceholder = newRow.querySelector('.available-batches-error-placeholder');
+    if (errorPlaceholder) {
+        errorPlaceholder.textContent = ''; // Clear any old error messages
+    }
+
+    // Update the add button to become a remove button
+    const newButton = newRow.querySelector('.add-batch-row-btn');
+    if (newButton) {
+        newButton.textContent = '−'; // Change icon to a minus
+        newButton.classList.remove('add-batch-row-btn', 'btn-ghost');
+        newButton.classList.add('remove-batch-row-btn', 'btn-error', 'btn-outline');
+        newButton.title = 'Remove this batch';
+    }
+
+    // Insert the new row directly after the current one for a better UI flow
+    currentRow.after(newRow);
+
+    // Increment the total forms count in the management form
+    totalFormsInput.value = newIndex + 1;
+
+    // Re-run validation on the entire form
+    validateEntirePackForm();
+}
+
+
+    /**
+     * Removes a dynamically added packing row.
+     * @param {HTMLElement} button - The '−' button that was clicked.
+     */
+    function removeBatchRow(button) {
+        const rowToRemove = button.closest('tr.pack-item-row');
+        if (rowToRemove) {
+            rowToRemove.remove();
+        }
+        // Note: We don't decrement TOTAL_FORMS. Django handles gaps.
+        validateEntirePackForm(); // Re-validate after removing a row
+    }
+
+    /**
+     * Validates all rows and enables/disables the main submission button.
+     */
+    function validateEntirePackForm() {
+        const confirmButton = document.querySelector('#pack-order-form button[type="submit"]');
+        if (!confirmButton) return;
+
+        let isFormValid = true;
+        document.querySelectorAll('#pack-items-tbody tr.pack-item-row').forEach(row => {
+            const quantityInput = row.querySelector('input[name*="quantity_to_pack"]');
+            const batchSelect = row.querySelector('select[name*="available_batches"]');
+            const errorPlaceholder = row.querySelector('.available-batches-error-placeholder');
+
+            if (!quantityInput || !batchSelect || !errorPlaceholder) return;
+
+            const selectedOption = batchSelect.options[batchSelect.selectedIndex];
+            const quantityToPack = parseInt(quantityInput.value, 10) || 0;
+            const quantityAvailable = selectedOption ? parseInt(selectedOption.getAttribute('data-quantity-available'), 10) : Infinity;
+
+            errorPlaceholder.textContent = '';
+            quantityInput.classList.remove('input-error');
+
+            if (quantityToPack > 0) {
+                if (!selectedOption || !selectedOption.value) {
+                    errorPlaceholder.textContent = 'A batch must be selected.';
+                    isFormValid = false;
+                } else if (quantityToPack > quantityAvailable) {
+                    errorPlaceholder.textContent = `Error: Only ${quantityAvailable} available.`;
+                    quantityInput.classList.add('input-error');
+                    isFormValid = false;
+                }
+            }
+        });
+
+        // Also check main courier and packaging selections
+        if (!document.getElementById('id_parcel-courier_id')?.value || !document.getElementById('id_parcel-packaging_type')?.value) {
+            isFormValid = false;
+        }
+
+        confirmButton.disabled = !isFormValid;
+    }
+
+    /**
+     * ✅ FIXED: Main setup function for the packing modal's dynamic features.
+     * This now uses event delegation on the modal content area to handle all events.
+     */
+     function setupDynamicPackingForm() {
+        const modalContent = document.getElementById('pack-order-modal-content');
+        if (!modalContent || modalContent.dataset.listenerAttached === 'true') {
+            return; // Exit if no container or listeners are already attached
+        }
+        modalContent.dataset.listenerAttached = 'true';
+
+        // --- Main Click Event Listener ---
+        modalContent.addEventListener('click', function(e) {
+            // Handles adding a new row
+            if (e.target.matches('.add-batch-row-btn')) {
+                addBatchRow(e.target);
+            }
+            // Handles removing a row
+            else if (e.target.matches('.remove-batch-row-btn')) {
+                removeBatchRow(e.target);
+            }
+            // Handles courier/packaging selection
+            else if (e.target.closest('.courier-btn') || e.target.closest('.packaging-btn')) {
+                setTimeout(validateEntirePackForm, 50);
+            }
+        });
+
+        // --- Main Input Event Listener ---
+        modalContent.addEventListener('input', function(e) {
+            // Validates the form whenever a quantity is changed
+            if (e.target.matches('input[name*="quantity_to_pack"]')) {
+                validateEntirePackForm();
+            }
+        });
+
+        // --- Main Change Event Listener (THIS CONTAINS THE FIX) ---
+        modalContent.addEventListener('change', function(e) {
+            // Triggered when a batch dropdown is changed
+            if (e.target.matches('select[name*="available_batches"]')) {
+                const selectElement = e.target;
+                const selectedBatchId = selectElement.value;
+                const currentRow = selectElement.closest('tr.pack-item-row');
+
+                if (currentRow) {
+                    // ✨ CRITICAL FIX IS HERE:
+                    // Find the hidden input WITHIN THE SAME ROW and update its value.
+                    const hiddenBatchInput = currentRow.querySelector('input[name*="selected_batch_item_id"]');
+                    if (hiddenBatchInput) {
+                        hiddenBatchInput.value = selectedBatchId;
+                        console.log(`Updated hidden batch ID for row to: ${selectedBatchId}`); // For debugging
+                    }
                 }
 
-                filtersChanged = true;
-                sessionStorage.removeItem(`tabFilters_${DEFAULT_PARCELS_TAB}`);
+                // Now, re-validate the entire form with the correct data
+                validateEntirePackForm();
+            }
+        });
+
+        // Run an initial validation when the form is first loaded
+        validateEntirePackForm();
+    }
+
+
+
+    if (tabContainer && !tabContainer.dataset.parcelFilterDelegationAttached) {
+    tabContainer.addEventListener('click', function(event) {
+        const target = event.target.closest('button');
+        if (!target || !target.closest('.parcel-filters') || getCurrentTabNameFromUrl() !== DEFAULT_PARCELS_TAB) return;
+
+        let filtersChanged = false;
+
+        if (target.classList.contains('parcel-warehouse-filter-btn')) {
+            currentParcelFilters.parcel_warehouse = target.dataset.value;
+            filtersChanged = true;
+        } else if (target.classList.contains('parcel-courier-filter-btn')) {
+            currentParcelFilters.parcel_courier = target.dataset.value;
+            filtersChanged = true;
+
+        // --- START OF THE FIX ---
+        // This is the complete and correct logic for your status filters
+        } else if (target.classList.contains('parcel-status-filter-btn')) {
+            // If a status button is clicked, disable the 'not_billed' filter
+            currentParcelFilters.parcel_status = target.dataset.value;
+            currentParcelFilters.not_billed_only = ''; // Clear the other filter
+            filtersChanged = true;
+        } else if (target.classList.contains('parcel-not-billed-filter-btn')) {
+            // If the 'not_billed' button is clicked, disable the status filter
+            currentParcelFilters.not_billed_only = 'true';
+            currentParcelFilters.parcel_status = ''; // Clear the other filter
+            filtersChanged = true;
+        // --- END OF THE FIX ---
+
+        } else if (target.classList.contains('parcel-reset-filters-btn')) {
+            // Reset all filters, including the new one
+            currentParcelFilters = {
+                page: '1',
+                parcel_warehouse: '',
+                parcel_courier: '',
+                parcel_status: '',
+                parcel_q: '',
+                parcel_start_date: '',
+                parcel_end_date: '',
+                not_billed_only: '' // Also reset the new filter
+            };
+
+            const filterPanel = target.closest('.parcel-filters');
+            if (filterPanel) {
+                const searchInput = filterPanel.querySelector('.parcel-dynamic-search-input');
+                const startDateInput = filterPanel.querySelector('input[name="parcel_start_date"]');
+                const endDateInput = filterPanel.querySelector('input[name="parcel_end_date"]');
+
+                if (searchInput) searchInput.value = "";
+                if (startDateInput) startDateInput.value = "";
+                if (endDateInput) endDateInput.value = "";
             }
 
-            if (filtersChanged) applyParcelFilters(true, "Parcel Delegated Button Click");
-        });
+            filtersChanged = true;
+            sessionStorage.removeItem(`tabFilters_${DEFAULT_PARCELS_TAB}`);
+        }
+
+        if (filtersChanged) {
+            applyParcelFilters(true, "Parcel Delegated Button Click");
+        }
+    });
+
+
+        // --- The rest of your event listeners do not need to change ---
         tabContainer.addEventListener('input', function(event) {
             const searchInput = event.target.closest('.parcel-dynamic-search-input');
             if (searchInput && searchInput.closest('.parcel-filters') && getCurrentTabNameFromUrl() === DEFAULT_PARCELS_TAB) {
-                currentParcelFilters.parcel_q = searchInput.value.trim(); debouncedApplyParcelFilters(true, "Parcel Delegated Search Input");
+                currentParcelFilters.parcel_q = searchInput.value.trim();
+                debouncedApplyParcelFilters(true, "Parcel Delegated Search Input");
             }
         });
         tabContainer.addEventListener('change', function(event) {
             const target = event.target;
             if (target.matches('input[name="parcel_start_date"], input[name="parcel_end_date"]')) {
-                 if(target.closest('.parcel-filters') && getCurrentTabNameFromUrl() === DEFAULT_PARCELS_TAB){
-                     currentParcelFilters.parcel_start_date = tabContainer.querySelector('input[name="parcel_start_date"]').value;
-                     currentParcelFilters.parcel_end_date = tabContainer.querySelector('input[name="parcel_end_date"]').value;
-                     applyParcelFilters(true, 'Parcel Date Change');
-                 }
+                if(target.closest('.parcel-filters') && getCurrentTabNameFromUrl() === DEFAULT_PARCELS_TAB){
+                    currentParcelFilters.parcel_start_date = tabContainer.querySelector('input[name="parcel_start_date"]').value;
+                    currentParcelFilters.parcel_end_date = tabContainer.querySelector('input[name="parcel_end_date"]').value;
+                    applyParcelFilters(true, 'Parcel Date Change');
+                }
             }
         });
         tabContainer.dataset.parcelFilterDelegationAttached = 'true';
     }
-
     mainPageTabs.forEach(tab => {
         if (tab.dataset.tabListenerAttached === 'true') return;
         tab.addEventListener("click", function (e) {
@@ -1672,16 +2057,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     if(packModalToggle) packModalToggle.checked = false;
                     packForm.reset();
 
-                    const currentTab = getCurrentTabNameFromUrl();
-                    const paramsForRefresh = loadTabFiltersFromSession(currentTab);
-                    paramsForRefresh.set('tab', currentTab);
-                     if ((ORDER_MGMT_TAB_SPECIFIC_PARAMS[currentTab] || []).includes('page') && !paramsForRefresh.has('page')){
-                         paramsForRefresh.set('page', '1');
-                     }
-
-                    if (typeof loadTabContent === "function") {
-                         loadTabContent(`${currentBaseUrl}?${paramsForRefresh.toString()}`, false);
+                    if (typeof applyCustomerOrderFilters === "function") {
+                        applyCustomerOrderFilters(false, "PackForm Success");
                     } else {
+                        // Fallback to a full reload if the function isn't available
                         window.location.reload();
                     }
 
@@ -1757,7 +2136,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
-
 });
 
 </script>

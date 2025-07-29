@@ -3,60 +3,58 @@
 {% block title %}Courier Invoices{% endblock %}
 
 {% block content %}
-<div class="container mx-auto px-4 py-8">
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-3xl font-bold text-gray-800">Courier Invoices</h1>
-        <button onclick="openUploadModal()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
-            Upload New Invoice
-        </button>
-    </div>
+<div class="container mx-auto px-4 py-2">
+  <div class="flex justify-between items-center mb-3">
+      <h1 class="text-3xl font-bold text-gray-800">Courier Invoices</h1>
+      <button id="upload-invoice-btn" class="btn btn-primary">
+          Upload New Invoice
+      </button>
+  </div>
 
-    <div class="bg-white shadow-md rounded-lg overflow-hidden">
-        <table class="min-w-full leading-normal">
-            <thead class="bg-gray-100">
-                <tr>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Courier</th>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice #</th>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice Date</th>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Payment Date</th>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Parcels</th>
-                    <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="invoice-table-body">
-                {% for invoice in invoices %}
-                <tr class="hover:bg-gray-50">
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.courier_company.name }}</td>
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.invoice_number|default:"N/A" }}</td>
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">{% if invoice.invoice_date %}{{ invoice.invoice_date|date:"Y-m-d" }}{% else %}N/A{% endif %}</td>
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">{{ invoice.invoice_amount|default:"N/A" }}</td>
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        {% if invoice.payment_date %}
-                            {{ invoice.payment_date|date:"Y-m-d" }}
-                        {% else %}
-                            <span class="text-gray-500">Not Paid</span>
-                        {% endif %}
-                    </td>
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm text-center">{{ invoice.items.count }}</td>
-                    <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
-                        <button data-invoice-id="{{ invoice.id }}" class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 mt-1 js-edit-payment">Payment Date</button>
-                        <a href="{{ invoice.invoice_file.url }}" target="_blank" class="text-blue-600 hover:text-blue-800 mr-3">Download</a>
+  <div class="operations-filter-panel md:w-full shrink-0 sticky top-16 h-fit bg-base-200 shadow px-4 py-3 rounded-lg z-20 mb-4">
+      <form id="invoice-filter-form" class="space-y-4">
+          <input type="hidden" name="courier_company" id="id_courier_company_hidden" value="{{ request.GET.courier_company }}">
+          <input type="hidden" name="payment_status" id="id_payment_status_hidden" value="{{ request.GET.payment_status }}">
 
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="7" class="text-center py-10 text-gray-500">No invoices found.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+          <div class="grid grid-cols-12 gap-x-4 items-end">
+
+              <div class="col-span-12 md:col-span-4">
+                  <div class="courier-filter-buttons flex flex-wrap gap-2 mb-2 items-center">
+                      <button type="button" class="btn btn-xs sm:btn-sm btn-outline {% if not request.GET.courier_company %}btn-active{% endif %}" data-value="">All</button>
+                      {% for courier in all_couriers %}
+                          <button type="button" class="btn btn-xs sm:btn-sm btn-outline {% if request.GET.courier_company == courier.pk|stringformat:'s' %}btn-active{% endif %}" data-value="{{ courier.pk }}">{{ courier.name }}</button>
+                      {% endfor %}
+                  </div>
+              </div>
+
+              <div class="col-span-12 md:col-span-3">
+                  <div class="status-filter-buttons flex flex-wrap gap-2 mb-2 items-center">
+                      <button type="button" class="join-item btn btn-sm btn-outline {% if not request.GET.payment_status %}btn-active{% endif %}" data-value="">All</button>
+                      {% for value, display in payment_status_choices %}
+                          <button type="button" class="join-item btn btn-sm btn-outline {% if request.GET.payment_status == value %}btn-active{% endif %}" data-value="{{ value }}">{{ display }}</button>
+                      {% endfor %}
+                  </div>
+              </div>
+
+              <div class="col-span-12 md:col-span-5">
+                <div class="flex gap-2 mb-2 items-center">
+                  <label for="{{ filter_form.q.id_for_label }}" class="label-text">{{ filter_form.q.label }}</label>
+                  {{ filter_form.q }}
+
+                  <button type="reset" id="reset-invoice-filters" class="btn btn-sm btn-outline bg-gray-300">Reset Filters</button>
+                </div>
+              </div>
+      </form>
+  </div>
+</div>
+
+  <div id="invoice-list-container">
+      {% include 'operation/partials/_courier_invoice_list_content.html' with invoices=invoices %}
+  </div>
 </div>
 
 <!-- Upload Invoice Modal -->
-<div id="uploadModal" class="fixed z-10 inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+<div id="uploadModal" class="fixed z-50 inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
   <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
     <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
     <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
@@ -90,8 +88,8 @@
   </div>
 </div>
 
-<!-- Payment Date Modal (No changes) -->
-<div id="paymentModal" class="fixed z-10 inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+<!-- Payment Date Modal -->
+<div id="paymentModal" class="fixed z-50 inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
   <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
     <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
     <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
@@ -104,6 +102,15 @@
             <label for="payment_date" class="block text-sm font-medium text-gray-700">Payment Date</label>
             <input type="date" name="payment_date" id="payment_date" class="mt-1 focus:ring-indigo-500 focus:border-indigo-500 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md">
           </div>
+
+          <div class="form-control w-full mt-4">
+            <label class="label"><span class="label-text">Payment Amount</span></label>
+            <input type="number" step="0.01" name="payment_amount" id="payment-amount-input" class="input input-bordered w-full" />
+            <label class="label">
+                <span class="label-text-alt">Invoice Total: <strong id="modal-invoice-amount">0.00</strong></span>
+            </label>
+        </div>
+
         </div>
         <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
           <button type="submit" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm">
@@ -120,43 +127,149 @@
 
 <!-- Script section with click-outside logic (No changes) -->
 <script>
+document.addEventListener('DOMContentLoaded', function() {
+    // --- Element References ---
     const uploadModal = document.getElementById('uploadModal');
     const paymentModal = document.getElementById('paymentModal');
     const paymentForm = document.getElementById('paymentForm');
-    const invoiceTableBody = document.getElementById('invoice-table-body');
+    const paymentModalTitle = document.getElementById('modal-title');
+    const paymentDateInput = document.getElementById('payment_date');
+    const paymentAmountInput = document.getElementById('payment-amount-input');
+    const modalInvoiceAmountSpan = document.getElementById('modal-invoice-amount');
+    const listContainer = document.getElementById('invoice-list-container');
+    const filterForm = document.getElementById('invoice-filter-form');
+    const searchInput = filterForm.querySelector('input[name="q"]');
+    const uploadBtn = document.getElementById('upload-invoice-btn');
+    let searchTimeout;
 
+    // --- Modal Control Functions ---
     function openUploadModal() {
-        uploadModal.classList.remove('hidden');
+        if (uploadModal) uploadModal.classList.remove('hidden');
     }
     function closeUploadModal() {
-        uploadModal.classList.add('hidden');
-    }
-
-    function openPaymentModal(invoiceId) {
-        paymentForm.action = `/operation/invoices/${invoiceId}/edit/`;
-        paymentModal.classList.remove('hidden');
+        if (uploadModal) uploadModal.classList.add('hidden');
     }
     function closePaymentModal() {
-        paymentModal.classList.add('hidden');
+        if (paymentModal) paymentModal.classList.add('hidden');
     }
 
-    invoiceTableBody.addEventListener('click', function(event) {
-        if (event.target.classList.contains('js-edit-payment')) {
-            const button = event.target;
-            const invoiceId = button.dataset.invoiceId;
-            openPaymentModal(invoiceId);
-        }
-    });
+    function openAndPopulatePaymentModal(button) {
+        const invoiceId = button.dataset.invoiceId;
+        const invoiceNumber = button.dataset.invoiceNumber;
+        const paymentDate = button.dataset.paymentDate;
+        const invoiceAmount = button.dataset.invoiceAmount;
+        const paymentAmount = button.dataset.paymentAmount;
 
+        paymentForm.action = `/operation/invoices/${invoiceId}/edit/`;
+        paymentModalTitle.textContent = `Update Payment for Invoice #${invoiceNumber}`;
+        paymentDateInput.value = paymentDate;
+        modalInvoiceAmountSpan.textContent = `RM ${invoiceAmount}`;
+        paymentAmountInput.value = paymentAmount || invoiceAmount;
+        paymentModal.classList.remove('hidden');
+    }
+
+    // --- Event Listeners Setup ---
+    if (uploadBtn) {
+        uploadBtn.addEventListener('click', openUploadModal);
+    }
+
+    // Delegated listener for dynamically loaded content in the table
+    if (listContainer) {
+        listContainer.addEventListener('click', e => {
+            const editButton = e.target.closest('.js-edit-payment');
+            if (editButton) {
+                openAndPopulatePaymentModal(editButton);
+            }
+            const pageButton = e.target.closest('.invoice-page-btn');
+            if (pageButton) {
+                e.preventDefault();
+                const page = pageButton.dataset.page;
+                applyFilters(page);
+            }
+        });
+    }
+
+    // Background click handlers for closing modals
     function handleModalBackgroundClick(modalElement, closeFunction) {
+        if (!modalElement) return;
         modalElement.addEventListener('click', function (event) {
             if (event.target.closest('.js-modal-panel') === null) {
                 closeFunction();
             }
         });
+        const closeButtons = modalElement.querySelectorAll('[onclick*="close"], .js-modal-close');
+        closeButtons.forEach(btn => btn.addEventListener('click', closeFunction));
     }
-
     handleModalBackgroundClick(uploadModal, closeUploadModal);
     handleModalBackgroundClick(paymentModal, closePaymentModal);
+
+    // --- Filter Logic ---
+    function applyFilters(page = 1) {
+        const formData = new FormData(filterForm);
+        const params = new URLSearchParams(formData);
+        params.set('page', page);
+        history.pushState(null, '', `?${params.toString()}`);
+        fetch(`{% url 'operation:courier_invoice_list' %}?${params.toString()}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => response.text())
+        .then(html => {
+            if (listContainer) listContainer.innerHTML = html;
+        });
+    }
+
+    function setupFilterButtons(containerSelector, hiddenInputId) {
+        const container = document.querySelector(containerSelector);
+        const hiddenInput = document.getElementById(hiddenInputId);
+        if (!container || !hiddenInput) return;
+        container.addEventListener('click', e => {
+            if (e.target.tagName === 'BUTTON') {
+                const value = e.target.dataset.value;
+                hiddenInput.value = value;
+                container.querySelectorAll('.btn').forEach(btn => btn.classList.remove('btn-active'));
+                e.target.classList.add('btn-active');
+                applyFilters();
+            }
+        });
+    }
+    setupFilterButtons('.courier-filter-buttons', 'id_courier_company_hidden');
+    setupFilterButtons('.status-filter-buttons', 'id_payment_status_hidden');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => applyFilters(), 300);
+        });
+    }
+
+    if (filterForm) {
+        filterForm.addEventListener('submit', e => {
+            e.preventDefault();
+            applyFilters();
+        });
+
+        const resetBtn = filterForm.querySelector('#reset-invoice-filters');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                filterForm.reset();
+                document.getElementById('id_courier_company_hidden').value = '';
+                document.getElementById('id_payment_status_hidden').value = '';
+
+                document.querySelectorAll('.courier-filter-buttons .btn, .status-filter-buttons .btn').forEach(btn => {
+                    btn.classList.remove('btn-active');
+                });
+                const allCourierBtn = document.querySelector('.courier-filter-buttons .btn[data-value=""]');
+                if(allCourierBtn) allCourierBtn.classList.add('btn-active');
+
+                const allStatusBtn = document.querySelector('.status-filter-buttons .btn[data-value=""]');
+                if(allStatusBtn) allStatusBtn.classList.add('btn-active');
+
+                applyFilters();
+            });
+        }
+    }
+});
 </script>
+
 {% endblock %}

@@ -120,13 +120,21 @@
                     </td>
 
                     <td class="whitespace-nowrap px-3 py-2 text-sm text-center text-gray-500">
-                        {{ parcel|calculate_total_days }}
+                        {% if parcel.status == 'DELIVERED' %}
+                            {{ parcel.total_delivery_days_precise|floatformat:2 }}
+                            {% else %}
+                            N/A
+                        {% endif %}
                     </td>
 
 
                     <td class="py-2 px-4 text-left align-top">
 
-                        <button class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 mt-1 view-edit-parcel-btn" data-parcel-pk="{{ parcel.pk }}">View/Edit</button>
+                        <button class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 mt-1 view-edit-parcel-btn"
+                                data-parcel-pk="{{ parcel.pk }}"
+                                {% if parcel.status != 'PREPARING_TO_PACK' %}disabled title="Details can no longer be edited."{% endif %}>
+                            View/Edit
+                        </button>
 
                         {# START: Conditional Air Waybill Button #}
                         {% if parcel.customs_declaration and parcel.weight and parcel.length %}

@@ -13,6 +13,166 @@
     </form>
 
     <div class="mb-8">
+        <h2 class="text-xl font-semibold mb-4">🚀 Monthly Courier Performance</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
+            {% if courier_performance_stats %}
+                {% for stat in courier_performance_stats %}
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-4"> <h3 class="card-title text-center justify-center mb-3">{{ stat.courier_name }}</h3>
+                        <div class="space-y-2 text-sm"> <div class="flex justify-between items-center font-medium">
+                                <span>Total Parcels:</span>
+                                <span class="badge badge-lg">{{ stat.total_parcels }}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-xs pl-4">
+                                <span>Cold Chain:</span>
+                                <span>{{ stat.total_cold_chain }}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-xs pl-4">
+                                <span>Ambient:</span>
+                                <span>{{ stat.total_ambient }}</span>
+                            </div>
+
+                            <div class="divider my-1"></div>
+
+                            <div class="grid grid-cols-2 gap-2 text-center">
+                                <div class="stat p-2 bg-blue-50 rounded-lg">
+                                    <div class="stat-title text-xs">Avg Cold Chain Cost</div>
+                                    <div class="stat-value text-blue-600 text-lg">{{ stat.avg_cold_chain_cost|floatformat:2 }}</div>
+                                </div>
+                                <div class="stat p-2 bg-green-50 rounded-lg">
+                                    <div class="stat-title text-xs">Avg Ambient Cost</div>
+                                    <div class="stat-value text-green-600 text-lg">{{ stat.avg_ambient_cost|floatformat:2 }}</div>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="font-medium">Avg. Delivery Days:</span>
+                                <span class="badge badge-outline">{{ stat.avg_delivery_days|floatformat:2 }}</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="font-medium">Total Billed Cost:</span>
+                                <span class="px-1 py-1 rounded-full text-blue-800 bg-blue-100 text-lg">{{ stat.total_billing_cost|floatformat:2 }}</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="font-medium">Success Rate:</span>
+                                <div>
+                                <span class="px-1 py-1 rounded-full text-green-800 bg-green-100">{{ stat.total_successful }}</span>
+                                <span class="font-bold text-success">({{ stat.success_rate|floatformat:2 }}%)</span>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+            {% else %}
+                <p class="col-span-full text-center text-gray-500">No courier performance data available for this month.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="mb-8">
+        <h2 class="text-2xl font-semibold mb-4">
+            <span class="pr-2">📊</span> Past 6 Months Courier Performance
+        </h2>
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-6">
+            {% for courier_name, monthly_stats_list in consolidated_courier_stats.items %}
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-5">
+                        <h3 class="card-title justify-center mb-4">{{ courier_name }}</h3>
+
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm w-full">
+                                <thead class="text-xs">
+                                    <tr>
+                                        <th>Month</th>
+                                        <th class="text-center">Parcels (C/A)</th>
+                                        <th class="text-center">Avg Cost (C/A)</th>
+                                        <th class="text-center">Avg Days</th>
+                                        <th class="text-center">Success</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for item in monthly_stats_list %}
+                                    {% if item.total_parcels > 0 %}
+                                    <tr class="hover">
+                                        <td class="font-bold">{{ item.month }}</td>
+                                        <td class="text-center">
+                                            {{ item.total_parcels }}
+                                            <span class="text-gray-500 text-xs">({{ item.total_cold_chain }}/{{ item.total_ambient }})</span>
+                                        </td>
+                                        <td class="text-center text-xs">
+                                            <span class="text-blue-600 font-bold">{{ item.avg_cold_chain_cost|floatformat:2 }}</span> /
+                                            <span class="text-green-600 font-bold">{{ item.avg_ambient_cost|floatformat:2 }}</span>
+                                        </td>
+                                        <td class="text-center">{{ item.avg_delivery_days|floatformat:2 }}</td>
+                                        <td class="text-center">
+                                            <span class="badge badge-ghost badge-sm">{{ item.success_rate|floatformat:1 }}%</span>
+                                        </td>
+                                    </tr>
+                                    {% endif %}
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="mb-8">
+        <h2 class="text-2xl font-semibold mb-4">
+            <span class="pr-2">💰</span> Past 6 Months Total Billed Cost (RM)
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {% for courier_name, monthly_stats_list in consolidated_courier_stats.items %}
+                <div class="card bg-base-100 shadow-xl">
+                    <div class="card-body p-5">
+                        <h3 class="card-title justify-center mb-4">{{ courier_name }}</h3>
+                        <div class="overflow-x-auto">
+                            <table class="table table-sm w-full">
+                                <thead class="text-xs">
+                                    <tr>
+                                        <th>Month</th>
+                                        <th class="text-right">Total Billed Cost</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                {% for item in monthly_stats_list %}
+                                    {% if item.total_billing_cost %}
+                                    <tr class="hover">
+                                        <td class="font-bold">{{ item.month }}</td>
+                                        <td class="text-right font-mono">{{ item.total_billing_cost|floatformat:2 }}</td>
+                                    </tr>
+                                    {% endif %}
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="divider"></div>
+    <div class="mb-8">
+        <h2 class="text-2xl font-semibold mb-4">
+            <span class="pr-2">📈</span> Billed Cost Chart
+        </h2>
+        <div class="card bg-base-100 shadow-xl">
+            <div class="card-body">
+                <canvas id="billedCostChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="divider"></div>
+
+    <div class="mb-8">
         <h2 class="text-xl font-semibold mb-4">📊 Monthly Parcel Statistics by State & Courier</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 p-4 bg-base-200 rounded-box">
             {% if state_courier_counts %}
@@ -40,45 +200,7 @@
 
     <div class="divider"></div>
 
-    <div class="mb-8">
-        <h2 class="text-xl font-semibold mb-4">🚀 Monthly Courier Performance</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2">
-            {% if courier_performance_stats %}
-                {% for stat in courier_performance_stats %}
-                    <div class="card bg-base-100 shadow-xl">
-                        <div class="card-body">
-                            <h3 class="card-title text-center justify-center mb-4">{{ stat.courier_name }}</h3>
-                            <div class="space-y-3">
-                                <div class="flex justify-between items-center">
-                                    <span class="font-medium">Total Parcels:</span>
-                                    <span class="badge badge-lg">{{ stat.total_parcels }}</span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="font-medium">Successful:</span>
-                                    <div>
-                                        <span class="px-1 py-1 rounded-full text-green-800 bg-green-100">{{ stat.total_successful }}</span>
-                                        <span class="font-bold text-success">({{ stat.success_rate|floatformat:2 }}%)</span>
-                                    </div>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="font-medium">Avg. Delivery Days:</span>
-                                    <span class="px-1 py-1 rounded-full text-blue-800 bg-blue-100">{{ stat.avg_delivery_days|floatformat:2 }}</span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <span class="font-medium">Total Billed Cost (RM):</span>
-                                    <span class="px-1 py-1 rounded-full text-purple-800 bg-purple-100">{{ stat.total_billing_cost|floatformat:2 }}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
-            {% else %}
-                <p class="col-span-full text-center text-gray-500">No courier performance data available for this month.</p>
-            {% endif %}
-        </div>
-    </div>
 
-    <div class="divider"></div>
 
     <div class="mb-8">
       <h1 class="text-xl font-bold mb-4">📋 Generate Parcel Details Report</h1>
@@ -102,4 +224,33 @@
       </form>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const ctx = document.getElementById('billedCostChart');
+    if (ctx) {
+        const chartData = JSON.parse('{{ chart_data|safe }}');
+        new Chart(ctx, {
+            type: 'bar',
+            data: chartData,
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value, index, values) {
+                                return 'RM ' + value;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
 {% endblock %}

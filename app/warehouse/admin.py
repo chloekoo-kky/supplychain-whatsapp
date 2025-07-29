@@ -276,7 +276,6 @@ class PurchaseOrderItemAdmin(admin.ModelAdmin):
         'purchase_order__supplier',
         'item__product',
         'item__warehouse',
-        ('item__product__supplier', admin.RelatedOnlyFieldListFilter), # Filter by product's supplier
     )
     search_fields = (
         'purchase_order__id',

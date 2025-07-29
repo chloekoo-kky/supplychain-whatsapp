@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @media print {
+            body {
+                -webkit-print-color-adjust: exact; /* Chrome, Safari */
+                color-adjust: exact; /* Firefox */
+            }
+            .no-print {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div class="container mx-auto p-8">
+        <div class="flex justify-between items-center mb-8 border-b pb-4">
+            <h1 class="text-3xl font-bold text-gray-800">{{ title }}</h1>
+            <button onclick="window.print()" class="no-print bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                Print
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {% for wp in products %}
+                <div class="card bg-white shadow-lg rounded-lg overflow-hidden flex flex-col">
+                    <figure class="p-4 bg-gray-50">
+                        {% if wp.photo %}
+                            <img src="{{ wp.photo.url }}" alt="{{ wp.product.name }}" class="h-48 w-full object-contain">
+                        {% else %}
+                            <div class="h-48 w-full bg-gray-200 flex items-center justify-center">
+                                <span class="text-gray-500">No Image</span>
+                            </div>
+                        {% endif %}
+                    </figure>
+                    <div class="p-4 flex-grow flex flex-col justify-between">
+                        <div>
+                           <h2 class="text-lg font-semibold text-gray-900 mb-2">{{ wp.product.name }}</h2>
+                        </div>
+                        <div>
+                            <p class="text-2xl font-bold text-blue-600 text-right">
+                                {% if wp.selling_price %}
+                                    RM {{ wp.selling_price|floatformat:2 }}
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            {% empty %}
+                <p class="col-span-full text-center text-gray-500">No products were selected for export.</p>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

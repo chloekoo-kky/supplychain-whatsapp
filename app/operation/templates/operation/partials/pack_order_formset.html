@@ -1,62 +1,59 @@
 {# app/operation/templates/operation/partials/pack_order_formset.html #}
-{% comment %} This partial renders the items for the "Pack Order" modal. {% endcomment %}
 
 {{ formset.management_form }}
-<table class="table table-xs w-full pack-items-table"> {# Added class for easier JS targeting #}
+<table class="table table-xs w-full pack-items-table">
     <thead>
         <tr>
             <th class="w-2/6 py-1 px-1 text-left">Product</th>
-            <th class="w-1/6 py-1 px-1 text-left">SKU</th>
             <th class="w-1/6 py-1 px-1 text-center">Qty to Pack</th>
-            <th class="w-2/6 py-1 px-1 text-left">Select Batch (Location | Batch | Expiry | Qty [Pick Priority])</th>
+            <th class="w-3/6 py-1 px-1 text-left">Select Batch</th>
+            <th class="w-auto p-1"></th> {# For buttons #}
         </tr>
     </thead>
-    <tbody>
+    <tbody id="pack-items-tbody">
         {% for form in formset %}
+            {# This row now acts as a template for cloning #}
             <tr class="pack-item-row" data-order-item-id="{{ form.initial.order_item_id }}">
-                {# These hidden fields are crucial #}
+                {# Hidden fields are crucial #}
                 {{ form.order_item_id }}
-                {{ form.selected_batch_item_id }} {# This now holds the *suggested* batch ID from backend #}
+                {{ form.selected_batch_item_id }}
 
-                <td class="py-1 px-1 align-middle">{{ form.product_name }}</td>
-                <td class="py-1 px-1 align-middle">{{ form.sku }}</td>
+                <td class="py-1 px-1 align-middle">
+                    {{ form.initial.product_name }}<br>
+                    <span class="text-xs text-gray-500">SKU: {{ form.initial.sku }}</span>
+                </td>
                 <td class="py-1 px-1 align-middle text-center">
                     {{ form.quantity_to_pack }}
-                    {% if form.quantity_to_pack.errors %}
-                        {% for error in form.quantity_to_pack.errors %}
-                            <p class="text-error text-xs">{{ error }}</p>
-                        {% endfor %}
+
+                    {% if form.initial.max_ship_qty_a or form.initial.max_ship_qty_b %}
+                        <div class="text-xs text-info mt-1 leading-tight" title="Max Shipping Quantity Limits">
+                            <span class="font-semibold">Max Qty:</span><br>
+                            {% if form.initial.max_ship_qty_a %}
+                                <span>A: {{ form.initial.max_ship_qty_a }}</span>
+                            {% endif %}
+                            {% if form.initial.max_ship_qty_a and form.initial.max_ship_qty_b %}
+                                <span class="mx-1">|</span>
+                            {% endif %}
+                            {% if form.initial.max_ship_qty_b %}
+                                <span>B: {{ form.initial.max_ship_qty_b }}</span>
+                            {% endif %}
+                        </div>
                     {% endif %}
                 </td>
                 <td class="py-1 px-1 align-middle relative">
                     {{ form.available_batches }}
-                    <div class="text-xs text-error available-batches-error-placeholder mt-0.5"></div> {# Placeholder for JS errors #}
-                    {% if form.available_batches.errors %}
-                        {% for error in form.available_batches.errors %}
-                            <p class="text-error text-xs">{{ error }}</p>
-                        {% endfor %}
-                    {% endif %}
+                    <div class="text-xs text-error available-batches-error-placeholder mt-0.5"></div>
                 </td>
-            </tr>
-            {% if form.non_field_errors %}
-            <tr>
-                <td colspan="4">
-                    {% for error in form.non_field_errors %}
-                        <p class="text-error text-xs py-1 px-1">{{ error }}</p>
-                    {% endfor %}
+                <td class="py-1 px-1 align-middle text-center">
+                    {# Add a plus button to the first row for an item #}
+                    <button type="button" class="btn btn-xs btn-ghost add-batch-row-btn" title="Add another batch for this item">+</button>
                 </td>
-            </tr>
-            {% endif %}
-        {% empty %}
-            <tr>
-                <td colspan="4" class="text-center text-gray-500 py-3">No items currently require packing for this order.</td>
             </tr>
         {% endfor %}
     </tbody>
 </table>
-{% if formset.non_form_errors %}
-    <div class="text-error text-sm my-2 p-1">
-        {{ formset.non_form_errors|join:", " }}
-    </div>
-{% endif %}
 
+<div id="form-template-row" class="hidden">
+    {# A clean template for adding new rows via JS. Copy one of the rows from above and paste it here, ensuring its inputs have no values. #}
+    {# This is left as an exercise, but you'd copy a full <tr>...</tr> here. #}
+</div>

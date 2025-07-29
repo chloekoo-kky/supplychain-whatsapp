@@ -16,7 +16,7 @@
         </thead>
         <tbody id="customer-orders-list-tbody">
             {# 'orders_page_obj' is the page_obj from the view for the initial load #}
-            {% include 'operation/partials/_customer_orders_list_items_only.html' with orders=orders_page_obj.object_list %}
+            {% include 'operation/partials/_customer_orders_list_items_only.html' with orders=orders_page_obj.object_list customer_parcel_counts=customer_parcel_counts %}
         </tbody>
     </table>
 

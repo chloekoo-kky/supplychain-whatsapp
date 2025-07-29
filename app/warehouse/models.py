@@ -25,6 +25,32 @@ class WarehouseProduct(models.Model):
     quantity = models.IntegerField(default=0)
     threshold = models.IntegerField(default=0)
     supplier = models.ForeignKey('inventory.Supplier', on_delete=models.CASCADE, null=True, blank=True) # Made supplier blankable too
+    photo = models.ImageField(
+        upload_to='product_photos/warehouse/',
+        blank=True,
+        null=True,
+        help_text="Warehouse-specific product image"
+    )
+    length = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Length in cm"
+    )
+    width = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Width in cm"
+    )
+    height = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Height in cm"
+    )
+    max_ship_qty_a = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Max quantity to ship for condition A"
+    )
+    max_ship_qty_b = models.PositiveIntegerField(
+        null=True, blank=True, help_text="Max quantity to ship for condition B"
+    )
+
+    selling_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Warehouse-specific selling price"
+    )
 
     class Meta:
         unique_together = [

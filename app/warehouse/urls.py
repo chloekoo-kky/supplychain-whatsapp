@@ -30,5 +30,8 @@ urlpatterns = [
 
     path('update-stock/', views.update_stock, name='update_stock'),
     path('product-stats/<int:wp_id>/', views.product_stats_json, name='product_stats_json'),
+    path('manage-products/', views.manage_product_list, name='manage_product_list'),
+    path('product/<int:wp_id>/manage/', views.manage_product_details, name='manage_product_details'),
+    path('export-price-list/', views.export_price_list, name='export_price_list'),
 
 ]

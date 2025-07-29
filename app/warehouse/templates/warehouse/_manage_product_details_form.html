@@ -1,0 +1,92 @@
+{% comment %}
+  This is a partial template containing only the form.
+  It's loaded via JavaScript into the modal on the product list page.
+{% endcomment %}
+<form id="product-details-form" method="post" action="{% url 'warehouse:manage_product_details' warehouse_product.id %}" enctype="multipart/form-data" class="space-y-6">
+    {% csrf_token %}
+
+    <div class="prose">
+      <h3>Manage: {{ warehouse_product.product.name }} <span class="font-mono text-sm">({{ warehouse_product.product.sku }})</span></h3>
+    </div>
+
+    <div class="divider"></div>
+
+    {% if user.is_superuser %}
+    <div class="card bg-base-200/50">
+        <div class="card-body">
+            <h3 class="card-title text-lg">Pricing Calculator</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+                <div class="form-control">
+                    <label class="label"><span class="label-text">Unit Price (Avg. PO)</span></label>
+                    <input type="text" id="unit-price" value="{% if avg_po_price %}{{ avg_po_price|floatformat:2 }}{% endif %}" class="input input-bordered" readonly>
+                </div>
+                <div class="form-control">
+                    <label class="label" for="currency_rate"><span class="label-text">USD to MYR Rate</span></label>
+                    <input type="number" id="currency_rate" value="4.45" step="0.01" class="input input-bordered">
+                </div>
+                <div class="form-control">
+                    <label class="label" for="{{ form.suggested_selling_price.id_for_label }}">
+                        <span class="label-text font-bold">Selling Price (MYR)</span>
+                    </label>
+                    {{ form.suggested_selling_price }}
+                </div>
+            </div>
+            <div class="mt-4">
+                <label class="label pt-0"><span class="label-text">Set Price by Profit Margin:</span></label>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-sm js-margin-btn" data-margin="0.10">10%</button>
+                    <button type="button" class="btn btn-sm js-margin-btn" data-margin="0.20">20%</button>
+                    <button type="button" class="btn btn-sm js-margin-btn" data-margin="0.30">30%</button>
+                    <button type="button" class="btn btn-sm js-margin-btn" data-margin="0.40">40%</button>
+                    <button type="button" class="btn btn-sm js-margin-btn" data-margin="0.50">50%</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="card bg-base-200/50">
+        <div class="card-body">
+            <h3 class="card-title text-lg">Product Image</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                <div>
+                    <p class="text-sm font-medium mb-2">Current Image:</p>
+                    {% if form.photo.value %}
+                        <img src="{{ form.photo.value.url }}" alt="Current product image" class="max-h-48 rounded-lg shadow">
+                    {% else %}
+                        <div class="avatar placeholder"><div class="bg-neutral-focus text-neutral-content rounded-lg w-48 h-48 flex items-center justify-center"><span class="text-lg">No Image</span></div></div>
+                    {% endif %}
+                </div>
+                <div class="form-control w-full max-w-xs">
+                    <label class="label" for="{{ form.photo.id_for_label }}"><span class="label-text">Upload / Change Image</span></label>
+                    {{ form.photo }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+    <div class="card bg-base-200/50">
+        <div class="card-body">
+            <h3 class="card-title text-lg">Dimensions (cm)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {% for field in form %}{% if field.name in "length,width,height" %}<div class="form-control"><label class="label" for="{{ field.id_for_label }}"><span class="label-text">{{ field.label }}</span></label>{{ field }}<div class="label">{% if field.errors %}<span class="label-text-alt text-error">{{ field.errors|join:", " }}</span>{% endif %}</div></div>{% endif %}{% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card bg-base-200/50">
+         <div class="card-body">
+            <h3 class="card-title text-lg">Maximum Shipping Quantities</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {% for field in form %}{% if field.name in "max_ship_qty_a,max_ship_qty_b" %}<div class="form-control"><label class="label" for="{{ field.id_for_label }}"><span class="label-text">{{ field.label }}</span></label>{{ field }}<div class="label">{% if field.errors %}<span class="label-text-alt text-error">{{ field.errors|join:", " }}</span>{% endif %}</div></div>{% endif %}{% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-6 flex justify-end gap-4">
+        <button type="button" class="btn btn-ghost" onclick="document.getElementById('manage_modal').close()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+    </div>
+</form>

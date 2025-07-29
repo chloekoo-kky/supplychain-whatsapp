@@ -6,6 +6,9 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.core.serializers import serialize
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import QuerySet, Q, Sum, Avg
+from django.db.models.functions import RowNumber
+from itertools import groupby
+
 from datetime import timedelta
 import logging
 import json
@@ -15,6 +18,7 @@ import json
 from django.views.decorators.http import require_POST
 from django.db import transaction
 from django.utils import timezone
+from django.contrib import messages
 from django.urls import reverse # For generating URLs in JSON response
 
 
@@ -30,6 +34,7 @@ from .models import (
     PurchaseOrderStatusLog, PurchaseOrderReceiptItem # New models
 )
 from inventory.models import Product, Supplier, StockTransaction
+from .forms import WarehouseProductDetailForm
 
 
 
@@ -1028,3 +1033,143 @@ def product_stats_json(request, wp_id):
     except Exception as e:
         logger.error(f"Error in product_stats_json for wp_id {wp_id}: {e}", exc_info=True)
         return JsonResponse({'success': False, 'error': 'An unexpected server error occurred.'}, status=500)
+
+
+@login_required
+def manage_product_list(request):
+    """
+    Handles both regular page loads and AJAX requests for dynamic searching.
+    For superusers, it also calculates the average unit price from the last 3 POs.
+    """
+    product_list = WarehouseProduct.objects.select_related('product', 'warehouse').order_by('product__name')
+
+    if not request.user.is_superuser and hasattr(request.user, 'warehouse'):
+        product_list = product_list.filter(warehouse=request.user.warehouse)
+
+    search_query = request.GET.get('q', '')
+    if search_query:
+        product_list = product_list.filter(
+            Q(product__name__icontains=search_query) |
+            Q(product__sku__icontains=search_query)
+        )
+
+    paginator = Paginator(product_list, 25)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
+
+    if request.user.is_superuser and page_obj.object_list:
+        warehouse_products_on_page = list(page_obj.object_list)
+        product_ids = [wp.product.id for wp in warehouse_products_on_page]
+
+        # ++ MODIFIED: Added 'price__gt=0' to exclude zero-price PO items from the calculation ++
+        po_items = PurchaseOrderItem.objects.filter(
+            item__product_id__in=product_ids,
+            price__gt=0  # Exclude items where price is null OR zero
+        ).order_by(
+            'item__product_id',
+            '-purchase_order__created_at'
+        ).values(
+            'item__product_id',
+            'price'
+        )
+
+        po_items_by_product = {
+            key: list(group)
+            for key, group in groupby(po_items, key=lambda x: x['item__product_id'])
+        }
+
+        for wp in warehouse_products_on_page:
+            product_po_items = po_items_by_product.get(wp.product.id, [])
+            latest_items = product_po_items[:3]
+            if latest_items:
+                total_price = sum(item['price'] for item in latest_items)
+                count = len(latest_items)
+                wp.avg_po_price = total_price / count if count > 0 else None
+            else:
+                wp.avg_po_price = None
+
+        page_obj.object_list = warehouse_products_on_page
+
+
+    context = {
+        'page_obj': page_obj,
+        'search_query': search_query,
+        'title': "Manage Product Details",
+    }
+
+    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+        return render(request, 'warehouse/_manage_product_list_partial.html', context)
+
+    return render(request, 'warehouse/manage_product_list.html', context)
+
+
+@login_required
+def manage_product_details(request, wp_id):
+    """
+    Handles both AJAX and regular requests for editing WarehouseProduct details.
+    """
+    warehouse_product = get_object_or_404(WarehouseProduct.objects.select_related('product', 'warehouse'), pk=wp_id)
+    is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest'
+
+    avg_po_price = None
+    if request.user.is_superuser:
+        latest_po_items = PurchaseOrderItem.objects.filter(
+            item__product_id=warehouse_product.product.id,
+            price__gt=0
+        ).order_by('-purchase_order__created_at')[:3]
+
+        if latest_po_items:
+            total_price = sum(item.price for item in latest_po_items)
+            count = len(latest_po_items)
+            avg_po_price = total_price / count if count > 0 else None
+
+    if request.method == 'POST':
+        form = WarehouseProductDetailForm(request.POST, request.FILES, instance=warehouse_product)
+        if form.is_valid():
+            # ++ MODIFIED: Saving the form now automatically saves the new selling_price field ++
+            form.save()
+
+            if is_ajax:
+                return JsonResponse({'success': True})
+            else:
+                messages.success(request, f"Successfully updated details for {warehouse_product.product.name}.")
+                return redirect('warehouse:manage_product_list')
+        else:
+            if is_ajax:
+                context = {'form': form, 'warehouse_product': warehouse_product, 'avg_po_price': avg_po_price}
+                form_html = render_to_string('warehouse/_manage_product_details_form.html', context, request=request)
+                return JsonResponse({'success': False, 'form_html': form_html})
+            else:
+                messages.error(request, "Please correct the errors below.")
+    else:
+        form = WarehouseProductDetailForm(instance=warehouse_product)
+
+    context = {
+        'form': form,
+        'warehouse_product': warehouse_product,
+        'avg_po_price': avg_po_price,
+        'title': f"Manage {warehouse_product.product.name}",
+    }
+
+    if is_ajax:
+        return render(request, 'warehouse/_manage_product_details_form.html', context)
+    else:
+        return render(request, 'warehouse/manage_product_details.html', context)
+
+
+def export_price_list(request):
+    """
+    Generates a printable HTML page with the selected products for a price list.
+    """
+    product_ids_str = request.GET.get('ids', '')
+    if product_ids_str:
+        product_ids = [int(id) for id in product_ids_str.split(',')]
+        products = WarehouseProduct.objects.filter(id__in=product_ids).select_related('product')
+    else:
+        products = WarehouseProduct.objects.none()
+
+    context = {
+        'products': products,
+        'title': 'Product Price List',
+    }
+    return render(request, 'warehouse/price_list_export.html', context)

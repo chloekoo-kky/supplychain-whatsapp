@@ -11,54 +11,65 @@
 
     <div class="operations-filter-panel md:w-full shrink-0 sticky top-16 h-fit bg-base-200 shadow px-4 py-3 rounded-lg z-20 mb-4">
         <form id="filter-form">
+            <input type="hidden" name="courier" id="courier-hidden-input" value="{{ selected_courier|default:'' }}">
+            <input type="hidden" name="dispute_status" id="dispute-status-hidden-input" value="{{ selected_dispute_status|default:'' }}">
+            <input type="hidden" name="unlinked_only" id="unlinked-hidden-input" value="{{ unlinked_only|yesno:'true,' }}">
+
             <div class="grid grid-cols-12 gap-x-4 items-end">
 
-                <div class="col-span-12 md:col-span-2">
+                <div class="col-span-12 md:col-span-1">
                     <h2 class="text-lg font-semibold text-gray-700 mb-1">
-                        Total Items: <br>
+                        Total Items:
                         <span id="total-items-count" class="font-normal text-gray-500">
-                            ({{ total_items_count|default:0 }})
+                            {{ total_items_count|default:0 }}
                         </span>
                     </h2>
                 </div>
 
-                <div class="col-span-12 md:col-span-7">
-                    <div class="flex flex-wrap gap-2 mb-2 items-center">
+                <div class="col-span-12 md:col-span-4">
+                    <div class="grid grid-flow-col auto-cols-fr gap-2 mb-1">
                         {% for courier in couriers %}
                             <button type="button" class="btn btn-xs sm:btn-sm courier-filter-btn btn-outline" data-value="{{ courier.id }}">{{ courier.name }}</button>
                         {% endfor %}
                     </div>
-                    <div class="flex flex-wrap items-end gap-x-4">
-                        <div class="form-control flex-grow" style="min-width: 250px;">
-                            <label class="label py-1"><span class="label-text">Search by Tracking or Invoice #</span></label>
-                            <input type="text" id="report-search-input" name="q" class="input input-sm input-bordered w-full" value="{{ query|default:'' }}">
-                        </div>
-                        <div class="form-control" style="min-width: 300px;">
-                            <label class="label py-1"><span class="label-text">Shipment Date Range</span></label>
-                            <div class="flex items-center gap-2">
-                                <input type="date" id="start-date-input" name="start_date" class="input input-sm input-bordered w-full" value="{{ start_date|default:'' }}">
-                                <span class="px-2">to</span>
-                                <input type="date" id="end-date-input" name="end_date" class="input input-sm input-bordered w-full" value="{{ end_date|default:'' }}">
-                            </div>
+                    <div class="form-control">
+                        <div class="grid grid-flow-col auto-cols-fr gap-2">
+                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="pending">Dispute Pending</button>
+                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="finalized">Dispute Finalized</button>
+                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="not_disputed">Not Disputed</button>
+                            <button type="button" class="btn btn-xs sm:btn-sm unlinked-filter-btn btn-outline" data-value="true">No Parcel Attached</button>
+
                         </div>
                     </div>
+                </div>
+
+                <div class="col-span-12 md:col-span-4">
+                    <div class="form-control" style="min-width: 300px;">
+                        <label class="label py-1"><span class="label-text">Shipment Date Range</span></label>
+                        <div class="flex items-center gap-2">
+                            <input type="date" id="start-date-input" name="start_date" class="input input-sm input-bordered w-full" value="{{ start_date|default:'' }}">
+                            <span class="px-2">to</span>
+                            <input type="date" id="end-date-input" name="end_date" class="input input-sm input-bordered w-full" value="{{ end_date|default:'' }}">
+                        </div>
+                    </div>
+
                 </div>
 
                 <div class="col-span-12 md:col-span-3">
-                    <div class="form-control">
-                        <div class="flex items-center gap-2">
-                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="pending">Dispute Pending</button>
-                            <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="finalized">Dispute Finalized</button>
+
+                    <div class="flex flex-wrap items-end gap-x-4">
+                        <div class="form-control flex-grow" style="min-width: 250px;">
+                            <input type="text" id="report-search-input" name="q" class="input input-sm input-bordered w-full" value="{{ query|default:'' }}" placeholder="Search Invoice # or Tracking #">
                         </div>
                     </div>
-                    <div class="form-control mt-4">
-                        <button type="button" id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300">Reset All Filters</button>
+
+                    <div class="form-control mt-1">
+                        <button type="button" id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300">Reset Filters</button>
                     </div>
+
                 </div>
             </div>
 
-            <input type="hidden" name="courier" id="courier-hidden-input" value="{{ selected_courier|default:'' }}">
-            <input type="hidden" name="dispute_status" id="dispute-status-hidden-input" value="{{ selected_dispute_status|default:'' }}">
         </form>
     </div>
     <div id="report-table-container">
@@ -98,6 +109,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const searchInput = document.getElementById('report-search-input');
     const courierHiddenInput = document.getElementById('courier-hidden-input');
     const disputeStatusHiddenInput = document.getElementById('dispute-status-hidden-input'); // New
+    const unlinkedHiddenInput = document.getElementById('unlinked-hidden-input');
 
     const startDateInput = document.getElementById('start-date-input');
     const endDateInput = document.getElementById('end-date-input');
@@ -106,6 +118,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const disputeModal = document.getElementById('dispute-modal');
     const disputeModalPanel = document.getElementById('dispute-modal-panel');
+
 
     function openModal(modalId, panelId, url) {
         const modal = document.getElementById(modalId);
@@ -262,6 +275,13 @@ document.addEventListener('DOMContentLoaded', function () {
             btn.classList.toggle('btn-neutral', btn.dataset.value === activeDisputeStatus);
             btn.classList.toggle('btn-outline', btn.dataset.value !== activeDisputeStatus);
         });
+
+        const activeUnlinked = params.get('unlinked_only') === 'true';
+        document.querySelectorAll('.unlinked-filter-btn').forEach(btn => {
+            btn.classList.toggle('btn-neutral', activeUnlinked);
+            btn.classList.toggle('btn-outline', !activeUnlinked);
+        });
+
     }
 
 
@@ -379,6 +399,8 @@ document.addEventListener('DOMContentLoaded', function () {
         const resetButton = target.closest('#reset-filters-btn');
         const disputeButton = target.closest('.log-dispute-btn');
         const disputeStatusButton = target.closest('.dispute-status-filter-btn');
+        const unlinkedButton = target.closest('.unlinked-filter-btn');
+        const cancelButton = target.closest('.cancel-dispute-btn');
 
 
         if (target.id === 'explore-more-invoice-items-btn') {
@@ -406,6 +428,7 @@ document.addEventListener('DOMContentLoaded', function () {
             startDateInput.value = '';
             endDateInput.value = '';
             disputeStatusHiddenInput.value = '';
+            unlinkedHiddenInput.value = '';
             history.pushState(null, '', `{% url 'operation:invoice_item_report' %}`);
             updateActiveFilterButtons();
             updateReport(false);
@@ -413,11 +436,47 @@ document.addEventListener('DOMContentLoaded', function () {
             courierHiddenInput.value = courierButton.dataset.value;
             updateActiveFilterButtons();
             updateReport(false);
-        } else if (disputeStatusButton) { // New
+        } else if (disputeStatusButton) {
+            // Make filters mutually exclusive
             disputeStatusHiddenInput.value = disputeStatusButton.dataset.value;
+            unlinkedHiddenInput.value = ''; // Clear the other filter
             updateActiveFilterButtons();
             updateReport(false);
-        } else if (target.closest('#view-modal-bg') || target.closest('.close-view-modal-btn')) {
+        // START OF FIX: Handle clicks on the new button
+        } else if (unlinkedButton) {
+            // Make filters mutually exclusive
+            unlinkedHiddenInput.value = unlinkedButton.dataset.value;
+            disputeStatusHiddenInput.value = ''; // Clear the other filter
+            updateActiveFilterButtons();
+            updateReport(false);
+        // END OF FIX
+        }
+        else if (cancelButton) {
+            event.preventDefault();
+            // This confirm dialog is now inside the modal's listener
+            if (confirm('Are you sure you want to cancel this dispute? This action cannot be undone.')) {
+                const url = cancelButton.dataset.url;
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Close the modal and refresh the report
+                        closeModal('dispute-modal');
+                        updateReport(false);
+                    } else {
+                        alert(data.message || 'An error occurred.');
+                    }
+                })
+                .catch(error => console.error('Error canceling dispute:', error));
+            }
+        }
+        else if (target.closest('#view-modal-bg') || target.closest('.close-view-modal-btn')) {
             closeModal('view-items-modal');
         } else if (target.closest('#dispute-modal-bg') || target.closest('.close-dispute-modal-btn')) {
             closeModal('dispute-modal');

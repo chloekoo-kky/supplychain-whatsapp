@@ -6,15 +6,20 @@
     <div class="grid grid-cols-12 gap-2">
 
         <div class="col-span-12 md:col-span-1 items-start">
-            <h2 class="text-xl font-semibold text-gray-900 mb-2">
-                <span class="font-normal parcel-count-display">
-                    {% if parcels %}{{ parcels.paginator.count|default:0 }} parcels
-                    {% else %}{{ total_parcels_count|default:0 }} parcels{% endif %}
-                </span>
-            </h2>
+            <div class="font-semibold text-gray-800">
+                To Pack: <span class="text-gray-500 font-bold parcel-topack-count">{{ to_pack_count|default:0 }}</span>
+            </div>
+
+            <div class="font-semibold text-gray-800">
+                Ready: <span class="text-purple-500 font-bold parcel-ready-count">{{ ready_to_ship_count|default:0 }}</span>
+            </div>
+
+            <div class="font-semibold text-gray-800">
+                In Transit: <span class="text-blue-500 font-bold parcel-intransit-count">{{ in_transit_count|default:0 }}</span>
+            </div>
         </div>
 
-        <div class="col-span-12 md:col-span-4 flex flex-col gap-2 mr-3">
+        <div class="col-span-12 md:col-span-4 flex flex-col gap-2 mx-3">
 
             <div class="grid grid-flow-col auto-cols-fr gap-2">
                 {% if request.user.is_superuser %}
@@ -46,6 +51,10 @@
                 <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="READY_TO_SHIP">Ready to Ship</button>
                 <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="IN_TRANSIT">In Transit</button>
                 <button class="btn btn-sm sm:btn-sm btn-outline parcel-status-filter-btn" data-value="DELIVERED">Delivered</button>
+                {% if request.user.is_superuser %}
+                <button class="btn btn-sm sm:btn-sm btn-outline parcel-not-billed-filter-btn" data-value="true">Not Billed</button>
+                {% endif %}
+
             </div>
 
             <div class="flex items-center gap-2">

@@ -64,7 +64,7 @@ class InventoryBatchItemForm(forms.ModelForm):
 
     def clean_location_label(self):
         location_label = self.cleaned_data.get('location_label', '')
-        return None if not location_label.strip() else location_label.strip()
+        return location_label.strip() if location_label else None
 
     def clean(self):
         cleaned_data = super().clean()
