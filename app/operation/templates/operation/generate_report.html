@@ -3,14 +3,34 @@
 {% block content %}
 <div class="container mx-auto px-4 py-8">
 
-    <form method="get" class="mb-8 max-w-xs">
-        <label for="month-select" class="block text-2xl font-bold mb-1">Filter by Month:</label>
-        <select name="month" id="month-select" class="select select-bordered w-full" onchange="this.form.submit()">
-            {% for month in months %}
-                <option value="{{ month }}" {% if month == selected_month %}selected{% endif %}>{{ month }}</option>
-            {% endfor %}
-        </select>
+    <form id="report-filter-form" method="get" class="mb-8 p-4 bg-base-200 rounded-lg shadow">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+
+            <div class="col-span-12 md:col-span-3">
+                <label for="month-select" class="block text-sm font-medium text-gray-700 mb-1">Filter by Month:</label>
+                <select name="month" id="month-select" class="select select-bordered w-full">
+                    {% for month in months %}
+                        <option value="{{ month }}" {% if month == selected_month %}selected{% endif %}>{{ month }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {% if request.user.is_superuser %}
+            <div class="col-span-12 md:col-span-9">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Filter by Warehouse:</label>
+                <div class="warehouse-filter-buttons flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-sm btn-outline {% if not selected_warehouse %}btn-active{% endif %}" data-value="">All Warehouses</button>
+                    {% for wh in warehouses %}
+                        <button type="button" class="btn btn-sm btn-outline {% if selected_warehouse == wh.pk %}btn-active{% endif %}" data-value="{{ wh.pk }}">{{ wh.name }}</button>
+                    {% endfor %}
+                </div>
+                <input type="hidden" name="warehouse" id="warehouse-hidden-input" value="{{ selected_warehouse|default:'' }}">
+            </div>
+            {% endif %}
+
+            </div>
     </form>
+
 
     <div class="mb-8">
         <h2 class="text-xl font-semibold mb-4">🚀 Monthly Courier Performance</h2>
@@ -251,6 +271,39 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         });
     }
+
+    const filterForm = document.getElementById('report-filter-form');
+    const monthSelect = document.getElementById('month-select');
+    const warehouseHiddenInput = document.getElementById('warehouse-hidden-input');
+    const warehouseButtonsContainer = document.querySelector('.warehouse-filter-buttons');
+
+    function submitForm() {
+        if (filterForm) {
+            filterForm.submit();
+        }
+    }
+
+    // When the month dropdown is changed, submit the form.
+    if (monthSelect) {
+        monthSelect.addEventListener('change', submitForm);
+    }
+
+    // When a warehouse button is clicked, update the hidden input and submit the form.
+    if (warehouseButtonsContainer) {
+        warehouseButtonsContainer.addEventListener('click', function(event) {
+            const button = event.target.closest('button');
+            if (!button) return;
+
+            // Update the hidden input with the clicked button's value
+            if (warehouseHiddenInput) {
+                warehouseHiddenInput.value = button.dataset.value;
+            }
+
+            // Immediately submit the form to apply the new filter
+            submitForm();
+        });
+    }
+
 });
 </script>
 {% endblock %}

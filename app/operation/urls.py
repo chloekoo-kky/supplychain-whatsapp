@@ -12,6 +12,8 @@ app_name = 'operation'
 
 urlpatterns = [
     path('import-excel/', views.import_orders_from_excel, name='import_orders_from_excel'),
+    path('create-orders-from-import/', views.create_orders_from_import, name='create_orders_from_import'),
+
     # The main list view now handles tabs internally
     path('list/', views.order_list, name='order_list'),
     # AJAX endpoint to get items for packing modal
@@ -40,6 +42,8 @@ urlpatterns = [
     path('packaging/', views.packaging_management, name='packaging_management'),
     path('packaging/load-edit-form/<int:pk>/', views.load_edit_packaging_type_form, name='load_edit_packaging_type_form'),
     path('packaging/edit/<int:pk>/', views.edit_packaging_type, name='edit_packaging_type'),
+    path('packaging/dashboard/<int:material_pk>/', views.get_packaging_stock_dashboard, name='get_packaging_stock_dashboard'),
+    path('packaging/receipt-log/<int:material_pk>/', views.get_packaging_receipt_log, name='get_packaging_receipt_log'),
 
     path('customer/<int:customer_pk>/get-shipment-history/', views.get_customer_shipment_history, name='get_customer_shipment_history'),
 

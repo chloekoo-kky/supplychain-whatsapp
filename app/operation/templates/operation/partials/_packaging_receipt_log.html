@@ -1,0 +1,30 @@
+<div class="overflow-x-auto max-h-80">
+    <table class="table table-sm w-full">
+        <thead>
+            <tr>
+                <th>Date Received</th>
+                {% if is_superuser_view %}<th>Warehouse</th>{% endif %}
+                <th>Quantity</th>
+                <th>Received By</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for tx in transactions_for_log %}
+            <tr>
+                <td>{{ tx.transaction_date|date:"Y-m-d (D) H:i" }}</td>
+                {% if is_superuser_view %}<td>{{ tx.warehouse_packaging_material.warehouse.name }}</td>{% endif %}
+                <td class="text-success font-semibold">+ {{ tx.quantity }}</td>
+                <td>{{ tx.recorded_by.email|default:"N/A" }}</td>
+                <td>{{ tx.notes|default:"" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="{% if is_superuser_view %}5{% else %}4{% endif %}" class="text-center italic text-gray-500">
+                    No stock received history found for this month.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

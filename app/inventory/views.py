@@ -26,11 +26,13 @@ from .forms import (
     DefaultPickItemFormSet,  # Existing formset for default
     DefaultPickItemForm # To be reused
 )
+from .services import create_stock_take_session_from_csv
 
 from django.contrib.admin.views.decorators import staff_member_required # For superuser/staff views
 from django.http import HttpResponse
 import csv
 import json
+import io
 import openpyxl
 import xlrd
 import logging
@@ -118,6 +120,63 @@ def inventory_batch_list_view(request):
         'selected_warehouse_id': int(selected_warehouse_id) if selected_warehouse_id else None,
     }
     return render(request, 'inventory/inventory_batch_list.html', context)
+
+
+@login_required
+def export_inventory_batch_to_excel(request):
+    """
+    Exports an Excel file summarizing inventory batches, including total stock
+    and stock discrepancy for each product in each warehouse.
+    """
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Inventory Batch Report"
+
+    headers = [
+        "Product SKU", "Product Name", "Warehouse", "Total Stock (Batched)",
+        "System Stock (On Hand)", "Stock Discrepancy"
+    ]
+    sheet.append(headers)
+
+    # --- THIS IS THE FIX: Use 'batches' instead of 'inventory_batches' ---
+    warehouse_products = NewAggregateWarehouseProduct.objects.filter(
+        batches__isnull=False
+    ).distinct()
+
+    batch_totals = NewAggregateWarehouseProduct.objects.filter(
+        id__in=warehouse_products.values_list('id', flat=True)
+    ).annotate(
+        batched_stock=Sum('batches__quantity') # Corrected field name here
+    )
+    # --------------------------------------------------------------------
+
+    batch_stock_dict = {bt.id: bt.batched_stock for bt in batch_totals}
+
+    for wp in warehouse_products:
+        total_batched_stock = batch_stock_dict.get(wp.id, 0)
+        discrepancy = total_batched_stock - wp.quantity
+
+        sheet.append([
+            wp.product.sku,
+            wp.product.name,
+            wp.warehouse.name,
+            total_batched_stock,
+            wp.quantity,
+            discrepancy
+        ])
+
+    # --- Save to an in-memory stream ---
+    excel_stream = io.BytesIO()
+    workbook.save(excel_stream)
+    excel_stream.seek(0)
+
+    response = HttpResponse(
+        excel_stream,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename="inventory_batch_report.xlsx"'
+
+    return response
 
 
 
@@ -376,6 +435,46 @@ def stock_take_session_list_view(request):
         'page_title': "Stock Take Sessions"
     }
     return render(request, 'inventory/stock_take_session_list.html', context)
+
+
+@login_required
+def upload_stock_take_csv(request):
+    if request.method == 'POST':
+        csv_file = request.FILES.get('csv_upload')
+        if not csv_file:
+            messages.error(request, "No file was uploaded.")
+            return redirect('inventory:stock_take_session_list')
+
+        session, created_count, errors = create_stock_take_session_from_csv(csv_file, request.user)
+
+        # --- THIS IS THE FIX ---
+        # First, check if the session object was created at all.
+        if session is None:
+            # If the session is None, a fatal error occurred.
+            messages.error(request, "Failed to create stock take session. Please check the file and try again.")
+            for error in errors:
+                messages.error(request, error)
+            return redirect('inventory:stock_take_session_list')
+        # -----------------------
+
+        # If the session was created, proceed with the original logic.
+        if errors:
+            messages.warning(request, f"Stock take session #{session.id} created with {len(errors)} issues.")
+            for error in errors[:5]: # Show the first 5 errors
+                messages.error(request, error)
+        else:
+            messages.success(request, f"Successfully created stock take session #{session.id} with {created_count} items.")
+
+        # Automatically run the evaluation after creating the session
+        if hasattr(session, 'evaluate_stock_take') and callable(session.evaluate_stock_take):
+            session.evaluate_stock_take()
+            messages.info(request, f"Stock take session #{session.id} has been evaluated.")
+        else:
+            messages.warning(request, "Evaluation function not found on session object.")
+
+        return redirect('inventory:stock_take_session_list')
+
+    return redirect('inventory:stock_take_session_list')
 
 
 @staff_member_required

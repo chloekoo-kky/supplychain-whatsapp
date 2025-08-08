@@ -7,17 +7,13 @@
 <div class="container mx-auto px-4 py-8">
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-3xl font-bold text-gray-800">{{ page_title }}</h1>
-        {# Optional: Button to initiate a new stock take from admin view, if desired #}
-        {# <a href="#" class="btn btn-primary">Initiate New Stock Take</a> #}
+        <form action="{% url 'inventory:upload_stock_take_csv' %}" method="post" enctype="multipart/form-data" style="display: inline;">
+            {% csrf_token %}
+            <input type="file" name="csv_upload" required style="display: none;" id="csv-upload-input" onchange="this.form.submit()">
+            <label for="csv-upload-input" class="btn btn-primary">Upload Stock Take</label>
+        </form>
     </div>
 
-    {% if messages %}
-        {% for message in messages %}
-            <div class="alert {% if message.tags == 'error' %}alert-error{% elif message.tags == 'success' %}alert-success{% else %}alert-info{% endif %} shadow-lg mb-4">
-                <div><span>{{ message }}</span></div>
-            </div>
-        {% endfor %}
-    {% endif %}
 
     <form method="get" class="card bg-base-100 shadow-md p-4 mb-6">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">

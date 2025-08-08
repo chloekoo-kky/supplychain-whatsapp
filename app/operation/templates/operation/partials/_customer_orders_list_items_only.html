@@ -105,7 +105,12 @@
     <!-- Actions -->
     <td class="py-2 px-4 text-left align-top w-1/12">
         {% if order.status == 'PARTIALLY_SHIPPED' or order.status == 'NEW_ORDER' %}
-        <label for="pack-order-modal-toggle" class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 w-full mt-1 pack-order-btn" data-order-pk="{{ order.pk }}">Pack</label>
+        <label for="pack-order-modal-toggle"
+                class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 w-full mt-1 pack-order-btn"
+                data-order-pk="{{ order.pk }}"
+                data-warehouse-id="{{ order.warehouse.pk }}">
+            Pack
+        </label>
         {% endif %}
         {% if order.status == 'PARTIALLY_SHIPPED' %}
         <label for="edit-order-modal-toggle" class="btn btn-xs bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-600 w-full mt-1 edit-order-btn" data-order-pk="{{ order.pk }}">Edit</label>

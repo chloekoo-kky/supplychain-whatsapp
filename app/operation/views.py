@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.urls import reverse
 
 from django.db import transaction, IntegrityError, models
-from django.db.models import Q, Count, Avg, Prefetch, F, Value, Case, When, Sum, ExpressionWrapper, DurationField
+from django.db.models import Q, Count, Avg, Prefetch, F, Value, Case, When, Sum, ExpressionWrapper, DurationField, DecimalField
 from django.db.models.functions import Coalesce
 from django.utils.dateparse import parse_date
 from django.http import JsonResponse, Http404, HttpResponse, HttpResponseForbidden
@@ -26,18 +26,18 @@ from decimal import Decimal, InvalidOperation
 from openpyxl import Workbook
 from collections import Counter
 from dateutil.relativedelta import relativedelta
-
-
+from fuzzywuzzy import fuzz, process
 
 import openpyxl
 import xlrd
 import json
+import pandas as pd
 
 from .forms import (
     ExcelImportForm, ParcelItemFormSet, InitialParcelItemFormSet,
     RemoveOrderItemForm, RemoveOrderItemFormSet,
     ParcelCustomsDetailForm, ParcelItemCustomsDetailFormSet, CustomsDeclarationForm,
-    PackagingTypeForm, PackagingMaterialForm, AirwayBillForm, CourierInvoiceForm,
+    PackagingTypeForm, PackagingMaterialForm, PackagingTypeMaterialComponentFormSet, ReceivePackagingStockForm, AirwayBillForm, CourierInvoiceForm,
     DisputeForm, DisputeUpdateForm, ParcelEditForm, CourierInvoiceFilterForm
 )
 from .models import (Order,
@@ -50,8 +50,15 @@ from .models import (Order,
                      PackagingTypeMaterialComponent,
                      ParcelTrackingLog,
                      CourierInvoice,
-                     CourierInvoiceItem)
-from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
+                     CourierInvoiceItem,
+                     ProductMapping)
+from inventory.models import (Product,
+                              InventoryBatchItem,
+                              StockTransaction,
+                              PackagingMaterial,
+                              WarehousePackagingMaterial,
+                              PackagingStockTransaction
+                              )
 from warehouse.models import Warehouse, WarehouseProduct
 from inventory.services import get_suggested_batch_for_order_item
 from customers.utils import get_or_create_customer_from_import
@@ -455,443 +462,243 @@ def load_more_customer_orders(request):
     return response
 
 
+
 @login_required
 def import_orders_from_excel(request):
-    if request.method == 'POST':
-        form = ExcelImportForm(request.POST, request.FILES)
-        if form.is_valid():
-            excel_file = request.FILES['excel_file']
-            file_name_lower = excel_file.name.lower()
+    """
+    Handles the initial Excel file upload, remembers past corrections,
+    and shows a confirmation modal for new or uncertain matches.
+    """
+    if request.method != 'POST':
+        return redirect('operation:order_list')
 
+    form = ExcelImportForm(request.POST, request.FILES)
+    if not form.is_valid():
+        messages.error(request, "The uploaded form was not valid. Please try again.")
+        return redirect('operation:order_list')
+
+    excel_file = request.FILES['excel_file']
+
+    try:
+        # --- 1. Load Excel File and Get Iterator ---
+        if excel_file.name.lower().endswith('.xlsx'):
+            workbook = openpyxl.load_workbook(excel_file, data_only=True)
+            sheet = workbook.active
+            rows_iterator = sheet.iter_rows(min_row=1, values_only=True)
+        elif excel_file.name.lower().endswith('.xls'):
+            file_contents = excel_file.read()
+            workbook = xlrd.open_workbook(file_contents=file_contents)
+            sheet = workbook.sheet_by_index(0)
+            rows_iterator = (sheet.row_values(r) for r in range(sheet.nrows))
+        else:
+            messages.error(request, "Unsupported file format. Please use .xlsx or .xls.")
+            return redirect('operation:order_list')
+
+        headers = [str(h).strip() if h is not None else '' for h in next(rows_iterator)]
+
+        # --- 2. Map Headers ---
+        header_map = {
+            'Order_ID': 'Order ID', 'Order_Date': 'Order date', 'Warehouse_name': 'Warehouse name',
+            'title': 'title', 'comment': 'comment', 'Customer_Name': 'Address name', 'company': 'company',
+            'address': 'address', 'country': 'country', 'city': 'city', 'state': 'state',
+            'zip': 'zip', 'phone': 'phone', 'Vat_number': 'Vat number',
+            'Product_Name': 'Product name', 'Quantity': 'Product quantity', 'isCold': 'isCold'
+        }
+
+        index_map = {key: headers.index(value) for key, value in header_map.items() if value in headers}
+
+        missing = [v for k, v in header_map.items() if k in ['Order_ID', 'Product_Name', 'Quantity'] and v not in headers]
+        if missing:
+            messages.error(request, f"Required headers not found in file: {', '.join(missing)}")
+            return redirect('operation:order_list')
+
+        # --- 3. Process Rows & Prepare for Confirmation ---
+        items_to_confirm = []
+        last_order_details = {}
+
+        for row_idx, row_values in enumerate(rows_iterator, start=2):
+            if not any(c is not None and str(c).strip() for c in row_values):
+                continue
+
+            row_dict = {key: row_values[idx] if idx < len(row_values) else None for key, idx in index_map.items()}
+
+            # Clean Order ID
+            order_id_raw = row_dict.get('Order_ID')
+            if order_id_raw:
+                try:
+                    row_dict['Order_ID'] = str(int(float(order_id_raw)))
+                except (ValueError, TypeError):
+                    row_dict['Order_ID'] = str(order_id_raw).strip()
+
+            # Clean Company Name
+            company_raw = row_dict.get('company')
+            row_dict['company'] = str(company_raw).strip() if company_raw and pd.notna(company_raw) else '-'
+
+
+            if not row_dict.get('Order_ID'):
+                row_dict.update({k: v for k, v in last_order_details.items() if k not in ['Product_Name', 'Quantity', 'isCold']})
+            else:
+                last_order_details = row_dict.copy()
+
+            if not all([row_dict.get('Order_ID'), row_dict.get('Product_Name'), row_dict.get('Quantity')]):
+                continue
+
+            items_to_confirm.append(row_dict)
+
+        if not items_to_confirm:
+            messages.warning(request, "No valid order items could be parsed from the file.")
+            return redirect('operation:order_list')
+
+        # --- 4. Perform Matching ("Remember" Logic) ---
+        all_products = list(Product.objects.all())
+        product_choices = {p.name: p.id for p in all_products}
+        learned_mappings = {mapping.imported_name: mapping.mapped_product_id for mapping in ProductMapping.objects.all()}
+
+        for item in items_to_confirm:
+            name_to_match = str(item.get('Product_Name', '')).strip()
+            item['suggested_product_id'] = None
+            item['similarity_score'] = 0
+
+            # Prioritize learned mappings
+            if name_to_match in learned_mappings:
+                item['suggested_product_id'] = learned_mappings[name_to_match]
+                item['similarity_score'] = 100 # Perfect score for a learned match
+            elif name_to_match:
+                # Fallback to fuzzy matching
+                match = process.extractOne(name_to_match, product_choices.keys(), scorer=fuzz.ratio)
+                if match and match[1] >= 60:
+                    item['suggested_product_id'] = product_choices[match[0]]
+                    item['similarity_score'] = match[1]
+
+        # --- 5. Render Confirmation Modal ---
+        request.session['imported_data'] = items_to_confirm
+        return render(request, 'operation/import_orders_from_excel.html', {
+            'show_confirmation_modal': True,
+            'items_to_confirm': items_to_confirm,
+            'all_products': all_products,
+        })
+
+    except Exception as e:
+        logger.error(f"Error during Excel import: {e}", exc_info=True)
+        messages.error(request, f"An unexpected error occurred: {e}")
+        return redirect('operation:order_list')
+
+
+@login_required
+@transaction.atomic
+def create_orders_from_import(request):
+    """
+    Creates orders from the session data and "learns" any product
+    corrections made by the user.
+    """
+    if request.method != 'POST':
+        return redirect('operation:import_orders_from_excel')
+
+    imported_data = request.session.get('imported_data')
+    if not imported_data:
+        messages.error(request, "Import session has expired. Please re-upload your file.")
+        return redirect('operation:import_orders_from_excel')
+
+    # --- START: "Learn" from User Corrections ---
+    for i, item_row in enumerate(imported_data):
+        product_id_str = request.POST.get(f'product_selection_{i}')
+        if not product_id_str:
+            messages.error(request, f"A product was not selected for '{item_row.get('Product_Name')}'.")
+            return redirect('operation:import_orders_from_excel')
+
+        confirmed_product_id = int(product_id_str)
+        item_row['confirmed_product_id'] = confirmed_product_id
+
+        imported_name = str(item_row.get('Product_Name', '')).strip()
+        if imported_name:
+            ProductMapping.objects.update_or_create(
+                imported_name=imported_name,
+                defaults={'mapped_product_id': confirmed_product_id}
+            )
+            logger.info(f"Learned/updated mapping: '{imported_name}' -> Product ID {confirmed_product_id}")
+    # --- END: "Learn" from User Corrections ---
+
+    # Group items by Order ID
+    orders_to_process = {}
+    for item in imported_data:
+        order_id = str(item.get('Order_ID'))
+        if order_id not in orders_to_process:
+            orders_to_process[order_id] = []
+        orders_to_process[order_id].append(item)
+
+    # Final database creation loop
+    for order_id, items in orders_to_process.items():
+        first_item = items[0]
+
+        # --- Validate and Get Warehouse ---
+        warehouse_name = first_item.get('Warehouse_name')
+        if pd.isna(warehouse_name) or not warehouse_name:
+            messages.error(request, f"Import failed: 'Warehouse name' is missing for order {order_id}.")
+            raise transaction.TransactionManagementError("Rolling back due to missing warehouse name.")
+        try:
+            warehouse = Warehouse.objects.get(name__iexact=str(warehouse_name))
+        except Warehouse.DoesNotExist:
+            messages.error(request, f"Import failed: Warehouse '{warehouse_name}' not found for order {order_id}.")
+            raise transaction.TransactionManagementError("Rolling back due to non-existent warehouse.")
+
+        # --- Robust Customer Lookup ---
+        customer = None
+        phone_number_raw = first_item.get('phone')
+        phone_number_clean = None
+        if phone_number_raw and pd.notna(phone_number_raw):
             try:
-                # Initialize workbook and sheet variables
-                workbook_data = None
-                sheet = None
-                is_xlsx = False # Flag to distinguish between .xlsx and .xls
-
-                # Determine file type and load workbook
-                if file_name_lower.endswith('.xlsx'):
-                    workbook_data = openpyxl.load_workbook(excel_file, data_only=True) # data_only for cell values
-                    sheet = workbook_data.active # Get the active sheet
-                    is_xlsx = True
-                elif file_name_lower.endswith('.xls'):
-                    # xlrd needs file content, not path for in-memory files
-                    file_contents = excel_file.read()
-                    workbook_data = xlrd.open_workbook(file_contents=file_contents)
-                    sheet = workbook_data.sheet_by_index(0) # Get the first sheet
-                    is_xlsx = False
-                else:
-                    messages.error(request, "Unsupported file format. Please upload .xlsx or .xls files.")
-                    return redirect('operation:order_list') # Or appropriate redirect
-
-                # Extract headers and prepare data rows iterator
-                headers = []
-                data_rows_iterator = None
-
-                if is_xlsx: # openpyxl
-                    if sheet.max_row > 0: # Check if sheet has any rows
-                        headers = [cell.value for cell in sheet[1]] # First row for headers
-                        data_rows_iterator = sheet.iter_rows(min_row=2, values_only=True) # Data from second row
-                    else: headers = [] # No rows, no headers
-                else: # xlrd
-                    if sheet.nrows > 0: # Check if sheet has any rows
-                        headers = [sheet.cell_value(0, col_idx) for col_idx in range(sheet.ncols)] # First row
-                        # Define a generator for xlrd rows to handle date conversion
-                        def xlrd_rows_iterator(sheet_obj, book_datemode):
-                            for r_idx in range(1, sheet_obj.nrows): # Start from second row (index 1)
-                                row_values_xls = []
-                                for c_idx in range(sheet_obj.ncols):
-                                    cell_type = sheet_obj.cell_type(r_idx, c_idx)
-                                    cell_value = sheet_obj.cell_value(r_idx, c_idx)
-                                    if cell_type == xlrd.XL_CELL_DATE:
-                                        # Convert Excel date number to datetime object
-                                        date_tuple = xlrd.xldate_as_datetime(cell_value, book_datemode)
-                                        row_values_xls.append(date_tuple)
-                                    elif cell_type == xlrd.XL_CELL_NUMBER and cell_value == int(cell_value):
-                                        # If number is whole, treat as int
-                                        row_values_xls.append(int(cell_value))
-                                    else:
-                                        row_values_xls.append(cell_value)
-                                yield row_values_xls
-                        data_rows_iterator = xlrd_rows_iterator(sheet, workbook_data.datemode)
-                    else: headers = [] # No rows, no headers
-
-                if not headers:
-                        messages.error(request, "The Excel file is empty or has no header row.")
-                        return redirect('operation:order_list')
-
-                # --- Define header mapping configuration ---
-                # Keys are internal field names, values are expected Excel column headers (case-insensitive match)
-                header_mapping_config = {
-                    'erp_order_id': 'order id',
-                    'order_date': 'order date',
-                    'warehouse_name': 'warehouse name', # Critical for linking to Warehouse model
-                    'customer_name': 'address name',    # For Order.customer_name
-                    'company_name': 'company',
-                    'address_line1': 'address',
-                    'country': 'country',
-                    'city': 'city',
-                    'state': 'state',
-                    'zip_code': 'zip',
-                    'phone': 'phone',
-                    'vat_number': 'vat number',
-                    'product_name_from_excel': 'product name', # For OrderItem.erp_product_name and Product lookup
-                    'quantity_ordered': 'product quantity',
-                    'is_cold': 'iscold', # For OrderItem.is_cold_item and Order.is_cold_chain
-                    'title_notes': 'title', # For Order.title_notes
-                    'shipping_notes': 'comment', # For Order.shipping_notes
+                phone_number_clean = str(int(float(phone_number_raw)))
+            except (ValueError, TypeError):
+                pass
+        if phone_number_clean:
+            customer = Customer.objects.filter(phone_number=phone_number_clean).first()
+        if not customer:
+            customer, _ = Customer.objects.get_or_create(
+                customer_name=first_item.get('Customer_Name', ''),
+                defaults={
+                    'email': first_item.get('email') if pd.notna(first_item.get('email')) else None,
+                    'company_name': first_item.get('company', ''), 'phone_number': phone_number_clean,
+                    'address_line1': first_item.get('address'), 'city': first_item.get('city'),
+                    'state': first_item.get('state'), 'zip_code': first_item.get('zip'),
+                    'country': first_item.get('country'), 'vat_number': first_item.get('Vat_number')
                 }
+            )
 
-                # Normalize actual headers from file (lowercase, strip whitespace)
-                normalized_actual_headers = {str(h).strip().lower(): str(h).strip() for h in headers if h is not None}
+        # --- Create or Update Order ---
+        order_date = pd.to_datetime(first_item.get('Order_Date'), errors='coerce').date() or timezone.now().date()
+        order, created = Order.objects.update_or_create(
+            erp_order_id=order_id,
+            defaults={
+                'customer': customer, 'order_date': order_date, 'warehouse': warehouse,
+                'title_notes': first_item.get('title'), 'shipping_notes': first_item.get('comment'),
+                'status': 'NEW_ORDER', 'imported_by': request.user
+            }
+        )
+        if not created:
+            order.items.all().delete()
 
-                # Map internal keys to actual header names found in the file
-                header_map_for_indexing = {}
-                missing_headers_from_config = []
-                # Define which internal keys are absolutely critical for basic processing
-                critical_internal_keys = ['erp_order_id', 'order_date', 'warehouse_name', 'product_name_from_excel', 'quantity_ordered']
+        # --- Create Order Items ---
+        order_is_cold = False
+        for item_data in items:
+            product = Product.objects.get(id=item_data['confirmed_product_id'])
+            warehouse_product, _ = WarehouseProduct.objects.get_or_create(
+                warehouse=warehouse, product=product, defaults={'quantity': 0}
+            )
+            OrderItem.objects.create(
+                order=order, product=product, warehouse_product=warehouse_product,
+                quantity_ordered=int(item_data.get('Quantity', 0))
+            )
+            if str(item_data.get('isCold')).lower() in ['yes', 'true', '1']:
+                order_is_cold = True
 
-                for internal_key, excel_header_normalized_target in header_mapping_config.items():
-                    found_actual_header = None
-                    # Find the original case header from the file that matches the normalized target
-                    for actual_header_normalized, actual_header_original_case in normalized_actual_headers.items():
-                        if actual_header_normalized == excel_header_normalized_target.lower():
-                            found_actual_header = actual_header_original_case
-                            break
-                    if found_actual_header:
-                        header_map_for_indexing[internal_key] = found_actual_header
-                    elif internal_key in critical_internal_keys: # If a critical header is missing
-                            missing_headers_from_config.append(f"'{excel_header_normalized_target}' (expected for '{internal_key}')")
+        if order_is_cold:
+            order.is_cold_chain = True
+            order.save()
 
-
-                if missing_headers_from_config:
-                    messages.error(request, f"Required headers not found in Excel: {', '.join(missing_headers_from_config)}. Available headers found: {', '.join(filter(None,headers))}")
-                    return redirect('operation:order_list')
-
-                # Create a map from internal key to column index in the actual file
-                final_header_to_index_map = {}
-                for internal_key, mapped_excel_header_original_case in header_map_for_indexing.items():
-                    try:
-                        # Find index of the original case header in the original headers list
-                        idx = headers.index(mapped_excel_header_original_case)
-                        final_header_to_index_map[internal_key] = idx
-                    except ValueError:
-                        # This should not happen if previous mapping was successful, but as a safeguard
-                        messages.error(request, f"Configuration error: Mapped Excel header '{mapped_excel_header_original_case}' (for internal key '{internal_key}') not found in the original headers list. This is an internal logic error.")
-                        return redirect('operation:order_list')
-
-
-                # --- Process rows ---
-                orders_data = {} # To group items by order_id
-                last_valid_erp_order_id = None # To handle items for the same order on subsequent rows if Order ID is blank
-
-                for row_idx, row_tuple in enumerate(data_rows_iterator, start=2): # row_idx is 1-based for messages
-                    # Skip entirely blank rows
-                    if not any(str(cell_val).strip() for cell_val in row_tuple if cell_val is not None):
-                        logger.debug(f"Row {row_idx}: Skipped. Entirely empty or whitespace.")
-                        continue
-
-                    # Helper to get cell value by internal key, handling missing columns and data types
-                    def get_current_row_value(internal_key_lambda, default=None):
-                        idx = final_header_to_index_map.get(internal_key_lambda)
-                        if idx is not None and idx < len(row_tuple) and row_tuple[idx] is not None:
-                            val_lambda = row_tuple[idx]
-                            # If already datetime (from xlrd) or number, return as is
-                            if isinstance(val_lambda, (datetime.datetime, datetime.date)): # ✅ CORRECT
-                                return val_lambda
-                            # Otherwise, convert to string and strip
-                            val_str = str(val_lambda).strip()
-                            return val_str if val_str != "" else default # Return default if stripped string is empty
-                        return default
-
-                    # Get Order ID for current row, or use last valid one if current is blank
-                    current_row_erp_order_id = get_current_row_value('erp_order_id')
-                    erp_order_id_to_use = current_row_erp_order_id if current_row_erp_order_id else last_valid_erp_order_id
-
-                    if not erp_order_id_to_use:
-                        messages.warning(request, f"Row {row_idx}: Skipped. Missing Order ID and no previous order context.")
-                        logger.warning(f"Row {row_idx}: Skipped. Missing Order ID.")
-                        continue # Skip row if no Order ID can be determined
-
-                    if current_row_erp_order_id: # If this row has an Order ID, it becomes the new context
-                        last_valid_erp_order_id = current_row_erp_order_id
-                    erp_order_id_to_use = str(erp_order_id_to_use) # Ensure it's a string for dict key
-
-                    # Get critical item data
-                    product_name_excel = get_current_row_value('product_name_from_excel')
-                    quantity_ordered_str = get_current_row_value('quantity_ordered')
-
-                    if not all([product_name_excel, quantity_ordered_str]):
-                        messages.warning(request, f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Missing critical item data (Product Name or Quantity). Skipping item.")
-                        logger.warning(f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Missing Product Name ('{product_name_excel}') or Qty ('{quantity_ordered_str}'). Skipping item.")
-                        continue # Skip this item if essential item data is missing
-
-                    # If this is the first time we see this Order ID, parse order-level details
-                    order_date_for_this_entry = None # Initialize for current row context
-                    if erp_order_id_to_use not in orders_data:
-                        # Get order-level details (only needed once per order)
-                        order_date_val = get_current_row_value('order_date')
-                        warehouse_name = get_current_row_value('warehouse_name')
-                        customer_name = get_current_row_value('customer_name') # Mapped from 'address name'
-
-                        # Parse order_date (handle various formats and types)
-                        if order_date_val:
-                            # Correctly check for datetime or date types first
-                            if isinstance(order_date_val, (datetime.datetime, datetime.date)):
-                                # If it's a datetime object, get the date part. If it's a date, this does nothing.
-                                order_date_for_this_entry = order_date_val.date() if hasattr(order_date_val, 'date') else order_date_val
-
-                            elif isinstance(order_date_val, str):
-                                # Initialize to None
-                                order_date_for_this_entry = None
-                                # First, try Django's robust parser. It handles ISO formats like YYYA-MM-DD well.
-                                parsed_by_django = parse_date(order_date_val)
-                                if parsed_by_django:
-                                    if isinstance(parsed_by_django, datetime.datetime):
-                                        order_date_for_this_entry = parsed_by_django.date()
-                                    else:
-                                        order_date_for_this_entry = parsed_by_django
-
-                                # If Django's parser fails, try our specific list of formats
-                                if not order_date_for_this_entry:
-                                    for fmt in ('%b %d, %Y', '%B %d, %Y', '%d/%m/%Y', '%m/%d/%Y', '%Y%m%d'):
-                                        try:
-                                            parsed_date = datetime.datetime.strptime(order_date_val, fmt)
-                                            order_date_for_this_entry = parsed_date.date()
-                                            break # Success, exit loop
-                                        except ValueError:
-                                            continue # Try next format
-
-                            # Handle Excel's numeric date format (for .xls files)
-                            elif isinstance(order_date_val, (float, int)) and hasattr(workbook_data, 'datemode') and not is_xlsx:
-                                try:
-                                    order_date_for_this_entry = xlrd.xldate_as_datetime(order_date_val, workbook_data.datemode).date()
-                                except (ValueError, TypeError):
-                                    pass # Will be caught by the check below
-
-                        # After all attempts, if it's still not a valid date, log a warning.
-                        if not order_date_for_this_entry and order_date_val:
-                            logger.warning(f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Unparseable order_date '{order_date_val}'.")
-                        # --- START: New Customer Logic Integration ---
-                        # 1. Collect all customer info from the row
-                        customer_address_details = {
-                            'address_line1': get_current_row_value('address_line1', ''),
-                            'city': get_current_row_value('city', ''),
-                            'state': get_current_row_value('state', ''),
-                            'zip_code': get_current_row_value('zip_code', ''),
-                            'country': get_current_row_value('country', ''),
-                        }
-
-                        # 2. Find or create the customer record using the utility function
-                        customer_obj, created = get_or_create_customer_from_import(
-                            customer_name=get_current_row_value('customer_name', ''),
-                            company_name=get_current_row_value('company_name', ''),
-                            phone_number=get_current_row_value('phone', ''),
-                            address_info=customer_address_details,
-                            vat_number=get_current_row_value('vat_number', '')
-                        )
-                        if created:
-                            logger.info(f"Import created new customer: {customer_obj.customer_name} ({customer_obj.customer_id})")
-                        # --- END: New Customer Logic Integration ---
-
-                        # Check if critical order-level details are present for a new order entry
-                        if not all([order_date_for_this_entry, warehouse_name, customer_name]):
-                            error_parts = []
-                            if not order_date_for_this_entry: error_parts.append("Order Date (missing or invalid format)")
-                            if not warehouse_name: error_parts.append("Warehouse Name")
-                            if not customer_name: error_parts.append("Customer Name (Address Name)")
-                            msg = f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Missing essential order details for first line: {', '.join(error_parts)}. Skipping order."
-                            messages.warning(request, msg)
-                            logger.warning(msg)
-                            last_valid_erp_order_id = None # Reset context as this order is invalid
-                            continue # Skip to next row
-
-                        # Store order details
-                        orders_data[erp_order_id_to_use] = {
-                            'order_details': {
-                                'customer_obj': customer_obj, # Store the actual object
-                                'erp_order_id': erp_order_id_to_use,
-                                'order_date': order_date_for_this_entry,
-                                'warehouse_name': get_current_row_value('warehouse_name'),
-                                'is_cold_chain': False,
-                                'title_notes': get_current_row_value('title_notes'),
-                                'shipping_notes': get_current_row_value('shipping_notes'),
-                            },
-                            'items': []
-                        }
-
-                    # Process item quantity
-                    try:
-                        quantity_ordered = int(float(str(quantity_ordered_str))) # Convert to float first, then int
-                        if quantity_ordered <= 0:
-                            raise ValueError("Quantity must be positive.")
-                    except (ValueError, TypeError):
-                        msg = f"Row {row_idx} (Order ID: {erp_order_id_to_use}): Invalid quantity '{quantity_ordered_str}' for item '{product_name_excel}'. Skipping item."
-                        messages.warning(request, msg)
-                        logger.warning(msg)
-                        continue # Skip this item
-
-                    # Process is_cold
-                    is_cold_str = get_current_row_value('is_cold')
-                    is_cold = str(is_cold_str).strip().lower() == 'yes' if is_cold_str else False
-
-                    if is_cold: # If any item is cold, mark the whole order as cold chain
-                        orders_data[erp_order_id_to_use]['order_details']['is_cold_chain'] = True
-
-                    # Add item to the order's item list
-                    orders_data[erp_order_id_to_use]['items'].append({
-                        'product_name_from_excel': str(product_name_excel), # Ensure string
-                        'quantity_ordered': quantity_ordered,
-                        'is_cold_item': is_cold,
-                        # Add other item-specific fields here if needed
-                    })
-                # --- End of row processing loop ---
-
-                # --- Database Operations (after parsing all rows) ---
-                with transaction.atomic():
-                    created_orders_count = 0
-                    updated_orders_count = 0 # If we decide to update existing orders
-                    created_items_count = 0
-                    skipped_orders_db = 0 # Orders skipped due to DB issues (e.g., Warehouse not found)
-                    skipped_items_db = 0  # Items skipped due to DB issues (e.g., Product not found)
-
-                    for erp_id_key, data_dict in orders_data.items():
-                        order_details_map = data_dict['order_details']
-                        try:
-                            # Get Warehouse object
-                            warehouse = Warehouse.objects.get(name__iexact=order_details_map['warehouse_name'])
-                        except Warehouse.DoesNotExist:
-                            messages.error(request, f"Order ID {erp_id_key}: Warehouse '{order_details_map['warehouse_name']}' not found during DB operations. Skipping order.")
-                            logger.error(f"Order ID {erp_id_key}: Warehouse '{order_details_map['warehouse_name']}' not found.")
-                            skipped_orders_db += 1
-                            continue # Skip this whole order
-
-                        # Prepare fields for Order model instance, excluding those used for lookup or processed separately
-                        order_field_defaults = {
-                            'customer': order_details_map['customer_obj'], # <-- Use the customer object
-                            'order_date': order_details_map['order_date'],
-                            'warehouse': warehouse,
-                            'is_cold_chain': order_details_map['is_cold_chain'],
-                            'title_notes': order_details_map['title_notes'],
-                            'shipping_notes': order_details_map['shipping_notes'],
-                            'status': 'NEW_ORDER',
-                            'imported_by': request.user if request.user.is_authenticated else None
-                        }
-
-                        # Ensure erp_order_id is a string for consistency
-                        current_order_erp_id_str = str(order_details_map['erp_order_id'])
-
-                        # Using update_or_create to handle both new and existing orders
-                        # If order exists, its items will be replaced.
-                        order, created = Order.objects.update_or_create(
-                            erp_order_id=current_order_erp_id_str, # Lookup field
-                            defaults=order_field_defaults
-                        )
-                        # Ensure erp_order_id is set correctly even if it was the lookup key
-                        # (update_or_create doesn't update the lookup key itself via defaults)
-                        order.erp_order_id = current_order_erp_id_str # Redundant if created, but ensures if updated.
-
-                        if created:
-                            created_orders_count += 1
-                        else:
-                            # If order existed, clear its previous items to replace with new ones from file
-                            order.items.all().delete()
-                            updated_orders_count +=1 # Count as updated
-
-                        current_order_items_processed_db = 0
-                        for item_data in data_dict['items']:
-                            product_identifier_from_excel = item_data['product_name_from_excel']
-                            product = None
-                            try:
-                                # Try SKU first (case-insensitive)
-                                product = Product.objects.get(sku__iexact=product_identifier_from_excel)
-                            except Product.DoesNotExist:
-                                # If SKU not found, try Name (case-insensitive)
-                                try:
-                                    product = Product.objects.get(name__iexact=product_identifier_from_excel)
-                                except Product.DoesNotExist:
-                                    messages.error(request, f"Order ID {erp_id_key}, Item Identifier '{product_identifier_from_excel}': Product not found by SKU or Name. Skipping item.")
-                                    logger.error(f"Order ID {erp_id_key}, Item '{product_identifier_from_excel}': Product not found by SKU/Name.")
-                                    skipped_items_db +=1
-                                    continue # Skip this item
-                                except Product.MultipleObjectsReturned:
-                                    messages.error(request, f"Order ID {erp_id_key}, Item Name '{product_identifier_from_excel}': Multiple products found by this name. Use unique SKU or ensure unique names. Skipping item.")
-                                    logger.error(f"Order ID {erp_id_key}, Item '{product_identifier_from_excel}': Multiple products by name.")
-                                    skipped_items_db +=1
-                                    continue # Skip this item
-                            except Product.MultipleObjectsReturned:
-                                messages.error(request, f"Order ID {erp_id_key}, SKU '{product_identifier_from_excel}': Multiple products found with this SKU. SKUs must be unique. Skipping item.")
-                                logger.error(f"Order ID {erp_id_key}, SKU '{product_identifier_from_excel}': Multiple products by SKU.")
-                                skipped_items_db +=1
-                                continue # Skip this item
-
-                            # Get or create WarehouseProduct link
-                            warehouse_product_instance = WarehouseProduct.objects.filter(product=product, warehouse=warehouse).first()
-                            if not warehouse_product_instance:
-                                # If you want to auto-create WarehouseProduct if it doesn't exist:
-                                # warehouse_product_instance = WarehouseProduct.objects.create(product=product, warehouse=warehouse, quantity=0, threshold=0)
-                                # logger.info(f"Auto-created WarehouseProduct for {product.sku} @ {warehouse.name}")
-                                # For now, let's assume it must exist or item is added without this specific link
-                                messages.warning(request, f"Order ID {erp_id_key}, Item '{product.sku}': WarehouseProduct link not found for warehouse '{warehouse.name}'. Item added without specific stock link.")
-                                logger.warning(f"Order ID {erp_id_key}, Item '{product.sku}': WarehouseProduct link not found for WH '{warehouse.name}'.")
-
-                            # Create OrderItem
-                            oi_defaults = {
-                                'quantity_ordered': item_data['quantity_ordered'],
-                                'erp_product_name': product_identifier_from_excel, # Store the name from Excel
-                                'is_cold_item': item_data.get('is_cold_item', False),
-                                'status': 'PENDING_PROCESSING', # Default status for new items
-                                'warehouse_product': warehouse_product_instance # Can be None if not found
-                            }
-                            OrderItem.objects.create(order=order, product=product, **oi_defaults)
-                            current_order_items_processed_db +=1
-
-                        created_items_count += current_order_items_processed_db
-                        order.save() # Save order again to trigger any on_save logic if item changes affect order
-
-
-                # --- Summarize results ---
-                final_message_parts = []
-                if created_orders_count > 0: final_message_parts.append(f"Orders Created: {created_orders_count}")
-                if updated_orders_count > 0: final_message_parts.append(f"Orders Updated: {updated_orders_count}")
-                if created_items_count > 0: final_message_parts.append(f"Order Items Processed: {created_items_count}")
-
-                if not final_message_parts and (skipped_orders_db == 0 and skipped_items_db == 0):
-                    # This means no new orders were created, no existing orders were updated (based on erp_order_id),
-                    # and no items were processed (likely because all orders in file already existed and had no changes,
-                    # or the file was empty of valid data after parsing).
-                    final_message_parts.append("No new orders or items to import based on ERP IDs. Existing orders might have been updated if their content changed.")
-
-                if skipped_orders_db > 0: final_message_parts.append(f"Orders Skipped (DB): {skipped_orders_db}")
-                if skipped_items_db > 0: final_message_parts.append(f"Items Skipped (DB): {skipped_items_db}")
-
-                if final_message_parts:
-                    messages.success(request, "Import process complete. " + ", ".join(final_message_parts) + ".")
-                else:
-                    # This case implies the file was parsed but contained no data rows that led to any action or skip.
-                    messages.info(request, "No data found in the Excel file to process orders.")
-
-
-            except ValueError as ve: # Catch errors during parsing or data validation before DB
-                messages.error(request, f"Error in file structure or critical content: {str(ve)}")
-                logger.error(f"Import ValueError: {str(ve)}", exc_info=True)
-            except xlrd.XLRDError as xe: # Specifically for .xls reading errors
-                messages.error(request, f"Error reading .xls file. It might be corrupted or an incompatible version: {str(xe)}")
-                logger.error(f"Import XLRDError: {str(xe)}", exc_info=True)
-            except Exception as e: # Catch-all for other unexpected errors during processing
-                messages.error(request, f"An unexpected error occurred during the import process: {str(e)}")
-                logger.error(f"Import Exception: {str(e)}", exc_info=True)
-
-            return redirect('operation:order_list') # Redirect back to the order list view
-        else: # Form is not valid (e.g., no file uploaded)
-            # Django messages framework will display form.errors if you render the form
-            # For now, let's add a generic message if needed, or rely on form rendering
-            for field, errors_list in form.errors.items():
-                for error in errors_list:
-                    messages.error(request, f"Error in field '{form.fields[field].label if field != '__all__' else 'Form'}': {error}")
-    # If not POST, or if form was invalid and we didn't redirect (e.g. no file),
-    # redirecting to order_list is a safe default.
-    # The order_list view will render the import_form again.
+    # Clean up and redirect
+    if 'imported_data' in request.session:
+        del request.session['imported_data']
+    messages.success(request, f"{len(orders_to_process)} orders have been successfully imported or updated.")
     return redirect('operation:order_list')
 
 
@@ -910,7 +717,7 @@ def get_order_items_for_packing(request, order_pk):
                         Q(status='PENDING_PROCESSING') | (Q(status='PACKED') & Q(quantity_packed__lt=F('quantity_ordered')))
                     ).select_related('product', 'warehouse_product')
                 )
-            ).select_related('warehouse'),
+            ).select_related('warehouse', 'customer'), # Ensure customer is also selected
             pk=order_pk
         )
 
@@ -962,9 +769,11 @@ def get_order_items_for_packing(request, order_pk):
         end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
         todays_parcels = Parcel.objects.filter(
-            created_at__range=(start_of_day, end_of_day),
+            created_at__date=timezone.now().date(),
+            order__warehouse=order.warehouse, # This is the crucial filter
             courier_company__isnull=False
         ).select_related('courier_company')
+
 
         courier_names = [p.courier_company.name for p in todays_parcels]
         todays_parcel_counts = Counter(courier_names)
@@ -1003,7 +812,6 @@ def get_order_items_for_packing(request, order_pk):
     except Exception as e:
         logger.error(f"Unexpected error in get_order_items_for_packing for order_pk {order_pk}: {e}\n{traceback.format_exc()}")
         return JsonResponse({'success': False, 'message': 'An unexpected server error occurred while preparing packing information.'}, status=500)
-
 
 
 @login_required
@@ -1180,16 +988,53 @@ def process_packing_for_order(request, order_pk):
                 )
 
         # 6b. Deduct Packaging Material Stock
-        packaging_components = PackagingTypeMaterialComponent.objects.filter(packaging_type=packaging_type)
+        packaging_components = packaging_type.packagingtypematerialcomponent_set.select_related('packaging_material')
+        # First, validate all materials before making any changes
         for component in packaging_components:
-            material = component.packaging_material
-            quantity_to_deduct = component.quantity
-            material.refresh_from_db()
-            if material.current_stock < quantity_to_deduct:
-                raise Exception(f"Not enough stock for packaging material: '{material.name}'. Required: {quantity_to_deduct}, Available: {material.current_stock}")
+            material_to_check = component.packaging_material
+            quantity_needed = component.quantity
 
-            material.current_stock = F('current_stock') - quantity_to_deduct
-            material.save(update_fields=['current_stock'])
+            try:
+                # Query the WAREHOUSE-SPECIFIC stock model
+                warehouse_stock = WarehousePackagingMaterial.objects.get(
+                    packaging_material=material_to_check,
+                    warehouse=order.warehouse
+                )
+
+                logger.info(f"  Validating stock for '{material_to_check.name}': Needed {quantity_needed}, Available {warehouse_stock.current_stock}")
+                if warehouse_stock.current_stock < quantity_needed:
+                    error_msg = f"Insufficient stock for packaging material: '{material_to_check.name}'. Required: {quantity_needed}, Available: {warehouse_stock.current_stock}"
+                    logger.error(f"  PACKAGING STOCK VALIDATION FAILED: {error_msg}")
+                    return JsonResponse({'success': False, 'message': error_msg}, status=400)
+
+            except WarehousePackagingMaterial.DoesNotExist:
+                error_msg = f"Stock for packaging material '{material_to_check.name}' is not configured in warehouse '{order.warehouse.name}'."
+                logger.error(f"  PACKAGING STOCK VALIDATION FAILED: {error_msg}")
+                return JsonResponse({'success': False, 'message': error_msg}, status=400)
+
+        for component in packaging_components:
+            warehouse_stock = WarehousePackagingMaterial.objects.get(
+                packaging_material=component.packaging_material,
+                warehouse=order.warehouse
+            )
+            quantity_to_deduct = component.quantity
+
+            # 1. Update the main stock level
+            warehouse_stock.current_stock = F('current_stock') - quantity_to_deduct
+            warehouse_stock.save(update_fields=['current_stock'])
+
+            # 2. Create the historical USAGE transaction record
+            PackagingStockTransaction.objects.create(
+                warehouse_packaging_material=warehouse_stock,
+                transaction_type=PackagingStockTransaction.TransactionTypes.STOCK_OUT,
+                quantity=-quantity_to_deduct, # Log usage as a negative number
+                related_parcel=new_parcel,
+                notes=f"Used for Parcel {new_parcel.parcel_code_system}",
+                recorded_by=request.user
+            )
+            logger.info(f"  Deducted and logged {quantity_to_deduct} of '{component.packaging_material.name}' for Parcel {new_parcel.pk}.")
+
+
 
         # 7. Update Order Status
         order.update_status_based_on_items_and_parcels()
@@ -1650,7 +1495,10 @@ def get_parcel_details_for_editing(request, parcel_pk):
         shipment_type_filter = Q(applies_to_cold_chain=True) | Q(applies_to_mix=True)
     elif effective_env_type == 'AMBIENT':
         shipment_type_filter = Q(applies_to_ambient=True) | Q(applies_to_mix=True)
-    declarations_queryset = CustomsDeclaration.objects.filter(courier_filter & shipment_type_filter).distinct().order_by('description')
+    declarations_queryset = CustomsDeclaration.objects.filter(
+        Q(warehouse=parcel.order.warehouse) & courier_filter & shipment_type_filter
+    ).distinct().order_by('description')
+
     declarations_json = list(declarations_queryset.values('pk', 'description', 'hs_code'))
 
     # Instantiate forms
@@ -1743,7 +1591,7 @@ def update_parcel_customs_details(request, parcel_pk):
         shipment_type_filter = Q(applies_to_ambient=True) | Q(applies_to_mix=True)
 
     valid_declarations_qs = CustomsDeclaration.objects.filter(
-        courier_filter & shipment_type_filter
+        Q(warehouse=parcel.order.warehouse) & courier_filter & shipment_type_filter
     ).distinct()
 
     parcel_form = ParcelCustomsDetailForm(request.POST, instance=parcel, declarations_queryset=valid_declarations_qs)
@@ -1829,7 +1677,7 @@ def get_declarations_for_courier(request, parcel_pk):
             shipment_type_filter = Q(applies_to_ambient=True) | Q(applies_to_mix=True)
 
         declarations_queryset = CustomsDeclaration.objects.filter(
-            courier_filter & shipment_type_filter
+            Q(warehouse=parcel.order.warehouse) & courier_filter & shipment_type_filter
         ).distinct().order_by('description')
 
         declarations_json = list(declarations_queryset.values('pk', 'description', 'hs_code'))
@@ -1844,94 +1692,133 @@ def get_declarations_for_courier(request, parcel_pk):
 
 @login_required
 def manage_customs_declarations(request):
-    if not (request.user.is_superuser or request.user.warehouse):
+    """
+    Handles the display and filtering of Customs Declarations without a status filter.
+    """
+    user = request.user
+
+    # --- Permission Check ---
+    if not (user.is_superuser or user.warehouse):
         messages.error(request, "You do not have permission to access this page.")
         return redirect('inventory:inventory_batch_list_view')
 
+    # --- Form Handling for Creating New Declarations (POST) ---
+    if request.method == 'POST':
+        form = CustomsDeclarationForm(request.POST, user=user)
+        if form.is_valid():
+            declaration = form.save(commit=False)
+            if not user.is_superuser:
+                declaration.warehouse = user.warehouse
+            declaration.save()
+            form.save_m2m()
+            messages.success(request, "Customs declaration added successfully.")
+            return redirect('operation:manage_customs_declarations')
+        else:
+            messages.error(request, "Could not add declaration. Please correct the errors below.")
+    else:
+        # For a GET request, create a fresh form for the "Add" modal
+        form = CustomsDeclarationForm(user=user)
+
+    # --- Filtering Logic (GET) ---
+    declarations_qs = CustomsDeclaration.objects.select_related('warehouse').prefetch_related('courier_companies').all()
+
+    # Get filter parameters from the URL
     selected_courier_id = request.GET.get('courier_company')
     selected_shipment_type = request.GET.get('shipment_type')
 
-    declarations_qs = CustomsDeclaration.objects.prefetch_related('courier_companies').all()
+    if not user.is_superuser:
+        declarations_qs = declarations_qs.filter(warehouse=user.warehouse)
 
-    # Updated courier filtering logic
+    # Apply courier filter (simplified logic)
     if selected_courier_id:
         if selected_courier_id == "generic":
             declarations_qs = declarations_qs.filter(courier_companies__isnull=True)
         else:
-            # Show declarations for the specific courier OR generic ones
-            declarations_qs = declarations_qs.filter(Q(courier_companies__id=selected_courier_id) | Q(courier_companies__isnull=True))
+            # Directly filter by the selected courier ID
+            declarations_qs = declarations_qs.filter(courier_companies__id=selected_courier_id)
 
-    # Updated shipment type filtering logic
+    # Apply shipment type filter
     if selected_shipment_type:
-        if selected_shipment_type == 'AMBIENT':
-            declarations_qs = declarations_qs.filter(applies_to_ambient=True)
-        elif selected_shipment_type == 'COLD_CHAIN':
-            declarations_qs = declarations_qs.filter(applies_to_cold_chain=True)
-        elif selected_shipment_type == 'MIX':
-            declarations_qs = declarations_qs.filter(applies_to_mix=True)
+        shipment_filters = {
+            'AMBIENT': Q(applies_to_ambient=True),
+            'COLD_CHAIN': Q(applies_to_cold_chain=True),
+            'MIX': Q(applies_to_mix=True)
+        }
+        if selected_shipment_type in shipment_filters:
+            declarations_qs = declarations_qs.filter(shipment_filters[selected_shipment_type])
 
-    declarations = declarations_qs.order_by('description', 'hs_code')
-    couriers = CourierCompany.objects.all().order_by('name')
-    # Manually define choices for the template filter dropdown
-    shipment_type_choices = [('AMBIENT', 'Ambient Only'), ('COLD_CHAIN', 'Cold Chain Only'), ('MIX', 'Mixed')]
+    # Final queryset ordering
+    declarations = declarations_qs.order_by('-is_active', 'description', 'hs_code')
+
+    # --- START OF THE FIX ---
+    # Prepare the data structure the template expects
+    declaration_data = []
+    for decl in declarations:
+        declaration_data.append({
+            'declaration': decl,
+            'edit_form': CustomsDeclarationForm(instance=decl, user=user)
+        })
+    # --- END OF THE FIX ---
 
 
-    if request.method == 'POST':
-        form = CustomsDeclarationForm(request.POST)
-        if form.is_valid():
-            try:
-                form.save()
-                messages.success(request, "Customs declaration added successfully.")
-                return redirect('operation:manage_customs_declarations')
-            except IntegrityError:
-                messages.error(request, "Failed to add declaration. A declaration with this description and HS code may already exist.")
-        else:
-            messages.error(request, "Please correct the errors below when adding a new declaration.")
-    else:
-        form = CustomsDeclarationForm()
-
+    # --- Prepare Context for Template ---
     context = {
         'form': form,
         'declarations': declarations,
-        'couriers': couriers,
-        'shipment_type_choices': shipment_type_choices,
+        'declaration_data': declaration_data, # Pass the corrected data structure
+        'couriers': CourierCompany.objects.all().order_by('name'),
+        'warehouses': Warehouse.objects.all().order_by('name'),
+        'shipment_type_choices': [('AMBIENT', 'Ambient Only'), ('COLD_CHAIN', 'Cold Chain Only'), ('MIX', 'Mixed')],
         'selected_courier_id': selected_courier_id,
         'selected_shipment_type': selected_shipment_type,
         'page_title': "Manage Customs Declarations",
-        'user': request.user
     }
     return render(request, 'operation/manage_customs_declarations.html', context)
 
 
 @login_required
+@require_POST
 def edit_customs_declaration(request, pk):
-    if not (request.user.is_superuser or request.user.warehouse):
-        messages.error(request, "You do not have permission to perform this action.")
+    """
+    Handles updating an existing customs declaration.
+    """
+    declaration = get_object_or_404(CustomsDeclaration, pk=pk)
+    user = request.user
+
+    # Security check: Ensure non-superusers can only edit declarations for their own warehouse
+    if not user.is_superuser and declaration.warehouse != user.warehouse:
+        messages.error(request, "You do not have permission to edit this declaration.")
         return redirect('operation:manage_customs_declarations')
 
-    declaration = get_object_or_404(CustomsDeclaration, pk=pk)
-
     if request.method == 'POST':
-        form = CustomsDeclarationForm(request.POST, instance=declaration)
+        # Create a mutable copy of the POST data
+        post_data = request.POST.copy()
+
+        # Handle the 'is_active' checkbox
+        # If 'is_active' is not in the POST data, it means the box was unchecked.
+        if 'is_active' not in post_data:
+            post_data['is_active'] = False
+
+        form = CustomsDeclarationForm(post_data, instance=declaration, user=user)
+
         if form.is_valid():
-            try:
-                form.save()
-                messages.success(request, f"Declaration '{declaration.description[:30]}...' updated successfully.")
-            except IntegrityError as e:
-                if 'unique_decl_with_courier_desc_hs_type' in str(e) or \
-                   'unique_decl_without_courier_desc_hs_type' in str(e):
-                    messages.error(request, "Update failed. This combination of Description, HS Code, Courier, and Shipment Type already exists for another entry.")
-                else:
-                    messages.error(request, "Update failed due to a data conflict or integrity issue.")
+            updated_declaration = form.save(commit=False)
+            # Ensure warehouse is not accidentally changed by a non-superuser
+            if not user.is_superuser:
+                updated_declaration.warehouse = user.warehouse
+
+            updated_declaration.save()
+            form.save_m2m() # Save many-to-many fields
+            messages.success(request, f"Successfully updated declaration: '{declaration.description}'.")
             return redirect('operation:manage_customs_declarations')
         else:
-            error_list = []
-            for field_errors in form.errors.values():
-                error_list.extend(field_errors)
-            messages.error(request, "Could not update declaration: " + "; ".join(error_list))
-    # If GET or form invalid, redirect back to the list.
-    # The modal opening logic should ideally be handled by JS if errors occur to repopulate the modal.
-    # For simplicity, this redirects to the list page, losing modal state on error.
+            # Combine form errors into a single message
+            error_message = "Could not update declaration. "
+            for field, errors in form.errors.items():
+                error_message += f"{field.replace('_', ' ').title()}: {', '.join(errors)} "
+            messages.error(request, error_message)
+
+    # This redirect is a fallback for GET requests or failed POSTs to avoid rendering a separate page
     return redirect('operation:manage_customs_declarations')
 
 
@@ -1959,31 +1846,117 @@ def packaging_management(request):
     Manages the display and creation of PackagingTypes and PackagingMaterials.
     The form for adding a new packaging type is simplified by removing dimension fields.
     """
-    packaging_type_form = PackagingTypeForm()
+    user = request.user
+
+    all_global_materials = PackagingMaterial.objects.order_by('name')
+
+    # Prepare initial data for the formset: one entry for each global material
+    component_formset_initial = [{'packaging_material': mat} for mat in all_global_materials]
+    component_formset = PackagingTypeMaterialComponentFormSet(
+        initial=component_formset_initial,
+        prefix='components'
+    )
+
+    packaging_type_form = PackagingTypeForm(user=user)
     packaging_material_form = PackagingMaterialForm()
+    receive_stock_form = ReceivePackagingStockForm()
+
 
     if request.method == 'POST':
         if 'submit_packaging_type' in request.POST:
-            form_with_all_fields = PackagingTypeForm(request.POST)
-            if form_with_all_fields.is_valid():
-                form_with_all_fields.save()
-                messages.success(request, 'New packaging type added successfully.')
-                return redirect('operation:packaging_management')
-            else:
-                # If form is invalid, pass the form with errors back
-                # but still remove the dimension fields for a consistent display
-                packaging_type_form = form_with_all_fields
-                messages.error(request, 'Error adding packaging type. Please check the form below.')
+            form = PackagingTypeForm(request.POST, user=user)
+            if form.is_valid():
+                try:
+                    with transaction.atomic():
+                        # Save the main PackagingType instance
+                        packaging_type_instance = form.save(commit=False)
+                        if not user.is_superuser and user.warehouse:
+                            packaging_type_instance.warehouse = user.warehouse
+                        packaging_type_instance.save()
 
-        elif 'submit_packaging_material' in request.POST:
+                        # Process the material components
+                        for i in range(len(all_global_materials)):
+                            material_id = request.POST.get(f'components-{i}-packaging_material')
+                            quantity_str = request.POST.get(f'components-{i}-quantity')
+                            if quantity_str and int(quantity_str) > 0:
+                                material = PackagingMaterial.objects.get(pk=material_id)
+                                PackagingTypeMaterialComponent.objects.create(
+                                    packaging_type=packaging_type_instance,
+                                    packaging_material=material,
+                                    quantity=int(quantity_str)
+                                )
+
+                        messages.success(request, 'New packaging type added successfully.')
+                        return redirect('operation:packaging_management')
+                except Exception as e:
+                    messages.error(request, f"An error occurred: {e}")
+            else:
+                messages.error(request, 'Error adding packaging type. Please check the form.')
+                packaging_type_form = form # Return form with errors
+
+        elif 'submit_global_material' in request.POST:
+            # --- NEW: Logic for adding a global material ---
             form = PackagingMaterialForm(request.POST)
             if form.is_valid():
                 form.save()
-                messages.success(request, 'New packaging material added successfully.')
+                messages.success(request, 'New global packaging material created successfully.')
                 return redirect('operation:packaging_management')
             else:
                 packaging_material_form = form
-                messages.error(request, 'Error adding packaging material.')
+                messages.error(request, 'Error creating global material.')
+
+        elif 'submit_receive_stock' in request.POST:
+            form = ReceivePackagingStockForm(request.POST)
+            if form.is_valid():
+                try:
+                    with transaction.atomic():
+                        # --- START OF THE FIX ---
+                        # 1. Get the selected global material and determine the warehouse
+                        global_material = form.cleaned_data['packaging_material']
+                        quantity_to_add = form.cleaned_data['quantity']
+
+                        warehouse = None
+                        if request.user.is_superuser:
+                            # For superusers, you might need a warehouse selector in the form.
+                            # For now, let's assume it defaults to the first one or you add that field.
+                            # This is a placeholder for that logic.
+                            warehouse = Warehouse.objects.first() # Or handle via a form field
+                        else:
+                            warehouse = request.user.warehouse
+
+                        if not warehouse:
+                            raise Exception("Cannot determine the target warehouse.")
+
+                        # 2. Get or Create the warehouse-specific stock record
+                        stock_item, created = WarehousePackagingMaterial.objects.get_or_create(
+                            packaging_material=global_material,
+                            warehouse=warehouse,
+                            defaults={'current_stock': 0} # Default stock is 0 if created
+                        )
+
+                        # 3. Create the historical transaction record
+                        PackagingStockTransaction.objects.create(
+                            warehouse_packaging_material=stock_item,
+                            transaction_type=PackagingStockTransaction.TransactionTypes.STOCK_IN,
+                            quantity=quantity_to_add,
+                            notes=form.cleaned_data['notes'],
+                            recorded_by=request.user
+                        )
+
+                        # 4. Update the main stock level
+                        stock_item.current_stock = F('current_stock') + quantity_to_add
+                        stock_item.save()
+                        # --- END OF THE FIX ---
+
+                    messages.success(request, f"Successfully received {quantity_to_add} units of {global_material.name}.")
+
+                except Exception as e:
+                    messages.error(request, f"An unexpected server error occurred: {e}")
+
+                return redirect('operation:packaging_management')
+            else:
+                receive_stock_form = form
+                messages.error(request, 'Error receiving stock. Please check the form.')
 
     # For both GET requests and POST requests with errors,
     # remove dimension fields from the "Add" form.
@@ -1995,13 +1968,24 @@ def packaging_management(request):
         del packaging_type_form.fields['default_height_cm']
 
     # Querysets for display and data preparation
-    packaging_types_qs = PackagingType.objects.prefetch_related(
+    packaging_types_qs = PackagingType.objects.select_related('warehouse').prefetch_related(
         'packagingtypematerialcomponent_set__packaging_material'
     ).order_by('name')
+
+    # This now gets the global materials for dropdowns
     all_materials_qs = PackagingMaterial.objects.order_by('name')
 
-    # Prepare data for JavaScript-powered Edit Modal
-    all_materials_json = json.dumps(list(all_materials_qs.values('pk', 'name')), cls=DjangoJSONEncoder)
+    # This gets the warehouse-specific stock for display
+    warehouse_stock_qs = WarehousePackagingMaterial.objects.select_related(
+        'packaging_material', 'warehouse'
+    ).order_by('packaging_material__name', 'warehouse__name')
+
+
+    if not request.user.is_superuser and request.user.warehouse:
+        packaging_types_qs = packaging_types_qs.filter(warehouse=request.user.warehouse)
+        warehouse_stock_qs = warehouse_stock_qs.filter(warehouse=request.user.warehouse)
+
+    all_materials_json = json.dumps(list(all_global_materials.values('pk', 'name')), cls=DjangoJSONEncoder)
 
     packaging_types_data = []
     for pt in packaging_types_qs:
@@ -2026,15 +2010,21 @@ def packaging_management(request):
             'component_map_json': json.dumps(component_map, cls=DjangoJSONEncoder)
         })
 
+    today = timezone.now().date()
+
     context = {
         'page_title': 'Packaging Management',
         'packaging_type_form': packaging_type_form,
         'packaging_material_form': packaging_material_form,
-        'packaging_types_data': packaging_types_data,
-        'packaging_materials': all_materials_qs,
+        'receive_stock_form': receive_stock_form,
+        'packaging_types': packaging_types_qs,
+        'warehouse_packaging_stocks': warehouse_stock_qs,
         'all_materials_json': all_materials_json,
+        'all_global_materials': all_global_materials,
+        'today': today, 
     }
     return render(request, 'operation/packaging_management.html', context)
+
 
 
 @login_required
@@ -2413,10 +2403,18 @@ def courier_invoice_list(request):
     Now validates the uploaded file against the selected courier.
     """
     if request.method == 'POST':
-        form = CourierInvoiceForm(request.POST, request.FILES)
+        # Pass the current user to the form for permission handling
+        form = CourierInvoiceForm(request.POST, request.FILES, user=request.user)
         if form.is_valid():
             invoice = form.save(commit=False)
             invoice.uploaded_by = request.user
+
+            # --- START: THE FIX (Enforce Warehouse on Save) ---
+            # If the user is not a superuser, their warehouse is automatically assigned.
+            if not request.user.is_superuser and request.user.warehouse:
+                invoice.warehouse = request.user.warehouse
+            # --- END: THE FIX ---
+
             invoice.save()
 
             # The orchestrator now returns the detected courier and parsing results
@@ -2461,37 +2459,50 @@ def courier_invoice_list(request):
                     messages.error(request, f"{field.capitalize()}: {error}")
             return redirect('operation:courier_invoice_list')
 
-    filter_form = CourierInvoiceFilterForm(request.GET)
-    invoices = CourierInvoice.objects.select_related('courier_company').prefetch_related('items').all().order_by('-invoice_date')
+    filter_form = CourierInvoiceFilterForm(request.GET, user=request.user)
+
+    # --- START: THE FIX (Filter Invoice List) ---
+    # Start with a base queryset and apply filters based on user role
+    invoices_qs = CourierInvoice.objects.select_related('courier_company', 'warehouse').prefetch_related('items').all().order_by('-invoice_date')
+    if not request.user.is_superuser and request.user.warehouse:
+        invoices_qs = invoices_qs.filter(warehouse=request.user.warehouse)
+    elif not request.user.is_superuser:
+        invoices_qs = invoices_qs.none() # If not a superuser and no warehouse, show nothing
+    # --- END: THE FIX ---
 
     if filter_form.is_valid():
+        # Your existing filter logic can now apply to the permission-filtered queryset
         courier_company = filter_form.cleaned_data.get('courier_company')
         payment_status = filter_form.cleaned_data.get('payment_status')
         query = filter_form.cleaned_data.get('q')
+        warehouse = filter_form.cleaned_data.get('warehouse')
 
         if courier_company:
-            invoices = invoices.filter(courier_company=courier_company)
+            invoices_qs = invoices_qs.filter(courier_company=courier_company)
         if payment_status:
-            invoices = invoices.filter(payment_status=payment_status)
+            invoices_qs = invoices_qs.filter(payment_status=payment_status)
         if query:
-            invoices = invoices.filter(invoice_number__icontains=query)
+            invoices_qs = invoices_qs.filter(invoice_number__icontains=query)
+        if warehouse: # This filter will only be used by superusers
+            invoices_qs = invoices_qs.filter(warehouse=warehouse)
 
-    paginator = Paginator(invoices, 20)
+    paginator = Paginator(invoices_qs, 20)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
 
-    upload_form = CourierInvoiceForm()
+    upload_form = CourierInvoiceForm(user=request.user)
 
     # Get all active couriers for the filter buttons
     all_couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
+    all_warehouses = Warehouse.objects.all().order_by('name')
 
     context = {
         'invoices': page_obj,
         'form': upload_form,
         'filter_form': filter_form,
-        # Pass data for the new button filters
         'all_couriers': all_couriers,
         'payment_status_choices': CourierInvoice.PAYMENT_STATUS_CHOICES,
+        'warehouses': all_warehouses,
     }
 
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
@@ -2499,46 +2510,57 @@ def courier_invoice_list(request):
 
     return render(request, 'operation/courier_invoice_list.html', context)
 
-
 @login_required
 def invoice_item_report(request):
     """
-    Handles the initial page load and filter submissions for the Invoice Item Report.
-    FIX: Added date range filtering for shipment date.
+    Handles the Invoice Item Report page with consolidated and corrected filter logic.
     """
     is_ajax_filter = request.headers.get('x-requested-with') == 'XMLHttpRequest'
 
+    # --- 1. Get all filter and sort parameters from the request ---
     sort_by = request.GET.get('sort_by', '-courier_invoice__invoice_date')
+    selected_courier = request.GET.get('courier')
+    selected_dispute_status = request.GET.get('dispute_status', '')
+    unlinked_only = request.GET.get('unlinked_only') == 'true'
+    start_date_str = request.GET.get('start_date')
+    end_date_str = request.GET.get('end_date')
+    query = request.GET.get('q')
+    selected_warehouse = request.GET.get('warehouse')
+
+    # --- 2. Start with the base queryset and annotations ---
     allowed_sort_fields = [
-            'courier_invoice__invoice_date', '-courier_invoice__invoice_date', 'actual_cost',
-            '-actual_cost', 'tracking_number', '-tracking_number', 'parcel__estimated_cost',
-            '-parcel__estimated_cost', 'receiver_state', '-receiver_state', 'destination_name',
-            '-destination_name', 'parcel__order__customer__customer_name',
-            '-parcel__order__customer__customer_name', 'cost_gap', '-cost_gap'
-        ]
+        'courier_invoice__invoice_date', '-courier_invoice__invoice_date', 'actual_cost',
+        '-actual_cost', 'tracking_number', '-tracking_number', 'parcel__estimated_cost',
+        '-parcel__estimated_cost', 'cost_gap', '-cost_gap'
+    ]
     if sort_by not in allowed_sort_fields:
         sort_by = '-courier_invoice__invoice_date'
 
     items_query = CourierInvoiceItem.objects.select_related(
         'parcel__order__customer',
-        'courier_invoice__courier_company'
+        'courier_invoice__courier_company',
+        'courier_invoice__warehouse' # Important for filtering and display
     ).annotate(
         cost_gap=Case(
             When(parcel__estimated_cost__isnull=False, then=F('actual_cost') - F('parcel__estimated_cost')),
-            default=Value(None)
+            default=Value(None),
+            output_field=DecimalField()
         )
-    ).order_by(sort_by)
+    )
 
-    # --- Filter Logic ---
-    selected_dispute_status = request.GET.get('dispute_status', '')
-    unlinked_only = request.GET.get('unlinked_only') == 'true'
+    # --- 3. Apply all filters sequentially ---
 
+    # Warehouse filter (applied first for permissions)
+    if request.user.is_superuser and selected_warehouse:
+        items_query = items_query.filter(courier_invoice__warehouse_id=selected_warehouse)
+    elif not request.user.is_superuser and request.user.warehouse:
+        items_query = items_query.filter(courier_invoice__warehouse=request.user.warehouse)
 
+    # Dispute and Unlinked filters (mutually exclusive)
     if unlinked_only:
-        selected_dispute_status = ''  # De-select the other filter
+        selected_dispute_status = ''
         items_query = items_query.filter(parcel__isnull=True)
     elif selected_dispute_status:
-        unlinked_only = False  # Ensure this filter is off
         if selected_dispute_status == 'pending':
             items_query = items_query.filter(dispute_date__isnull=False, final_amount_date__isnull=True)
         elif selected_dispute_status == 'finalized':
@@ -2546,37 +2568,34 @@ def invoice_item_report(request):
         elif selected_dispute_status == 'not_disputed':
             items_query = items_query.filter(dispute_date__isnull=True)
 
-    courier_id = request.GET.get('courier')
-    if courier_id:
-        items_query = items_query.filter(courier_invoice__courier_company_id=courier_id)
+    # Courier filter
+    if selected_courier:
+        items_query = items_query.filter(courier_invoice__courier_company_id=selected_courier)
 
-    query = request.GET.get('q')
+    # Search query
     if query:
         items_query = items_query.filter(
             Q(tracking_number__icontains=query) |
             Q(courier_invoice__invoice_number__icontains=query)
         ).distinct()
 
-    # FIX: Add date range filtering logic
-    start_date_str = request.GET.get('start_date')
-    end_date_str = request.GET.get('end_date')
-
+    # Date range filter
     if start_date_str:
         try:
             start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
             items_query = items_query.filter(parcel__created_at__gte=start_date)
-        except ValueError:
-            pass # Ignore invalid date format
-
+        except ValueError: pass
     if end_date_str:
         try:
             end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
             end_of_day = datetime.combine(end_date, datetime.time.max)
             items_query = items_query.filter(parcel__created_at__lte=end_of_day)
-        except ValueError:
-            pass # Ignore invalid date format
+        except ValueError: pass
 
-    # --- Pagination and Context ---
+    # Apply final sorting
+    items_query = items_query.order_by(sort_by)
+
+    # --- 4. Pagination and Context ---
     paginator = Paginator(items_query, 25)
     page_number = request.GET.get('page', 1)
     page_obj = paginator.get_page(page_number)
@@ -2592,18 +2611,20 @@ def invoice_item_report(request):
                 cumulative_costs.append(running_total)
         item.display_costs = cumulative_costs
 
-    couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
 
     context = {
         'items': page_obj,
-        'couriers': couriers,
-        'selected_courier': int(courier_id) if courier_id else None,
+        'couriers': CourierCompany.objects.filter(is_active=True).order_by('name'),
+        'warehouses': Warehouse.objects.all().order_by('name'),
+        'selected_courier': int(selected_courier) if selected_courier else None,
+        'selected_warehouse': int(selected_warehouse) if selected_warehouse else None,
+        'selected_dispute_status': selected_dispute_status,
+        'unlinked_only': unlinked_only,
         'query': query,
-        'start_date': start_date_str, # Pass date strings back to template
-        'end_date': end_date_str,   # Pass date strings back to template
+        'start_date': start_date_str,
+        'end_date': end_date_str,
         'current_sort': sort_by,
         'total_items_count': paginator.count,
-        'selected_dispute_status': selected_dispute_status,
     }
 
     if is_ajax_filter:
@@ -2866,7 +2887,6 @@ STATE_MAP = {
 }
 
 
-
 # Add this import at the top of your views.py file if you don't have it
 from dateutil.relativedelta import relativedelta
 
@@ -2878,8 +2898,11 @@ def generate_report(request):
     - POST: Generates and serves an Excel file based on the selected month.
     """
     if not request.user.is_superuser:
-        return HttpResponseForbidden("You do not have permission to access this resource.")
-
+        # For non-superusers, automatically apply their assigned warehouse
+        selected_warehouse_id = request.user.warehouse.id if request.user.warehouse else None
+    else:
+        # For superusers, get the selected warehouse from the GET parameters
+        selected_warehouse_id = request.GET.get('warehouse')
     # --- POST: Handle Excel Report Generation (No changes needed here) ---
     if request.method == 'POST':
         month_str = request.POST.get('month')
@@ -2887,42 +2910,55 @@ def generate_report(request):
         rate_str = request.POST.get('usd_exchange_rate', '7.25')
         try:
             year, month = map(int, month_str.split('-'))
-            _, last_day_of_month = calendar.monthrange(year, month)
             start_date = datetime.date(year, month, 1)
-            end_date = datetime.date(year, month, last_day_of_month)
+            end_date = start_date.replace(day=calendar.monthrange(year, month)[1])
             margin_multiplier = 1 + (Decimal(margin_str) / Decimal('100'))
             exchange_rate = Decimal(rate_str)
-            if exchange_rate <= 0:
-                return HttpResponse("Exchange rate must be positive.", status=400)
         except (ValueError, TypeError):
             return HttpResponse("Invalid data provided.", status=400)
 
         parcels = Parcel.objects.filter(created_at__date__range=[start_date, end_date]).select_related(
             'order__warehouse', 'packaging_type', 'billing_item').order_by('created_at')
+
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Parcels Export"
         headers = ["Order#", "Tracking Number", "Shipment Date", "Warehouse", "Type", "Shipment cost", "Dispute"]
         sheet.append(headers)
+
         for parcel in parcels:
             shipment_charges = Decimal('0.00')
             is_disputed = ""
+
+            # --- START: THE FIX ---
+            # The entire block accessing billing_item is now inside the try...except block.
             try:
-                if parcel.billing_item:
-                    if parcel.billing_item.actual_cost is not None:
-                        billing_cost = parcel.billing_item.actual_cost
-                        shipment_charges = (billing_cost / exchange_rate) * margin_multiplier
-                    if parcel.billing_item.dispute_date:
-                        is_disputed = "Yes"
+                if parcel.billing_item.actual_cost is not None:
+                    shipment_charges = (parcel.billing_item.actual_cost / exchange_rate) * margin_multiplier
+                if parcel.billing_item.dispute_date:
+                    is_disputed = "Yes"
             except Parcel.billing_item.RelatedObjectDoesNotExist:
+                # This will be triggered if a parcel has no billing_item,
+                # leaving shipment_charges and is_disputed at their default values.
                 pass
+            # --- END: THE FIX ---
+
+            if parcel.packaging_type:
+                packaging_info = parcel.packaging_type.get_environment_type_display()
+            else:
+                packaging_info = "N/A"
+
             row_data = [
-                parcel.order.erp_order_id, parcel.tracking_number, parcel.created_at.strftime('%Y-%m-%d'),
+                parcel.order.erp_order_id,
+                parcel.tracking_number,
+                parcel.created_at.strftime('%Y-%m-%d'),
                 parcel.order.warehouse.name if parcel.order and parcel.order.warehouse else 'N/A',
-                parcel.packaging_type.name if parcel.packaging_type else 'N/A', round(shipment_charges, 2),
+                packaging_info,
+                round(shipment_charges, 2),
                 is_disputed
             ]
             sheet.append(row_data)
+
         response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="parcels_report_{month_str}.xlsx"'
         workbook.save(response)
@@ -2944,13 +2980,16 @@ def generate_report(request):
         current_month_for_selector = last_month.replace(day=1)
 
     all_couriers = CourierCompany.objects.filter(is_active=True).order_by('name')
+    all_warehouses = Warehouse.objects.all().order_by('name') # Fetch warehouses for the filter
 
     # --- Reusable function to calculate stats for any given month ---
-    def get_performance_stats_for_month(month_date):
+    def get_performance_stats_for_month(month_date, warehouse_id=None):
         parcels_in_month = Parcel.objects.filter(
             created_at__year=month_date.year,
             created_at__month=month_date.month
         )
+        if warehouse_id:
+            parcels_in_month = parcels_in_month.filter(order__warehouse_id=warehouse_id)
 
         monthly_stats = []
         for courier in all_couriers:
@@ -2998,7 +3037,7 @@ def generate_report(request):
     # --- START OF THE FIX ---
 
     # 1. Calculate stats for the single selected month
-    courier_performance_stats = get_performance_stats_for_month(selected_date)
+    courier_performance_stats = get_performance_stats_for_month(selected_date, selected_warehouse_id)
 
     # 2. Calculate and consolidate stats for the past 6 months
     consolidated_courier_stats = {courier.name: [] for courier in all_couriers}
@@ -3014,12 +3053,14 @@ def generate_report(request):
                 stat['month'] = month_to_calculate.strftime('%B %Y')
                 consolidated_courier_stats[courier_name].append(stat)
 
-    # --- END OF THE FIX ---
-
-    # --- State statistics (for selected month only) ---
+    # --- State statistics (now with warehouse filtering) ---
     stats_query_state = Parcel.objects.filter(
         created_at__year=selected_date.year, created_at__month=selected_date.month
-    ).order_by().values(
+    )
+    if selected_warehouse_id:
+        stats_query_state = stats_query_state.filter(order__warehouse_id=selected_warehouse_id)
+
+    stats_query_state = stats_query_state.order_by().values(
         'billing_item__receiver_state', 'courier_company__name'
     ).annotate(total=Count('id')).order_by('billing_item__receiver_state', '-total')
 
@@ -3064,6 +3105,8 @@ def generate_report(request):
     }
 
     context = {
+        'warehouses': all_warehouses, # Add warehouses to the context
+        'selected_warehouse': int(selected_warehouse_id) if selected_warehouse_id else None,
         'state_courier_counts': state_courier_counts,
         'courier_performance_stats': courier_performance_stats,
         'consolidated_courier_stats': consolidated_courier_stats,
@@ -3073,3 +3116,78 @@ def generate_report(request):
     }
 
     return render(request, 'operation/generate_report.html', context)
+
+
+# --- New View for the Dashboard ---
+@login_required
+def get_packaging_stock_dashboard(request, material_pk):
+    """
+    Handles fetching the data for the 6-month trend dashboard.
+    """
+    global_material = get_object_or_404(PackagingMaterial, pk=material_pk)
+    today = timezone.now().date()
+
+    # Base queryset for all transactions related to this material
+    transactions_qs = PackagingStockTransaction.objects.filter(
+        warehouse_packaging_material__packaging_material=global_material
+    )
+
+    # Filter by warehouse for non-superusers
+    if not request.user.is_superuser and request.user.warehouse:
+        transactions_qs = transactions_qs.filter(
+            warehouse_packaging_material__warehouse=request.user.warehouse
+        )
+
+    # 6-Month Dashboard Calculation Logic
+    monthly_dashboards = []
+    for i in range(6):
+        month_to_calculate = today - relativedelta(months=i)
+        monthly_transactions = transactions_qs.filter(
+            transaction_date__year=month_to_calculate.year,
+            transaction_date__month=month_to_calculate.month
+        )
+        received = monthly_transactions.filter(transaction_type='IN').aggregate(total=Sum('quantity'))['total'] or 0
+        usage = abs(monthly_transactions.filter(transaction_type='OUT').aggregate(total=Sum('quantity'))['total'] or 0)
+        monthly_dashboards.append({
+            'month_name': month_to_calculate.strftime("%B %Y"),
+            'total_received': received, 'total_usage': usage
+        })
+
+    context = {
+        'global_material': global_material,
+        'monthly_dashboards': monthly_dashboards,
+    }
+    return render(request, 'operation/partials/_packaging_stock_dashboard.html', context)
+
+
+@login_required
+def get_packaging_receipt_log(request, material_pk):
+    """
+    Handles fetching the data for the month-filterable stock receipt log.
+    """
+    global_material = get_object_or_404(PackagingMaterial, pk=material_pk)
+    today = timezone.now().date()
+    selected_month_str = request.GET.get('month', today.strftime('%Y-%m'))
+
+    try:
+        selected_month_date = datetime.datetime.strptime(selected_month_str, '%Y-%m').date()
+    except (ValueError, TypeError):
+        selected_month_date = today
+
+    # Base queryset for log
+    log_qs = PackagingStockTransaction.objects.filter(
+        warehouse_packaging_material__packaging_material=global_material,
+        transaction_type=PackagingStockTransaction.TransactionTypes.STOCK_IN,
+        transaction_date__year=selected_month_date.year,
+        transaction_date__month=selected_month_date.month
+    )
+
+    # Filter by warehouse for non-superusers
+    if not request.user.is_superuser and request.user.warehouse:
+        log_qs = log_qs.filter(warehouse_packaging_material__warehouse=request.user.warehouse)
+
+    context = {
+        'transactions_for_log': log_qs.select_related('recorded_by', 'warehouse_packaging_material__warehouse').order_by('-transaction_date'),
+        'is_superuser_view': request.user.is_superuser
+    }
+    return render(request, 'operation/partials/_packaging_receipt_log.html', context)

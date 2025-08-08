@@ -1,7 +1,9 @@
 # ===== warehouse/admin.py =====
 import csv
+import io
 # import chardet # Ensure chardet is installed in your environment
 import openpyxl
+import logging
 from openpyxl.utils import get_column_letter
 
 from django import forms
@@ -23,6 +25,7 @@ from .models import (Warehouse,
 
 from inventory.models import Product, Supplier, StockTransaction # Make sure StockTransaction is imported
 
+logger = logging.getLogger(__name__)
 
 class WarehouseProductCsvImportForm(forms.Form):
     csv_upload = forms.FileField()
@@ -33,18 +36,23 @@ class ExcelImportForm(forms.Form):
 
 @admin.register(WarehouseProduct)
 class WarehouseProductAdmin(admin.ModelAdmin):
-    # ... (all your other admin settings like list_display, search_fields, etc., remain the same) ...
     change_list_template = "admin/warehouse/warehouseproduct/changelist.html"
+
     list_display = (
         'get_warehouse_name', 'code', 'get_product_sku', 'get_product_name',
-        'quantity', 'threshold', 'get_supplier_code_display'
+        'quantity', 'threshold', 'supplier'  # This will now show the code
     )
+    list_display_links = ('get_product_name',)
+
+    # Keep this as is
+    list_editable = ('supplier',)
+
     search_fields = (
         'warehouse__name', 'code', 'product__sku', 'product__name',
         'supplier__name', 'supplier__code'
     )
     list_filter = ('warehouse', 'supplier', 'product__name')
-    autocomplete_fields = ['product', 'warehouse', 'supplier']
+    autocomplete_fields = ['product', 'warehouse']
     ordering = ('warehouse__name', 'code', 'product__name')
 
     fieldsets = (
@@ -56,6 +64,12 @@ class WarehouseProductAdmin(admin.ModelAdmin):
         'Warehouse Name', 'Product SKU', 'Warehouse Product Code',
         'Product Name', 'Quantity', 'Threshold', 'Supplier Code'
     ]
+
+
+    def get_product_name(self, obj):
+        return obj.product.name if obj.product else "-"
+    get_product_name.short_description = 'Product Name'
+    get_product_name.admin_order_field = 'product__name'
 
     def get_warehouse_name(self, obj):
         return obj.warehouse.name if obj.warehouse else "-"
@@ -108,7 +122,8 @@ class WarehouseProductAdmin(admin.ModelAdmin):
             request, self.model, self.list_display, self.list_display_links,
             self.list_filter, self.date_hierarchy, self.search_fields,
             self.list_select_related, self.list_per_page, self.list_max_show_all,
-            self.list_editable, self, sortable_by
+            self.list_editable, self, sortable_by, search_help_text=self.search_help_text,
+
         )
         queryset = cl.get_queryset(request).select_related('warehouse', 'product', 'supplier')
         workbook = openpyxl.Workbook()
@@ -127,103 +142,105 @@ class WarehouseProductAdmin(admin.ModelAdmin):
         return response
 
     def upload_excel(self, request):
-        if request.method == "POST":
-            form = ExcelImportForm(request.POST, request.FILES)
-            if form.is_valid():
-                excel_file = request.FILES["excel_upload"]
-                try:
-                    workbook = openpyxl.load_workbook(excel_file, data_only=True)
-                    sheet = workbook.active
-                except Exception as e:
-                    self.message_user(request, f"Error reading Excel file: {e}", level=messages.ERROR)
-                    return redirect("..")
+        """
+        Handles the upload of an Excel file (.xlsx) to bulk-update or create
+        warehouse product stock records.
+        """
+        logger.info("--- Starting Warehouse Product Upload Process (Excel) ---")
 
-                created_count, updated_count, errors = 0, 0, []
-                header_row = [cell.value for cell in sheet[1]]
-                if header_row != self.EXCEL_HEADERS:
-                    errors.append(f"Invalid Excel headers. Expected: {', '.join(self.EXCEL_HEADERS)}. Got: {', '.join(header_row)}")
-                    self.message_user(request, errors[0], level=messages.ERROR)
-                    return redirect("..")
+        if request.method != "POST":
+            self.message_user(request, "This action requires a file upload.", level=messages.WARNING)
+            return redirect("..")
 
-                for row_idx, row in enumerate(sheet.iter_rows(min_row=2), start=2):
-                    try:
-                        row_data = {self.EXCEL_HEADERS[i]: cell.value for i, cell in enumerate(row) if i < len(self.EXCEL_HEADERS)}
-                    except IndexError:
-                        errors.append(f"Row {row_idx}: Mismatch in cell count.")
-                        continue
+        uploaded_file = request.FILES.get("excel_upload")
+        if not uploaded_file:
+            self.message_user(request, "No file was uploaded. Please select a file.", level=messages.ERROR)
+            return redirect("..")
 
-                    warehouse_name = str(row_data.get('Warehouse Name', '')).strip()
-                    sku = str(row_data.get('Product SKU', '')).strip()
+        logger.info(f"Processing uploaded file as Excel: {uploaded_file.name}")
 
-                    raw_wp_code = row_data.get('Warehouse Product Code')
-                    wp_code = str(raw_wp_code).strip() if raw_wp_code is not None else None
+        # --- Step 1: Read the file as an Excel Workbook using openpyxl ---
+        try:
+            # data_only=True ensures we get cell values instead of formulas
+            workbook = openpyxl.load_workbook(uploaded_file, data_only=True)
+            sheet = workbook.active
+            logger.debug("Successfully loaded Excel workbook.")
+        except Exception as e:
+            logger.error(f"Failed to load Excel file. Error: {e}", exc_info=True)
+            self.message_user(request, f"Error reading Excel file. Ensure it is a valid .xlsx file. Error: {e}", level=messages.ERROR)
+            return redirect("..")
 
-                    # ===== THIS IS THE FIX FOR THE SUPPLIER CODE =====
-                    raw_supplier_code = row_data.get('Supplier Code')
-                    # Convert to string and strip if not None, otherwise it becomes an empty string
-                    supplier_code_excel = str(raw_supplier_code).strip() if raw_supplier_code is not None else ""
-                    # =================================================
+        # --- Step 2: Process the worksheet row-by-row ---
+        created_count, updated_count, errors = 0, 0, []
 
-                    if not sku or not warehouse_name:
-                        errors.append(f"Row {row_idx}: 'Warehouse Name' and 'Product SKU' are required.")
-                        continue
+        for row_idx, row in enumerate(sheet.iter_rows(min_row=2), start=2):
+            try:
+                cell_values = [cell.value for cell in row]
+                logger.debug(f"Row {row_idx}: Raw data from cells: {cell_values}")
 
+                # Skip empty rows gracefully
+                if not any(cell_values) or cell_values[0] is None:
+                    logger.warning(f"Row {row_idx}: Skipped because it is an empty row.")
+                    continue
+
+                # --- Data Extraction and Cleaning ---
+                warehouse_name = str(cell_values[0]).strip()
+                # Correctly parse SKU, Quantity, and Threshold as numbers
+                product_sku = str(int(float(cell_values[2])))
+                quantity_val = int(float(cell_values[3]))
+                threshold_val = int(float(cell_values[4]))
+                logger.debug(f"Row {row_idx}: Parsed Data -> Warehouse: '{warehouse_name}', SKU: '{product_sku}', Qty: {quantity_val}, Threshold: {threshold_val}")
+
+                if not product_sku or not warehouse_name:
+                    errors.append(f"Row {row_idx}: Skipped because Warehouse Name or Product SKU is missing.")
+                    continue
+
+                # --- Database Operation ---
+                product_to_update = WarehouseProduct.objects.filter(
+                    warehouse__name__iexact=warehouse_name,
+                    product__sku__iexact=product_sku
+                ).first()
+
+                if product_to_update:
+                    # UPDATE existing product
+                    product_to_update.quantity = quantity_val
+                    product_to_update.threshold = threshold_val
+                    product_to_update.save(update_fields=['quantity', 'threshold'])
+                    updated_count += 1
+                    logger.info(f"Row {row_idx}: Successfully UPDATED product with SKU '{product_sku}'.")
+                else:
+                    # CREATE new product if it doesn't exist
                     try:
                         warehouse = Warehouse.objects.get(name__iexact=warehouse_name)
-                        product = Product.objects.get(sku__iexact=sku)
-                    except Warehouse.DoesNotExist:
-                        errors.append(f"Row {row_idx}: Warehouse '{warehouse_name}' not found.")
-                        continue
-                    except Product.DoesNotExist:
-                        errors.append(f"Row {row_idx}: Product with SKU '{sku}' not found.")
-                        continue
-
-                    wp_supplier = None
-                    # This check will now correctly skip empty strings, preventing the warning
-                    if supplier_code_excel:
-                        try:
-                            wp_supplier = Supplier.objects.get(code__iexact=supplier_code_excel)
-                        except Supplier.DoesNotExist:
-                            errors.append(f"Row {row_idx}: Supplier with code '{supplier_code_excel}' not found.")
-
-                    try:
-                        quantity = int(row_data.get('Quantity') or 0)
-                        threshold = int(row_data.get('Threshold') or 0)
-                    except (ValueError, TypeError):
-                        errors.append(f"Row {row_idx}: Invalid quantity or threshold for SKU '{sku}'.")
-                        continue
-
-                    if not wp_code:
-                        wp_code = None
-
-                    defaults = {
-                        'quantity': quantity,
-                        'threshold': threshold,
-                        'supplier': wp_supplier,
-                        'code': wp_code,
-                    }
-
-                    try:
-                        obj, created = WarehouseProduct.objects.update_or_create(
-                            warehouse=warehouse, product=product, defaults=defaults
+                        product = Product.objects.get(sku__iexact=product_sku)
+                        WarehouseProduct.objects.create(
+                            warehouse=warehouse, product=product, quantity=quantity_val, threshold=threshold_val
                         )
-                        if created: created_count += 1
-                        else: updated_count += 1
-                    except Exception as e:
-                        errors.append(f"Row {row_idx}: Error saving WarehouseProduct for SKU '{sku}': {e}")
+                        created_count += 1
+                        logger.info(f"Row {row_idx}: Successfully CREATED new product for SKU '{product_sku}'.")
+                    except Warehouse.DoesNotExist:
+                        errors.append(f"Row {row_idx}: Could not create. Warehouse '{warehouse_name}' not found.")
+                    except Product.DoesNotExist:
+                        errors.append(f"Row {row_idx}: Could not create. Product with SKU '{product_sku}' not found.")
 
-                summary_message = f"Excel Upload: {created_count} created, {updated_count} updated."
-                if errors:
-                    for error in errors:
-                        self.message_user(request, error, level=messages.WARNING)
-                    summary_message += f" Encountered {len(errors)} issue(s)."
-                    self.message_user(request, summary_message, level=messages.WARNING)
-                else:
-                    self.message_user(request, summary_message, level=messages.SUCCESS)
-                return redirect("..")
+            except (ValueError, TypeError, IndexError):
+                errors.append(f"Row {row_idx}: Skipped due to invalid data format or missing columns.")
+            except Exception as e:
+                errors.append(f"Row {row_idx}: An unexpected error occurred: {e}")
 
-        self.message_user(request, "Please select an Excel file (.xlsx) to upload.", level=messages.INFO)
+        # --- Final Summary ---
+        summary_message = f"Process complete. Updated: {updated_count}, Created: {created_count}."
+        if created_count > 0 or updated_count > 0:
+            self.message_user(request, summary_message, level=messages.SUCCESS)
+
+        if errors:
+            error_summary = f"Encountered {len(errors)} issues."
+            self.message_user(request, error_summary, level=messages.WARNING)
+            for error in errors[:5]:
+                self.message_user(request, error, level=messages.WARNING)
+
         return redirect("..")
+
 
 
 @admin.register(Warehouse)

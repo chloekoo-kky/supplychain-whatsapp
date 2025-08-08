@@ -14,26 +14,39 @@
             <input type="hidden" name="courier" id="courier-hidden-input" value="{{ selected_courier|default:'' }}">
             <input type="hidden" name="dispute_status" id="dispute-status-hidden-input" value="{{ selected_dispute_status|default:'' }}">
             <input type="hidden" name="unlinked_only" id="unlinked-hidden-input" value="{{ unlinked_only|yesno:'true,' }}">
+            <input type="hidden" name="warehouse" id="warehouse-hidden-input" value="{{ selected_warehouse|default:'' }}">
 
             <div class="grid grid-cols-12 gap-x-4 items-end">
 
-                <div class="col-span-12 md:col-span-1">
-                    <h2 class="text-lg font-semibold text-gray-700 mb-1">
-                        Total Items:
-                        <span id="total-items-count" class="font-normal text-gray-500">
-                            {{ total_items_count|default:0 }}
-                        </span>
-                    </h2>
-                </div>
 
                 <div class="col-span-12 md:col-span-4">
-                    <div class="grid grid-flow-col auto-cols-fr gap-2 mb-1">
+                    {% if request.user.is_superuser %}
+                    <div class="warehouse-filter-buttons grid gap-2 {% if warehouses|length >= 3 %}md:grid-cols-2{% else %}md:flex md:flex-col{% endif %}">
+                        {% for wh in warehouses %}
+
+                            {# This button now has the required 'warehouse-filter-btn' class #}
+                            <button type="button" class="btn btn-xs sm:btn-sm btn-outline warehouse-filter-btn" data-value="{{ wh.id }}">{{ wh.name }}</button>
+                            {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="grid grid-flow-col auto-cols-fr gap-2 mt-2">
                         {% for courier in couriers %}
                             <button type="button" class="btn btn-xs sm:btn-sm courier-filter-btn btn-outline" data-value="{{ courier.id }}">{{ courier.name }}</button>
                         {% endfor %}
                     </div>
+                </div>
+
+                <div class="col-span-12 md:col-span-8">
+
+                        <div class="flex items-center gap-2 w-full">
+                            <label class="label py-1"><span class="label-text">Shipment Date Range</span></label>
+                            <input type="date" id="start-date-input" name="start_date" class="input input-sm input-bordered" value="{{ start_date|default:'' }}">
+                            <span class="px-2">to</span>
+                            <input type="date" id="end-date-input" name="end_date" class="input input-sm input-bordered" value="{{ end_date|default:'' }}">
+                        </div>
+
                     <div class="form-control">
-                        <div class="grid grid-flow-col auto-cols-fr gap-2">
+                        <div class="grid grid-flow-col auto-cols-fr gap-2 mt-2">
                             <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="pending">Dispute Pending</button>
                             <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="finalized">Dispute Finalized</button>
                             <button type="button" class="btn btn-xs sm:btn-sm dispute-status-filter-btn btn-outline" data-value="not_disputed">Not Disputed</button>
@@ -41,35 +54,13 @@
 
                         </div>
                     </div>
-                </div>
 
-                <div class="col-span-12 md:col-span-4">
-                    <div class="form-control" style="min-width: 300px;">
-                        <label class="label py-1"><span class="label-text">Shipment Date Range</span></label>
-                        <div class="flex items-center gap-2">
-                            <input type="date" id="start-date-input" name="start_date" class="input input-sm input-bordered w-full" value="{{ start_date|default:'' }}">
-                            <span class="px-2">to</span>
-                            <input type="date" id="end-date-input" name="end_date" class="input input-sm input-bordered w-full" value="{{ end_date|default:'' }}">
-                        </div>
+                    <div class="flex items-center gap-2 w-full mt-2">
+                            <input type="text" id="report-search-input" name="q" class="input input-bordered input-sm w-full flex-grow" value="{{ query|default:'' }}" placeholder="Search Invoice # or Tracking #">
+                            <button type="button" id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300 flex-shrink-0">Reset Filters</button>
                     </div>
-
-                </div>
-
-                <div class="col-span-12 md:col-span-3">
-
-                    <div class="flex flex-wrap items-end gap-x-4">
-                        <div class="form-control flex-grow" style="min-width: 250px;">
-                            <input type="text" id="report-search-input" name="q" class="input input-sm input-bordered w-full" value="{{ query|default:'' }}" placeholder="Search Invoice # or Tracking #">
-                        </div>
-                    </div>
-
-                    <div class="form-control mt-1">
-                        <button type="button" id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300">Reset Filters</button>
-                    </div>
-
                 </div>
             </div>
-
         </form>
     </div>
     <div id="report-table-container">
@@ -110,6 +101,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const courierHiddenInput = document.getElementById('courier-hidden-input');
     const disputeStatusHiddenInput = document.getElementById('dispute-status-hidden-input'); // New
     const unlinkedHiddenInput = document.getElementById('unlinked-hidden-input');
+    const warehouseHiddenInput = document.getElementById('warehouse-hidden-input'); // New
 
     const startDateInput = document.getElementById('start-date-input');
     const endDateInput = document.getElementById('end-date-input');
@@ -260,29 +252,31 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateActiveFilterButtons() {
-        const params = new URLSearchParams(window.location.search);
-
-        // Handle Courier buttons
+        const params = new URLSearchParams(new FormData(filterForm));
         const activeCourier = params.get('courier') || "";
+        const activeDisputeStatus = params.get('dispute_status') || "";
+        const activeUnlinked = params.get('unlinked_only') === 'true';
+        const activeWarehouse = params.get('warehouse') || ""; // New
+
         document.querySelectorAll('.courier-filter-btn').forEach(btn => {
             btn.classList.toggle('btn-neutral', btn.dataset.value === activeCourier);
             btn.classList.toggle('btn-outline', btn.dataset.value !== activeCourier);
         });
-
-        // NEW: Handle Dispute Status buttons
-        const activeDisputeStatus = params.get('dispute_status') || "";
         document.querySelectorAll('.dispute-status-filter-btn').forEach(btn => {
             btn.classList.toggle('btn-neutral', btn.dataset.value === activeDisputeStatus);
             btn.classList.toggle('btn-outline', btn.dataset.value !== activeDisputeStatus);
         });
-
-        const activeUnlinked = params.get('unlinked_only') === 'true';
         document.querySelectorAll('.unlinked-filter-btn').forEach(btn => {
             btn.classList.toggle('btn-neutral', activeUnlinked);
             btn.classList.toggle('btn-outline', !activeUnlinked);
         });
+        document.querySelectorAll('.warehouse-filter-buttons .btn').forEach(btn => {
+            btn.classList.toggle('btn-neutral', btn.dataset.value === activeWarehouse);
+            btn.classList.toggle('btn-outline', btn.dataset.value !== activeWarehouse);
+        });
 
     }
+
 
 
     function updateReport(isLoadMore = false) {
@@ -401,6 +395,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const disputeStatusButton = target.closest('.dispute-status-filter-btn');
         const unlinkedButton = target.closest('.unlinked-filter-btn');
         const cancelButton = target.closest('.cancel-dispute-btn');
+        const warehouseButton = target.closest('.warehouse-filter-btn'); // New
 
 
         if (target.id === 'explore-more-invoice-items-btn') {
@@ -421,16 +416,39 @@ document.addEventListener('DOMContentLoaded', function () {
             currentParams.set('page', '1');
             history.pushState(null, '', `?${currentParams.toString()}`);
             updateReport(false);
+        } else if (warehouseButton) {
+            warehouseHiddenInput.value = warehouseButton.dataset.value;
+            updateActiveFilterButtons();
+            updateReport(false);
         } else if (resetButton) {
             filterForm.reset();
-            courierHiddenInput.value = '';
-            searchInput.value = '';
-            startDateInput.value = '';
-            endDateInput.value = '';
-            disputeStatusHiddenInput.value = '';
-            unlinkedHiddenInput.value = '';
+            if (courierHiddenInput) {
+                courierHiddenInput.value = '';
+            }
+            if (searchInput) {
+                searchInput.value = '';
+            }
+            if (startDateInput) {
+                startDateInput.value = '';
+            }
+            if (endDateInput) {
+                endDateInput.value = '';
+            }
+            if (disputeStatusHiddenInput) {
+                disputeStatusHiddenInput.value = '';
+            }
+            if (unlinkedHiddenInput) {
+                unlinkedHiddenInput.value = '';
+            }
+            if (warehouseHiddenInput) {
+                warehouseHiddenInput.value = '';
+            }
+
+            // 3. Reset the URL in the browser's history
             history.pushState(null, '', `{% url 'operation:invoice_item_report' %}`);
+            // 4. Update the visual state of the buttons
             updateActiveFilterButtons();
+            // 5. Fetch the updated report data from the server
             updateReport(false);
         } else if (courierButton) {
             courierHiddenInput.value = courierButton.dataset.value;

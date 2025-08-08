@@ -15,6 +15,8 @@ app_name = 'inventory'
 
 urlpatterns = [
     path('batchlist/', views.inventory_batch_list_view, name='inventory_batch_list_view'),
+    path('batches/export-excel/', views.export_inventory_batch_to_excel, name='export_inventory_batch_excel'),
+
     path('batch/add/', views.add_inventory_batch, name='add_inventory_batch'), # New
     path('batch/edit/<int:batch_pk>/', views.edit_inventory_batch, name='edit_inventory_batch'), # New
     path('batch/set-default-pick/<int:batch_pk>/', views.set_default_pick_view, name='set_default_pick'), # New URL
@@ -22,6 +24,8 @@ urlpatterns = [
     path('stocktake/search-warehouse-products/', views.search_warehouse_products_for_stocktake_json, name='stocktake_search_wp_json'), # New AJAX search URL
     # --- New Superuser Stock Take URLs ---
     path('stocktake/sessions/', views.stock_take_session_list_view, name='stock_take_session_list'),
+    path('stock-take/upload/', views.upload_stock_take_csv, name='upload_stock_take_csv'),
+
     path('stocktake/session/<int:session_pk>/', views.stock_take_session_detail_view, name='stock_take_session_detail'),
     path('stocktake/session/<int:session_pk>/download/', views.download_stock_take_session_csv, name='download_stock_take_session_csv'),
     path('stocktake/session/<int:session_pk>/evaluate/', views.evaluate_stock_take_session_view, name='evaluate_stock_take_session'), # For later

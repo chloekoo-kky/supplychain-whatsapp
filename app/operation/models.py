@@ -3,11 +3,15 @@ from django.db import models, transaction as db_transaction
 from django.conf import settings
 from django.utils import timezone
 from django.db.models import Sum, Q, F
+from django.apps import apps
+from django.core.serializers.json import DjangoJSONEncoder
+
+
 import uuid
 import random
 import string
 import logging
-import uuid
+import json
 from decimal import Decimal
 
 from inventory.models import Product, InventoryBatchItem, StockTransaction, PackagingMaterial
@@ -17,28 +21,21 @@ from customers.models import Customer
 logger = logging.getLogger(__name__)
 
 def generate_parcel_code(warehouse_name=None, order_erp_id=None, order_date=None):
-    date_to_use = order_date if order_date else timezone.now().date()
-    month_letter_map = {
-        1: 'A', 2: 'B', 3: 'C', 4: 'D', 5: 'E', 6: 'F',
-        7: 'G', 8: 'H', 9: 'I', 10: 'J', 11: 'K', 12: 'L'
-    }
-    month_as_letter = month_letter_map.get(date_to_use.month, 'X') # X for unknown month
-    day_as_string = str(date_to_use.day).zfill(2) # Ensures two digits for day, e.g., 07, 22
+    """
+    Generates a 4-character random code that is guaranteed to be unique
+    by checking against the correct field in the Parcel model.
+    """
+    Parcel = apps.get_model('operation', 'Parcel')
+    char_set = "123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 
-    prefix_parts = []
-    if warehouse_name and warehouse_name.strip():
-        prefix_parts.append(warehouse_name.strip()[0].upper()) # First letter of warehouse name
-    else:
-        prefix_parts.append("X") # Default if no warehouse name
+    while True:
+        new_code = ''.join(random.choices(char_set, k=4))
 
-    prefix_parts.append(month_as_letter)
-    prefix_parts.append(day_as_string)
+        # Corrected from 'code' to 'parcel_code_system'
+        if not Parcel.objects.filter(parcel_code_system=new_code).exists():
+            return new_code
 
-    first_part = "".join(prefix_parts)
 
-    hex_chars = "123456789ABCDEFGHIJKLMNPQRSTUVWXYZ"
-    random_part = ''.join(random.choices(hex_chars, k=4))
-    return f"{first_part}-{random_part}"
 
 class CourierCompany(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -550,6 +547,18 @@ class CustomsDeclaration(models.Model):
         related_name='customs_declarations',
         help_text="Select couriers this applies to. Leave blank if generic for all couriers."
     )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name='customs_declarations',
+        null=True, # Allow null for now to handle existing records
+        blank=False, # Make it required in forms going forward
+        help_text="The warehouse this declaration is for."
+    )
+
+    is_active = models.BooleanField(default=True, help_text="Uncheck this to deactivate the declaration.")
+
+
     applies_to_mix = models.BooleanField(default=False, verbose_name="Applies to Mixed Shipments (Cold + Ambient)")
     applies_to_ambient = models.BooleanField(default=False, verbose_name="Applies to Ambient Only Shipments")
     applies_to_cold_chain = models.BooleanField(default=False, verbose_name="Applies to Cold Chain Only Shipments")
@@ -590,48 +599,72 @@ class PackagingType(models.Model):
     ENVIRONMENT_CHOICES = [
         ('COLD', 'Cold Chain'),
         ('AMBIENT', 'Ambient'),
-        # Add more as needed
     ]
 
-    name = models.CharField(max_length=150, unique=True)
-    type_code = models.CharField(max_length=50, unique=True, blank=True, null=True)
+    name = models.CharField(max_length=150) # Remove unique=True
+    type_code = models.CharField(max_length=50, blank=True, null=True) # Remove unique=True
+
+    # --- START MODIFICATION ---
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name='packaging_types',
+        help_text="The warehouse this packaging type belongs to."
+    )
+    # --- END MODIFICATION ---
+
     description = models.TextField(blank=True, null=True)
     environment_type = models.CharField(max_length=20, choices=ENVIRONMENT_CHOICES, default='AMBIENT')
-
-    default_length_cm = models.DecimalField(
-            max_digits=10, decimal_places=2,
-            help_text="",
-            null=True, blank=True
-        )
-    default_width_cm = models.DecimalField(
-            max_digits=10, decimal_places=2,
-            help_text="",
-            null=True, blank=True
-        )
-    default_height_cm = models.DecimalField(
-            max_digits=10, decimal_places=2,
-            help_text="",
-            null=True, blank=True
-        )
+    default_length_cm = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    default_width_cm = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    default_height_cm = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     materials = models.ManyToManyField(
-        PackagingMaterial,
+        PackagingMaterial, # This correctly links to the global material definition
         through='operation.PackagingTypeMaterialComponent',
-        related_name='packaging_types',
+        related_name='packaging_types_as_component', # Renamed to avoid clashes
         blank=True
     )
-
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} ({self.get_environment_type_display()})"
+        # --- MODIFICATION: Updated to include warehouse name ---
+        return f"{self.name} ({self.warehouse.name})"
+
+    def to_json_for_edit(self):
+        """
+        Serializes the instance and its components into a JSON string
+        for use in the JavaScript-powered edit modal.
+        """
+        # Create a map of {material_id: quantity} for this specific packaging type
+        component_map = {
+            comp.packaging_material.id: comp.quantity
+            for comp in self.packagingtypematerialcomponent_set.all()
+        }
+
+        data = {
+            'pk': self.pk,
+            'name': self.name,
+            'type_code': self.type_code or "",
+            'warehouse_id': self.warehouse_id,
+            'environment_type': self.environment_type,
+            'is_active': self.is_active,
+            'default_length_cm': self.default_length_cm,
+            'default_width_cm': self.default_width_cm,
+            'default_height_cm': self.default_height_cm,
+            'component_map': component_map, # Include the component map in the JSON
+        }
+        return json.dumps(data, cls=DjangoJSONEncoder)
 
     class Meta:
+        # --- MODIFICATION: Enforce uniqueness per warehouse ---
+        unique_together = ('name', 'warehouse')
         verbose_name = "Packaging Type"
         verbose_name_plural = "Packaging Types"
-        ordering = ['name']
+        ordering = ['warehouse__name', 'name']
+
 
 class PackagingTypeMaterialComponent(models.Model):
     packaging_type = models.ForeignKey(PackagingType, on_delete=models.CASCADE)
@@ -647,6 +680,7 @@ class PackagingTypeMaterialComponent(models.Model):
         pm_name = self.packaging_material.name if hasattr(self, 'packaging_material') and self.packaging_material else "N/A"
         pt_name = self.packaging_type.name if hasattr(self, 'packaging_type') and self.packaging_type else "N/A"
         return f"{self.quantity} x {pm_name} for {pt_name}"
+
 
 
 class ParcelTrackingLog(models.Model):
@@ -706,6 +740,15 @@ class CourierInvoice(models.Model):
         max_digits=10, decimal_places=2, default=0.00,
         help_text="Calculated as Invoice Amount - Payment Amount. Can be negative for overpayments."
     )
+    warehouse = models.ForeignKey(
+        Warehouse,
+        on_delete=models.PROTECT,
+        related_name='courier_invoices',
+        null=True, # Set to True to avoid issues with existing records
+        blank=True,
+        help_text="The warehouse this invoice belongs to."
+    )
+
 
     def save(self, *args, **kwargs):
         # --- START OF THE FIX ---
@@ -764,3 +807,31 @@ class CourierInvoiceItem(models.Model):
         indexes = [
             models.Index(fields=['tracking_number']),
         ]
+
+class ProductMapping(models.Model):
+    """
+    Stores a learned mapping from an imported product name to a system Product.
+    This acts as the "memory" for the import process.
+    """
+    imported_name = models.CharField(
+        max_length=255,
+        unique=True,
+        db_index=True,
+        help_text="The exact product name from the source Excel file."
+    )
+    mapped_product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='import_mappings',
+        help_text="The system product that the imported name maps to."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-last_used_at']
+        verbose_name = "Product Import Mapping"
+        verbose_name_plural = "Product Import Mappings"
+
+    def __str__(self):
+        return f'"{self.imported_name}" -> "{self.mapped_product.name}"'

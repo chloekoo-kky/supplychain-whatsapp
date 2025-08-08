@@ -4,55 +4,97 @@
 
 {% block content %}
 <div class="container mx-auto px-4 py-2">
-  <div class="flex justify-between items-center mb-3">
-      <h1 class="text-3xl font-bold text-gray-800">Courier Invoices</h1>
-      <button id="upload-invoice-btn" class="btn btn-primary">
-          Upload New Invoice
-      </button>
-  </div>
+    <div class="flex justify-between items-center mb-3">
+        <h1 class="text-3xl font-bold text-gray-800">Courier Invoices</h1>
+        <button id="upload-invoice-btn" class="btn btn-primary">
+            Upload New Invoice
+        </button>
+    </div>
 
-  <div class="operations-filter-panel md:w-full shrink-0 sticky top-16 h-fit bg-base-200 shadow px-4 py-3 rounded-lg z-20 mb-4">
-      <form id="invoice-filter-form" class="space-y-4">
-          <input type="hidden" name="courier_company" id="id_courier_company_hidden" value="{{ request.GET.courier_company }}">
-          <input type="hidden" name="payment_status" id="id_payment_status_hidden" value="{{ request.GET.payment_status }}">
+    <div class="operations-filter-panel md:w-full shrink-0 sticky top-16 h-fit bg-base-200 shadow px-4 py-3 rounded-lg z-20 mb-4">
 
-          <div class="grid grid-cols-12 gap-x-4 items-end">
+        <form id="invoice-filter-form">
+            <div class="grid grid-cols-12 gap-2">
 
-              <div class="col-span-12 md:col-span-4">
-                  <div class="courier-filter-buttons flex flex-wrap gap-2 mb-2 items-center">
-                      <button type="button" class="btn btn-xs sm:btn-sm btn-outline {% if not request.GET.courier_company %}btn-active{% endif %}" data-value="">All</button>
-                      {% for courier in all_couriers %}
-                          <button type="button" class="btn btn-xs sm:btn-sm btn-outline {% if request.GET.courier_company == courier.pk|stringformat:'s' %}btn-active{% endif %}" data-value="{{ courier.pk }}">{{ courier.name }}</button>
-                      {% endfor %}
-                  </div>
-              </div>
+                <input type="hidden" name="courier_company" id="id_courier_company_hidden" value="{{ request.GET.courier_company }}">
+                <input type="hidden" name="payment_status" id="id_payment_status_hidden" value="{{ request.GET.payment_status }}">
+                <input type="hidden" name="warehouse" id="id_warehouse_hidden" value="{{ request.GET.warehouse }}">
 
-              <div class="col-span-12 md:col-span-3">
-                  <div class="status-filter-buttons flex flex-wrap gap-2 mb-2 items-center">
-                      <button type="button" class="join-item btn btn-sm btn-outline {% if not request.GET.payment_status %}btn-active{% endif %}" data-value="">All</button>
-                      {% for value, display in payment_status_choices %}
-                          <button type="button" class="join-item btn btn-sm btn-outline {% if request.GET.payment_status == value %}btn-active{% endif %}" data-value="{{ value }}">{{ display }}</button>
-                      {% endfor %}
-                  </div>
-              </div>
+                <div class="col-span-12 md:col-span-3 mb-2 md:mr-4">
 
-              <div class="col-span-12 md:col-span-5">
-                <div class="flex gap-2 mb-2 items-center">
-                  <label for="{{ filter_form.q.id_for_label }}" class="label-text">{{ filter_form.q.label }}</label>
-                  {{ filter_form.q }}
-
-                  <button type="reset" id="reset-invoice-filters" class="btn btn-sm btn-outline bg-gray-300">Reset Filters</button>
+                    <div id="warehouse-filter-container" class="
+                            warehouse-filter-buttons
+                            grid gap-2
+                            {% if warehouses|length >= 3 %}
+                                md:grid-cols-2
+                            {% else %}
+                                md:flex md:flex-col
+                            {% endif %}
+                        ">
+                        {% if request.user.is_superuser %}
+                        {# Superusers see a button for every warehouse #}
+                        {% for wh in warehouses %}
+                        <button type="button" class="btn btn-sm sm:btn-sm btn-outline {% if request.GET.warehouse == wh.pk|stringformat:'s' %}btn-active{% endif %}" data-value="{{ wh.pk }}">
+                            {{ wh.name }}
+                        </button>
+                        {% endfor %}
+                    {% else %}
+                        {# Non-superusers only see their own warehouse #}
+                        {% if request.user.warehouse %}
+                        <button type="button" class="btn btn-sm md:btn-sm btn-neutral text-white">
+                            {{ request.user.warehouse.name }}
+                        </button>
+                        {% else %}
+                        <button type="button" class="btn btn-xs sm:btn-sm btn-error text-white" disabled>
+                            No WH Assigned
+                        </button>
+                        {% endif %}
+                    {% endif %}
+                    </div>
                 </div>
-              </div>
-      </form>
-  </div>
-</div>
 
-  <div id="invoice-list-container">
-      {% include 'operation/partials/_courier_invoice_list_content.html' with invoices=invoices %}
-  </div>
-</div>
+                <div class="col-span-12 md:col-span-5 flex flex-col gap-2">
+                    <div class="courier-filter-buttons grid grid-flow-col auto-cols-fr gap-2">
+                        {% for courier in all_couriers %}
+                            <button type="button" class="btn btn-xs sm:btn-sm btn-outline {% if request.GET.courier_company == courier.pk|stringformat:'s' %}btn-active{% endif %}" data-value="{{ courier.pk }}">{{ courier.name }}</button>
+                        {% endfor %}
+                    </div>
 
+                    <div class="status-filter-buttons grid grid-flow-col auto-cols-fr gap-2">
+                        {% for value, display in payment_status_choices %}
+                            <button type="button" class="join-item btn btn-sm btn-outline {% if request.GET.payment_status == value %}btn-active{% endif %}" data-value="{{ value }}">{{ display }}</button>
+                        {% endfor %}
+                    </div>
+
+                </div>
+
+                <div class="col-span-12 md:col-span-4 flex flex-col gap-2">
+
+                    <div class="grid grid-flow-col auto-cols-fr gap-2 w-full">
+                        <input type="text"
+                               name="{{ filter_form.q.name }}"
+                               value="{{ filter_form.q.value|default:'' }}"
+                               placeholder="Invoice Number..."
+                               class="input input-bordered input-sm w-full"
+                               id="{{ filter_form.q.id_for_label }}">
+                    </div>
+
+                    <div class="grid grid-flow-col auto-cols-fr gap-2">
+                        <button type="reset" id="reset-invoice-filters" class="btn btn-sm btn-outline bg-gray-300 w-full">
+                            Reset Filters
+                        </button>
+                    </div>
+
+                </div>
+
+            </div>
+        </form>
+        </div>
+
+    <div id="invoice-list-container">
+        {% include 'operation/partials/_courier_invoice_list_content.html' with invoices=invoices %}
+    </div>
+</div>
 <!-- Upload Invoice Modal -->
 <div id="uploadModal" class="fixed z-50 inset-0 overflow-y-auto hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
   <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
@@ -63,8 +105,18 @@
         {% csrf_token %}
         <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
             <h3 class="text-lg leading-6 font-medium text-gray-900">Upload Courier Invoice</h3>
-            <!-- MODIFIED: Form is now much simpler -->
             <div class="mt-4 grid grid-cols-1 gap-6">
+
+                {# This field is now included. It will be a dropdown for superusers #}
+                {# and a hidden input for regular warehouse operators. #}
+                {% if request.user.is_superuser %}
+                <div>
+                    <label for="{{ form.warehouse.id_for_label }}" class="block text-sm font-medium text-gray-700">Warehouse</label>
+                    {{ form.warehouse }}
+                </div>
+                {% else %}
+                    {{ form.warehouse }}
+                {% endif %}
                 <div>
                     <label for="{{ form.courier_company.id_for_label }}" class="block text-sm font-medium text-gray-700">Courier Company</label>
                     {{ form.courier_company }}
@@ -234,6 +286,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     setupFilterButtons('.courier-filter-buttons', 'id_courier_company_hidden');
     setupFilterButtons('.status-filter-buttons', 'id_payment_status_hidden');
+    setupFilterButtons('.warehouse-filter-buttons', 'id_warehouse_hidden');
 
     if (searchInput) {
         searchInput.addEventListener('input', () => {
@@ -253,17 +306,19 @@ document.addEventListener('DOMContentLoaded', function() {
             resetBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 filterForm.reset();
+                if (searchInput) {
+                    searchInput.value = '';
+                }
                 document.getElementById('id_courier_company_hidden').value = '';
                 document.getElementById('id_payment_status_hidden').value = '';
+                document.getElementById('id_warehouse_hidden').value = '';
 
-                document.querySelectorAll('.courier-filter-buttons .btn, .status-filter-buttons .btn').forEach(btn => {
+
+                document.querySelectorAll('.courier-filter-buttons .btn, .status-filter-buttons .btn, .warehouse-filter-buttons .btn').forEach(btn => {
                     btn.classList.remove('btn-active');
                 });
                 const allCourierBtn = document.querySelector('.courier-filter-buttons .btn[data-value=""]');
                 if(allCourierBtn) allCourierBtn.classList.add('btn-active');
-
-                const allStatusBtn = document.querySelector('.status-filter-buttons .btn[data-value=""]');
-                if(allStatusBtn) allStatusBtn.classList.add('btn-active');
 
                 applyFilters();
             });

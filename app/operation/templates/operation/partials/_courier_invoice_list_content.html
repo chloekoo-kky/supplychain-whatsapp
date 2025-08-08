@@ -4,47 +4,52 @@
     <table class="min-w-full leading-normal">
         <thead class="bg-gray-100">
             <tr>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Courier</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice #</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice Date</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Discount</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Payment Date</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Payment Status</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Parcels</th>
-                <th class="px-5 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Courier</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Warehouse</th>
+
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice #</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Invoice Date</th>
+
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Amount</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Discount</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Payment Date</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Payment Status</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Parcels</th>
+                <th class="px-4 py-3 border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
             </tr>
         </thead>
         <tbody id="invoice-table-body">
             {% for invoice in invoices %}
             <tr class="hover:bg-gray-50">
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.courier_company.name }}</td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.invoice_number|default:"N/A" }}</td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">{% if invoice.invoice_date %}{{ invoice.invoice_date|date:"Y-m-d" }}{% else %}N/A{% endif %}</td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm text-right">{{ invoice.invoice_amount|default:"N/A" }}</td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.courier_company.name }}</td>
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.warehouse.name|default:"N/A" }}</td>
+
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">{{ invoice.invoice_number|default:"N/A" }}</td>
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">{% if invoice.invoice_date %}{{ invoice.invoice_date|date:"Y-m-d" }}{% else %}N/A{% endif %}</td>
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm text-right">{{ invoice.invoice_amount|default:"N/A" }}</td>
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">
                     {% if invoice.discount_amount != 0 %}
                         <span class="text-success font-bold">{{ invoice.discount_amount|floatformat:2 }}</span>
                     {% else %}
                         -
                     {% endif %}
                 </td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">
                     {% if invoice.payment_date %}
                         {{ invoice.payment_date|date:"Y-m-d" }}
                     {% else %}
                         <span class="text-gray-500">Not Paid</span>
                     {% endif %}
                 </td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
                         {% if invoice.payment_status == 'PAID' %} bg-green-100 text-green-800
                         {% else %} bg-red-100 text-red-800 {% endif %}">
                         {{ invoice.get_payment_status_display }}
                     </span>
                 </td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm text-center">{{ invoice.items.count }}</td>
-                <td class="px-5 py-4 border-b border-gray-200 bg-white text-sm">
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm text-center">{{ invoice.items.count }}</td>
+                <td class="px-4 py-4 border-b border-gray-200 bg-white text-sm">
 
                     {% if invoice.payment_date and invoice.payment_amount is not None %}
                         <button class="btn btn-xs btn-success" disabled>

@@ -1,0 +1,21 @@
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for dashboard in monthly_dashboards %}
+    <div class="card bg-base-100 shadow">
+        <div class="card-body p-4">
+            <h5 class="card-title text-base">{{ dashboard.month_name }}</h5>
+            <div class="flex justify-between text-sm">
+                <span>Total Received:</span>
+                <span class="font-semibold text-secondary">+ {{ dashboard.total_received|floatformat:"-2" }}</span>
+            </div>
+            <div class="flex justify-between text-sm">
+                <span>Total Usage:</span>
+                <span class="font-semibold text-accent">- {{ dashboard.total_usage|floatformat:"-2" }}</span>
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div class="col-span-full text-center p-4 border-2 border-dashed rounded-lg text-gray-400">
+        No stock information found for this material.
+    </div>
+    {% endfor %}
+</div>

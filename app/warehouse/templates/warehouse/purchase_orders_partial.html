@@ -7,7 +7,14 @@
   <div class="grid grid-cols-12 gap-2">
 
     <div class="col-span-12 md:col-span-2 md:mr-6">
-      <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch">
+      <div class="
+            grid gap-2
+            {% if user.is_superuser and warehouses|length >= 3 %}
+                md:grid-cols-2
+            {% else %}
+                md:flex md:flex-col
+            {% endif %}
+        ">
             {% if user.is_superuser %}
                 {% for w_obj in warehouses %}
                 <button type="button" class="btn btn-sm sm:btn-sm btn-outline" data-filter="warehouse" data-value="{{ w_obj.id }}">
@@ -53,9 +60,9 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <input id="po-search-input" type="text" name="q" class="input input-bordered input-sm w-[80%]" placeholder="Search PO, supplier, or item name" value="{{ query|default:'' }}">
-        <button type="button" class="btn btn-sm md:btn-sm btn-outline bg-gray-300 w-[20%]" onclick="resetPurchaseOrderFilters()">
-            Reset
+        <input id="po-search-input" type="text" name="q" class="input input-bordered input-sm w-full" placeholder="Search PO, supplier, or item name" value="{{ query|default:'' }}">
+        <button type="button" class="btn btn-sm btn-outline bg-gray-300 flex-shrink-0" onclick="resetPurchaseOrderFilters()">
+            Reset Filters
         </button>
       </div>
 

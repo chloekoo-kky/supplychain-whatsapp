@@ -1,139 +1,125 @@
-{% extends 'base.html' %}
-{% load static %}
-{% load i18n %} {# Optional: if you use {% translate %} or other i18n tags #}
-
-{% block page_title %}Import Orders from Excel{% endblock %}
+{% extends "base.html" %}
 
 {% block content %}
 <div class="container mx-auto px-4 py-8">
-    <div class="max-w-2xl mx-auto">
-        <div class="flex justify-between items-center mb-6">
-            <h1 class="text-3xl font-bold text-gray-800">Import Orders via Excel</h1>
-            <a href="{% url 'operation:order_list' %}" class="btn btn-sm btn-outline">View Imported Orders</a>
-        </div>
+    <h1 class="text-3xl font-bold mb-6">Import Orders from Excel</h1>
 
-        <div class="card bg-base-100 shadow-xl">
-            <div class="card-body">
-                <form method="post" enctype="multipart/form-data">
-                    {% csrf_token %}
-
-                    <div class="form-control w-full mb-4">
-                        {{ form.excel_file.label_tag }}
-                        {{ form.excel_file }}
-                        {% if form.excel_file.help_text %}
-                            <label class="label">
-                                <span class="label-text-alt">{{ form.excel_file.help_text }}</span>
-                            </label>
-                        {% endif %}
-                        {% for error in form.excel_file.errors %}
-                            <label class="label">
-                                <span class="label-text-alt text-error">{{ error }}</span>
-                            </label>
-                        {% endfor %}
-                    </div>
-
-                    {% if form.non_field_errors %}
-                        <div class="alert alert-error shadow-sm mb-4">
-                            <div>
-                                <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current flex-shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                <span>
-                                {% for error in form.non_field_errors %}
-                                    {{ error }}{% if not forloop.last %}<br>{% endif %}
-                                {% endfor %}
-                                </span>
-                            </div>
-                        </div>
-                    {% endif %}
-
-                    <div class="card-actions justify-end mt-6">
-                        <button type="submit" class="btn btn-primary">Upload and Process File</button>
-                    </div>
-                </form>
-
-                <!-- <div class="divider">Instructions</div>
-                <div class="prose prose-sm max-w-none">
-                    <p>Please ensure your Excel file (.xlsx) adheres to the following format:</p>
-                    <ul>
-                        <li>The first sheet in the workbook will be used.</li>
-                        <li>The first row must contain the headers exactly as listed below.</li>
-                        <li>Each subsequent row should represent a single order item. If an order has multiple items, repeat the order-level details for each item row.</li>
-                    </ul>
-                    <p><strong>Expected Columns (in order):</strong></p>
-                    <ol>
-                        <li><code>ERP Order ID</code> (Text)</li>
-                        <li><code>Order Date</code> (Date, format YYYY-MM-DD e.g., 2024-12-31)</li>
-                        <li><code>Customer Name</code> (Text)</li>
-                        <li><code>Product SKU</code> (Text - must match an existing Product SKU in the system)</li>
-                        <li><code>Quantity Ordered</code> (Number - positive integer)</li>
-                        <li><code>Warehouse Name</code> (Text - must match an existing Warehouse Name in the system)</li>
-                        <li><em>(You can add more columns here as your import logic expands)</em></li>
-                    </ol>
-                    <p class="mt-4">
-                        <strong>Example:</strong>
-                    </p>
-                    <div class="overflow-x-auto">
-                        <table class="table table-xs table-bordered">
-                            <thead>
-                                <tr>
-                                    <th>ERP Order ID</th>
-                                    <th>Order Date</th>
-                                    <th>Customer Name</th>
-                                    <th>Product SKU</th>
-                                    <th>Quantity Ordered</th>
-                                    <th>Warehouse Name</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>ORD-001</td>
-                                    <td>2024-05-20</td>
-                                    <td>John Doe</td>
-                                    <td>SKU00A</td>
-                                    <td>2</td>
-                                    <td>Main Warehouse</td>
-                                </tr>
-                                <tr>
-                                    <td>ORD-001</td>
-                                    <td>2024-05-20</td>
-                                    <td>John Doe</td>
-                                    <td>SKU00B</td>
-                                    <td>1</td>
-                                    <td>Main Warehouse</td>
-                                </tr>
-                                <tr>
-                                    <td>ORD-002</td>
-                                    <td>2024-05-21</td>
-                                    <td>Jane Smith</td>
-                                    <td>SKU00C</td>
-                                    <td>5</td>
-                                    <td>Secondary Warehouse</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div> -->
-            </div>
+    <div class="card bg-base-100 shadow-xl max-w-lg mx-auto">
+        <div class="card-body">
+            <h2 class="card-title">Upload your Excel File</h2>
+            <p>Please ensure your file has the following columns: <strong>Order ID, Customer Name, Email, Delivery Address, Order Date, Product Name, Quantity</strong>.</p>
+            <form method="post" enctype="multipart/form-data" class="mt-4">
+                {% csrf_token %}
+                <div class="form-control w-full">
+                    <input type="file" name="excel_file" class="file-input file-input-bordered w-full" required>
+                </div>
+                <div class="card-actions justify-end mt-6">
+                    <button type="submit" class="btn btn-primary">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        Upload and Review
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>
+
+{% if show_confirmation_modal %}
+<div id="confirmation_modal" class="modal modal-open">
+    <div class="modal-box w-11/12 max-w-6xl">
+        <h3 class="font-bold text-2xl mb-4">Confirm Product Matches</h3>
+        <p class="mb-4">We've attempted to match the product names from your file with the products in our system. Please review the suggestions and make corrections where necessary.</p>
+
+        <form id="confirmation_form" method="post" action="{% url 'operation:create_orders_from_import' %}">
+            {% csrf_token %}
+            <div class="overflow-x-auto max-h-[60vh]">
+                <table class="table table-pin-rows table-sm w-full">
+                    <thead>
+                        <tr>
+                            <th class="w-1/3">Imported Product Name</th>
+                            <th class="text-center">Qty</th>
+                            <th class="w-1/3">Suggested Match (Your Product)</th>
+                            <th class="text-center">Similarity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items_to_confirm %}
+                        <tr class="hover">
+                            <td>
+                                <span class="font-bold">{{ item.Product_Name }}</span><br>
+                                <span class="text-xs text-base-content/70">Order ID: {{ item.Order_ID }} | Customer: {{ item.Customer_Name }}</span>
+                            </td>
+                            <td class="text-center font-mono">{{ item.Quantity }}</td>
+                            <td>
+                                <select name="product_selection_{{ forloop.counter0 }}" class="select select-bordered select-sm w-full {% if not item.suggested_product_id %}select-error{% elif item.similarity_score < 85 %}select-warning{% else %}select-success{% endif %}" required>
+                                    <option disabled {% if not item.suggested_product_id %}selected{% endif %} value="">-- Select a Product --</option>
+                                    {% for product in all_products %}
+                                        <option value="{{ product.id }}" {% if product.id == item.suggested_product_id %}selected{% endif %}>
+                                            {{ product.name }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </td>
+                            <td class="text-center">
+                                {% if item.suggested_product_id %}
+                                <div class="tooltip" data-tip="{{ item.similarity_score }}% match">
+                                    <div class="radial-progress
+                                        {% if item.similarity_score < 70 %}text-error{% elif item.similarity_score < 85 %}text-warning{% else %}text-success{% endif %}"
+                                        style="--size:3rem; --thickness: 4px;"
+                                        role="progressbar"
+                                        data-score="{{ item.similarity_score }}"
+                                    >{{ item.similarity_score }}%</div>
+                                </div>
+                                {% else %}
+                                    <span class="badge badge-error">No Match</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="modal-action mt-6">
+                <a href="{% url 'operation:import_orders_from_excel' %}" class="btn">Cancel</a>
+                <button type="submit" class="btn btn-primary">Confirm and Create Orders</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
+{{ block.super }}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Add any client-side validation or interactivity for the form if needed.
-    // For example, a preview of the filename once selected.
-    const fileInput = document.querySelector('input[type="file"][name="excel_file"]');
-    if (fileInput) {
-        fileInput.addEventListener('change', function() {
-            if (this.files && this.files.length > 0) {
-                // You could display this.files[0].name somewhere if you like
-                console.log('File selected:', this.files[0].name);
-            } else {
-                console.log('File selection cleared.');
+    const form = document.getElementById('confirmation_form');
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            const selects = form.querySelectorAll('select[required]');
+            let allValid = true;
+            selects.forEach(select => {
+                if (!select.value) {
+                    allValid = false;
+                    // Add error indication to the parent row if needed
+                    select.closest('tr').classList.add('bg-error/20');
+                } else {
+                    select.closest('tr').classList.remove('bg-error/20');
+                }
+            });
+
+            if (!allValid) {
+                e.preventDefault();
+                alert('Please ensure you have selected a product for every item.');
             }
         });
     }
+    const progressBars = document.querySelectorAll('.radial-progress[data-score]');
+    progressBars.forEach(bar => {
+        const score = bar.getAttribute('data-score');
+        bar.style.setProperty('--value', score);
+    });
 });
 </script>
 {% endblock %}

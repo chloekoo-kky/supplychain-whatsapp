@@ -10,7 +10,11 @@ class Warehouse(models.Model):
     location = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
-        return self.name
+        try:
+            return str(self.name) if self.name else f"Warehouse (ID: {self.pk})"
+        except Exception:
+            return f"Warehouse (ID: {self.pk})"
+
 
 class WarehouseProduct(models.Model):
     warehouse = models.ForeignKey('warehouse.Warehouse', on_delete=models.CASCADE)

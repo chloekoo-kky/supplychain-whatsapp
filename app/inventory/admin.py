@@ -1,6 +1,7 @@
 # app/inventory/admin.py
 
 from django.contrib import admin, messages
+from django.contrib.auth import get_user_model
 from django.shortcuts import redirect, render
 from django.urls import path
 from django import forms
@@ -9,17 +10,20 @@ import csv
 import chardet
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
+import logging
 
 # Import your models
 from .models import (
     Product, Supplier, StockTransaction, InventoryBatchItem,
     StockTakeSession, StockTakeItem,
      ErpStockCheckSession, ErpStockCheckItem, WarehouseProductDiscrepancy, # New Stock Take Models
-     PackagingMaterial
+     PackagingMaterial, WarehousePackagingMaterial, PackagingStockTransaction
 )
 from warehouse.models import Warehouse, WarehouseProduct # Import WarehouseProduct
 from .models import StockDiscrepancy
 
+logger = logging.getLogger(__name__)
+User = get_user_model()
 
 # Define a simple form for CSV upload to be used in the modal
 class CsvImportForm(forms.Form):
@@ -129,9 +133,7 @@ class ProductAdmin(admin.ModelAdmin):
             headers={'Content-Disposition': 'attachment; filename="product_upload_template.csv"'},
         )
         writer = csv.writer(response)
-        writer.writerow(['sku', 'name', 'price', 'supplier_code'])
-        writer.writerow(['SKU123', 'Sample Product Name', '9.99', 'SUP001'])
-        writer.writerow(['SKU456', 'Another Product', '12.50', ''])
+        writer.writerow(['sku', 'name', 'price'])
         return response
 
 @admin.register(Supplier)
@@ -657,8 +659,67 @@ class WarehouseProductDiscrepancyAdmin(admin.ModelAdmin):
         return str(obj.warehouse_product)
     warehouse_product_display.short_description = "Warehouse Product"
 
+
+
+class WarehousePackagingMaterialInline(admin.TabularInline):
+    """
+    Manages warehouse-specific stock from the global PackagingMaterial admin page.
+    """
+    model = WarehousePackagingMaterial
+    extra = 1
+    autocomplete_fields = ['warehouse']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        if request.user.warehouse:
+            return qs.filter(warehouse=request.user.warehouse)
+        return qs.none()
+
+
 @admin.register(PackagingMaterial)
 class PackagingMaterialAdmin(admin.ModelAdmin):
-    list_display = ('name', 'material_code', 'current_stock', 'reorder_level', 'supplier')
-    search_fields = ('name', 'material_code')
+    """
+    Admin for the GLOBAL PackagingMaterial definitions.
+    """
+    list_display = ('name', 'material_code', 'supplier')
+    search_fields = ('name', 'material_code', 'supplier__name')
+    list_filter = ('supplier',)
     autocomplete_fields = ['supplier']
+    inlines = [WarehousePackagingMaterialInline]
+
+
+@admin.register(WarehousePackagingMaterial)
+class WarehousePackagingMaterialAdmin(admin.ModelAdmin):
+    """
+    Admin for viewing and managing WAREHOUSE-SPECIFIC stock levels.
+    """
+    list_display = ('packaging_material', 'warehouse', 'current_stock', 'reorder_level')
+    search_fields = ('packaging_material__name', 'warehouse__name')
+    list_filter = ('warehouse',)
+    autocomplete_fields = ['packaging_material', 'warehouse']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        if request.user.warehouse:
+            return qs.filter(warehouse=request.user.warehouse)
+        return qs.none()
+
+
+@admin.register(PackagingStockTransaction)
+class PackagingStockTransactionAdmin(admin.ModelAdmin):
+    """
+    Admin for viewing the historical log of received stock.
+    """
+    list_display = ('warehouse_packaging_material', 'transaction_type', 'quantity', 'recorded_by', 'transaction_date')
+    autocomplete_fields = ['warehouse_packaging_material', 'recorded_by']
+    list_filter = ('transaction_date', 'transaction_type', 'warehouse_packaging_material__warehouse')
+    search_fields = (
+        'warehouse_packaging_material__packaging_material__name',
+        'warehouse_packaging_material__warehouse__name',
+        'recorded_by__email'
+    )
+

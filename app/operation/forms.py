@@ -15,7 +15,8 @@ from .models import (Parcel,
                      PackagingTypeMaterialComponent,
                      CourierInvoice,
                      CourierInvoiceItem)
-from inventory.models import InventoryBatchItem, PackagingMaterial
+from inventory.models import InventoryBatchItem, PackagingMaterial, WarehousePackagingMaterial, PackagingStockTransaction
+from warehouse.models import Warehouse
 import logging
 
 
@@ -367,18 +368,21 @@ class CustomsDeclarationForm(forms.ModelForm):
     courier_companies = forms.ModelMultipleChoiceField(
         queryset=CourierCompany.objects.filter(is_active=True).order_by('name'),
         required=False,
-        widget=forms.CheckboxSelectMultiple,
+        # THE FIX IS HERE: Add attrs to the widget
+        widget=forms.CheckboxSelectMultiple(attrs={'class': 'checkbox'}),
         label="Courier Companies",
         help_text="Select couriers this applies to. Leave blank if generic for all."
     )
+
 
     class Meta:
         model = CustomsDeclaration
         fields = [
             'description', 'hs_code',
             'courier_companies',
+            'warehouse',
             'applies_to_ambient', 'applies_to_cold_chain', 'applies_to_mix',
-            'notes'
+            'is_active', 'notes'
         ]
         widgets = {
             'description': forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 3, 'placeholder': 'Detailed description of the goods'}),
@@ -387,61 +391,108 @@ class CustomsDeclarationForm(forms.ModelForm):
             'applies_to_ambient': forms.CheckboxInput(attrs={'class': 'checkbox'}),
             'applies_to_cold_chain': forms.CheckboxInput(attrs={'class': 'checkbox'}),
             'applies_to_mix': forms.CheckboxInput(attrs={'class': 'checkbox'}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'checkbox'}),
         }
+
+    def __init__(self, *args, **kwargs):
+            user = kwargs.pop('user', None)
+            super().__init__(*args, **kwargs)
+
+            if user and not user.is_superuser:
+                if 'warehouse' in self.fields:
+                    # Disable the warehouse field for non-superusers
+                    self.fields['warehouse'].disabled = True
+                    # Set the initial value to the user's warehouse
+                    if user.warehouse:
+                        self.fields['warehouse'].initial = user.warehouse
 
 
 class PackagingTypeForm(forms.ModelForm):
     class Meta:
         model = PackagingType
-        fields = ['name', 'type_code', 'description', 'environment_type', 'default_length_cm', 'default_width_cm', 'default_height_cm', 'is_active']
+        fields = ['name', 'type_code', 'warehouse', 'description', 'environment_type', 'is_active']
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'input input-bordered w-full', 'placeholder': "e.g., Standard Cold Box Setup A"}),
-            'type_code': forms.TextInput(attrs={'class': 'input input-bordered w-full', 'placeholder': "e.g., 'SCBA'"}),
-            'description': forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 1}),
+            'name': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
+            'type_code': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
+            'warehouse': forms.Select(attrs={'class': 'select select-bordered w-full'}),
+            'description': forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 2}),
             'environment_type': forms.Select(attrs={'class': 'select select-bordered w-full'}),
-            'default_length_cm': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
-            'default_width_cm': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
-            'default_height_cm': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
-            'is_active': forms.CheckboxInput(attrs={'class': 'checkbox'}),
+            'is_active': forms.CheckboxInput(attrs={'class': 'toggle toggle-primary'}),
         }
 
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+        if user and not user.is_superuser:
+            if 'warehouse' in self.fields and user.warehouse:
+                self.fields['warehouse'].widget = forms.HiddenInput()
+                self.fields['warehouse'].initial = user.warehouse
+                self.fields['warehouse'].queryset = Warehouse.objects.filter(pk=user.warehouse.pk)
+            else:
+                self.fields['warehouse'].queryset = Warehouse.objects.none()
+
+
 class PackagingMaterialForm(forms.ModelForm):
+    """
+    Form for creating the GLOBAL definition of a packaging material.
+    """
     class Meta:
         model = PackagingMaterial
-        fields = ['name', 'material_code', 'description', 'current_stock', 'reorder_level', 'supplier']
+        # --- MODIFIED: These are the fields for the global definition ---
+        fields = ['name', 'material_code', 'description', 'length_cm', 'width_cm', 'height_cm', 'supplier', 'unit_cost']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
             'material_code': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
             'description': forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 3}),
-            'current_stock': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
-            'reorder_level': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
+            'length_cm': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
+            'width_cm': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
+            'height_cm': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
             'supplier': forms.Select(attrs={'class': 'select select-bordered w-full'}),
+            'unit_cost': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
         }
 
-class PackagingMaterialForm(forms.ModelForm):
+
+class ReceivePackagingStockForm(forms.ModelForm):
+    """
+    Form for receiving new stock. It creates a transaction record.
+    """
+    # We add a field to select the material, as the transaction is linked to the stock record
+    packaging_material = forms.ModelChoiceField(
+        queryset=PackagingMaterial.objects.all().order_by('name'),
+        label="Packaging Material to Receive"
+    )
+
+
     class Meta:
-        model = PackagingMaterial # Assuming this model is correctly imported or defined
-        fields = ['name', 'material_code', 'description', 'current_stock', 'reorder_level', 'supplier']
+        model = PackagingStockTransaction
+        fields = ['packaging_material', 'quantity', 'notes']
+
         widgets = {
-            'name': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
-            'material_code': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
-            'description': forms.Textarea(attrs={'class': 'textarea textarea-bordered w-full', 'rows': 3}),
-            'current_stock': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
-            'reorder_level': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
-            'supplier': forms.Select(attrs={'class': 'select select-bordered w-full'}),
+            'quantity': forms.NumberInput(attrs={'class': 'input input-bordered w-full'}),
+            'notes': forms.TextInput(attrs={'class': 'input input-bordered w-full'}),
         }
 
-PackagingTypeMaterialComponentFormSet = inlineformset_factory(
+
+class BasePackagingTypeMaterialComponentFormSet(forms.BaseInlineFormSet):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make all forms use the global list of materials
+        for form in self.forms:
+            form.fields['packaging_material'].queryset = PackagingMaterial.objects.order_by('name')
+
+
+PackagingTypeMaterialComponentFormSet = forms.inlineformset_factory(
     PackagingType,
     PackagingTypeMaterialComponent,
     fields=('packaging_material', 'quantity'),
-    extra=1,  # Show one empty form for adding a new material
-    can_delete=True,  # Allow deleting existing components
+    extra=0, # We will generate one form for each available material in the view
+    can_delete=False,
     widgets={
-        'packaging_material': forms.Select(attrs={'class': 'select select-bordered w-full'}),
-        'quantity': NumberInput(attrs={'class': 'input input-bordered w-full', 'min': '0.01', 'step': '0.01'}), # Added min and step for quantity
+        'packaging_material': forms.Select(attrs={'class': 'select select-bordered'}),
+        'quantity': forms.NumberInput(attrs={'class': 'input input-bordered input-sm w-24', 'placeholder': 'Qty'}),
     }
 )
+
 
 class AirwayBillForm(forms.ModelForm):
     """
@@ -484,18 +535,34 @@ class AirwayBillForm(forms.ModelForm):
         return tracking_number
 
 class CourierInvoiceForm(forms.ModelForm):
-    """
-    Form for uploading a new courier invoice.
-    The user now only needs to select the courier and the file.
-    """
     class Meta:
         model = CourierInvoice
-        # MODIFIED: Removed invoice_number, invoice_date, and invoice_amount
-        fields = ['courier_company', 'invoice_file']
-        widgets = {
-            'courier_company': forms.Select(attrs={'class': 'form-select'}),
-            'invoice_file': forms.ClearableFileInput(attrs={'class': 'form-input'}),
-        }
+        fields = [
+            'warehouse', # Add warehouse to the form
+            'courier_company',
+            'invoice_number',
+            'invoice_date',
+            'invoice_file',
+            'payment_status',
+        ]
+
+    def __init__(self, *args, **kwargs):
+        user = kwargs.pop('user', None) # Get the user from the view
+        super().__init__(*args, **kwargs)
+        self.fields['payment_status'].required = False
+
+
+        if user and not user.is_superuser:
+            if user.warehouse:
+                # For non-superusers, limit choices to their assigned warehouse
+                self.fields['warehouse'].queryset = Warehouse.objects.filter(pk=user.warehouse.pk)
+                self.fields['warehouse'].initial = user.warehouse
+                # Optional: make the field read-only
+                self.fields['warehouse'].widget.attrs['disabled'] = True
+            else:
+                # If user has no warehouse, give them no options
+                self.fields['warehouse'].queryset = Warehouse.objects.none()
+
 
 class CourierInvoiceItemForm(forms.ModelForm):
     """
@@ -510,20 +577,40 @@ class CourierInvoiceFilterForm(forms.Form):
     courier_company = forms.ModelChoiceField(
         queryset=CourierCompany.objects.filter(is_active=True),
         required=False,
-        label="Courier",
-        widget=forms.Select(attrs={'class': 'select select-bordered select-sm w-full'})
+        label="Courier"
     )
     payment_status = forms.ChoiceField(
         choices=[('', 'All Statuses')] + CourierInvoice.PAYMENT_STATUS_CHOICES,
         required=False,
-        label="Payment Status",
-        widget=forms.Select(attrs={'class': 'select select-bordered select-sm w-full'})
+        label="Payment Status"
     )
     q = forms.CharField(
         required=False,
         label="Search",
-        widget=forms.TextInput(attrs={'class': 'input input-bordered input-sm w-full', 'placeholder': 'Invoice #'})
+        widget=forms.TextInput(attrs={'placeholder': 'Invoice Number...'})
     )
+    # Add the warehouse field to the filter form
+    warehouse = forms.ModelChoiceField(
+        queryset=Warehouse.objects.all(),
+        required=False,
+        label="Warehouse"
+    )
+
+    def __init__(self, *args, **kwargs):
+        # --- START: THE FIX ---
+        # Accept the 'user' object passed from the view
+        user = kwargs.pop('user', None)
+        super().__init__(*args, **kwargs)
+
+        # --- END: THE FIX ---
+
+        # If the user is not a superuser, restrict the warehouse filter choices
+        if user and not user.is_superuser:
+            if user.warehouse:
+                self.fields['warehouse'].queryset = Warehouse.objects.filter(pk=user.warehouse.pk)
+            else:
+                self.fields['warehouse'].queryset = Warehouse.objects.none()
+
 
 class DisputeUpdateForm(forms.Form):
     update_date = forms.DateField(

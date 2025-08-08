@@ -59,9 +59,9 @@
 
             <div class="flex items-center gap-2">
                 <input type="text" id="parcel-search-input" placeholder="Search by Parcel ID, Tracking, Order ID, Product..."
-                class="input input-bordered input-sm w-[80%] parcel-dynamic-search-input"
+                class="input input-bordered input-sm w-full parcel-dynamic-search-input"
                 value="{{ parcel_query|default:'' }}">
-                <button class="btn btn-sm md:btn-sm btn-outline bg-gray-300 w-[20%] parcel-reset-filters-btn">Reset</button>
+                <button class="btn btn-sm btn-outline bg-gray-300 flex-shrink-0 parcel-reset-filters-btn">Reset filters</button>
             </div>
         </div>
 

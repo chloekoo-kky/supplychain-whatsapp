@@ -14,8 +14,17 @@
         <!-- Warehouse Filters Column -->
         {% if warehouses %}
         <div class="col-span-12 md:col-span-2 md:mr-4">
-            <div class="grid grid-flow-col auto-cols-fr gap-2 md:flex md:flex-col md:items-stretch" id="warehouse-filter-container">
-                {% for warehouse in warehouses %}
+
+            {# This container now uses conditional classes for the layout #}
+            <div id="warehouse-filter-container" class="
+                grid grid-flow-col auto-cols-fr gap-2
+                {% if warehouses|length >= 3 %}
+                    md:grid md:grid-cols-2
+                {% else %}
+                    md:flex md:flex-col
+                {% endif %}
+            ">
+            {% for warehouse in warehouses %}
                     <button class="btn btn-sm btn-outline warehouse-filter-btn" data-warehouse-id="{{ warehouse.pk }}">
                         <span class="text-sm whitespace-normal text-center leading-tight">{{ warehouse.name }}</span>
                     </button>
@@ -23,6 +32,7 @@
             </div>
         </div>
         {% endif %}
+
 
         <!-- Main Filters & Search Column -->
         <div class="col-span-12 {% if warehouses %}md:col-span-7{% else %}md:col-span-9{% endif %} flex flex-col gap-2">
@@ -42,14 +52,25 @@
             <div class="flex items-center gap-2 w-full">
                 <input type="text" id="inventory-search-input" placeholder="Search SKU or Product Name..." class="input input-bordered input-sm w-full flex-grow">
                 <button id="reset-filters-btn" class="btn btn-sm btn-outline bg-gray-300 flex-shrink-0">
-                    Reset
+                    Reset Filters
                 </button>
             </div>
         </div>
 
         <!-- Manage Picks Column -->
-        <div class="col-span-12 md:col-span-3 flex md:justify-end items-end self-stretch md:ml-5">
-            <label for="manage-default-picks-modal-toggle" class="btn btn-sm bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full md:btn-md">Manage Default Picks</label>
+        <div class="col-span-12 md:col-span-3 flex flex-col md:justify-end items-stretch md:ml-5 space-y-2">
+
+            {# This button will only be visible to superusers #}
+            {% if user.is_superuser %}
+                <a href="{% url 'inventory:export_inventory_batch_excel' %}" class="btn btn-primary w-full">
+                    Export to Excel
+                </a>
+            {% endif %}
+
+            <label for="manage-default-picks-modal-toggle" class="btn bg-white hover:bg-gray-400 hover:border-gray-900 hover:text-white text-gray-700 border-gray-900 w-full">
+                Manage Default Picks
+            </label>
+
         </div>
 
     </div>

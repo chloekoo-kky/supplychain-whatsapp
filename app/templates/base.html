@@ -64,14 +64,14 @@
                       {% if request.resolver_match.url_name == 'warehouse_management' and request.resolver_match.app_name == 'warehouse' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
                 📦 PO
             </a>
-
-
-            {% if user.is_superuser %}
             <a href="{% url 'operation:courier_invoice_list' %}"
             class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
                       {% if request.resolver_match.url_name == 'courier_invoice_list' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
               Invoices
             </a>
+
+
+            {% if user.is_superuser %}
             <a href="{% url 'operation:invoice_item_report' %}"
             class="px-3 py-1.5 md:px-4 md:py-2 rounded-md text-sm md:text-base font-medium transition
                       {% if request.resolver_match.url_name == 'invoice_item_report' and request.resolver_match.app_name == 'operation' %}bg-blue-600 text-white shadow-md{% else %}bg-gray-200 hover:bg-gray-300 text-gray-700{% endif %}">
@@ -188,13 +188,15 @@
             {% if user.is_superuser %}
             <li><a href="{% url 'inventory:stock_take_session_list' %}">Batch Stock Take</a></li>
             <li><a href="{% url 'inventory:erp_stock_check_list' %}">LWA Stock Take</a></li>
+
             <li class="menu-title"><span></span></li>
-            {% endif %}
-            {% if user.is_superuser %}
+
             <li><a href="{% url 'warehouse:manage_product_list' %}">Manage Product Details</a></li>
+            <li><a href="{% url 'operation:manage_customs_declarations' %}">Customs Declarations Management</a></li>
+            <li><a href="{% url 'operation:packaging_management' %}">Packaging Management</a></li>
+
             <li><a href="{% url 'admin:index' %}" target="_blank">Django Admin</a></li>
             <li><a href="{% url 'customers:customer_list' %}">Customers</a></li>
-            <li><a href="{% url 'operation:generate_report' %}">Generate Report</a></li>
 
             {% endif %}
             <li class="menu-title"><span></span></li>

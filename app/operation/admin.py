@@ -343,13 +343,13 @@ class CourierCompanyAdmin(admin.ModelAdmin):
 
 @admin.register(CustomsDeclaration)
 class CustomsDeclarationAdmin(admin.ModelAdmin):
-    list_display = ('description', 'hs_code', 'get_courier_companies_display', 'get_shipment_types_display', 'updated_at')
+    list_display = ('warehouse', 'description', 'hs_code', 'is_active', 'get_courier_companies_display', 'get_shipment_types_display', 'updated_at')
     search_fields = ('description', 'hs_code', 'courier_companies__name', 'courier_companies__code')
-    list_filter = ('courier_companies', 'applies_to_ambient', 'applies_to_cold_chain', 'applies_to_mix', 'updated_at')
+    list_filter = ('is_active', 'warehouse', 'courier_companies', 'applies_to_ambient', 'applies_to_cold_chain', 'applies_to_mix', 'updated_at')
     filter_horizontal = ('courier_companies',) # Better UI for ManyToManyField
     fieldsets = (
         (None, {
-            'fields': ('description', 'hs_code', 'notes')
+            'fields': ('warehouse', 'is_active', 'description', 'hs_code', 'notes')
         }),
         ('Applicability', {
             'fields': ('courier_companies', ('applies_to_ambient', 'applies_to_cold_chain', 'applies_to_mix'))

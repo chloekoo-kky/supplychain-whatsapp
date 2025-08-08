@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 {% load i18n %}
+{% load custom_filters %}
 
 {% block page_title %}{{ page_title|default:"Manage Customs Declarations" }}{% endblock %}
 
@@ -12,34 +13,48 @@
     </div>
 
     <div>
+
         <div class="card bg-base-100 shadow-md p-4 mb-6">
-            <form method="get" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 items-end">
-                <div>
-                    <label for="id_courier_company_filter" class="label"><span class="label-text">Filter by Courier:</span></label>
-                    <select name="courier_company" id="id_courier_company_filter" class="select select-bordered select-sm w-full">
-                        <option value="">All Couriers</option>
-                        <option value="generic" {% if selected_courier_id == "generic" %}selected{% endif %}>Generic (No Courier)</option>
-                        {% for courier in couriers %}
-                            <option value="{{ courier.pk }}" {% if selected_courier_id == courier.pk|stringformat:"s" %}selected{% endif %}>
-                                {{ courier.name }} {% if courier.code %}({{ courier.code }}){% endif %}
-                            </option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div>
-                    <label for="id_shipment_type_filter" class="label"><span class="label-text">Filter by Shipment Type:</span></label>
-                    <select name="shipment_type" id="id_shipment_type_filter" class="select select-bordered select-sm w-full">
-                        <option value="">All Types</option>
-                        {% for code, display_name in shipment_type_choices %}
-                            <option value="{{ code }}" {% if selected_shipment_type == code %}selected{% endif %}>{{ display_name }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="form-control">
-                    <div class="flex items-center space-x-2">
-                        <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-                        <a href="{% url 'operation:manage_customs_declarations' %}" class="btn btn-sm btn-outline">Reset</a>
+            <form id="filter-form" method="get" class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+
+                <div class="form-control mr-6">
+                    <div class="grid grid-flow-col auto-cols-fr">
+                        {% if request.user.is_superuser %}
+                            {# Superusers see a static "All Warehouses" button #}
+                            <button type="button" class="btn btn-sm btn-neutral mb-2">All Warehouses</button>
+                        {% else %}
+                            {# Warehouse operators see only their assigned warehouse name #}
+                            {% if request.user.warehouse %}
+                                <button type="button" class="btn btn-sm btn-neutral mb-2">{{ request.user.warehouse.name }}</button>
+                            {% else %}
+                                <button type="button" class="btn btn-sm btn-error mb-2" disabled>No Warehouse Assigned</button>
+                            {% endif %}
+                        {% endif %}
                     </div>
+
+                    {# NEW: Courier filter buttons #}
+                    <div class="courier-filter-buttons grid grid-flow-col auto-cols-fr gap-2">
+                        <button type="button" class="btn btn-sm btn-outline {% if selected_courier_id == 'generic' %}btn-active btn-neutral{% endif %}" data-value="generic">Generic</button>
+                        {% for courier in couriers %}
+                            <button type="button" class="btn btn-sm btn-outline {% if selected_courier_id == courier.pk|stringformat:'s' %}btn-active btn-neutral{% endif %}" data-value="{{ courier.pk }}">{{ courier.name }}</button>
+                        {% endfor %}
+                    </div>
+                    <input type="hidden" name="courier_company" id="courier-hidden-input" value="{{ selected_courier_id|default:'' }}">
+                </div>
+
+                {# NEW: Shipment Type filter buttons #}
+                <div class="form-control">
+                    <div class="shipment-type-filter-buttons grid grid-flow-col auto-cols-fr gap-2 mb-2">
+                        {% for code, display_name in shipment_type_choices %}
+                            <button type="button" class="btn btn-sm btn-outline {% if selected_shipment_type == code %}btn-active btn-neutral{% endif %}" data-value="{{ code }}">{{ display_name }}</button>
+                        {% endfor %}
+                    </div>
+                    <input type="hidden" name="shipment_type" id="shipment-type-hidden-input" value="{{ selected_shipment_type|default:'' }}">
+
+                    <div class="grid grid-flow-col auto-cols-fr">
+                    <a href="{% url 'operation:manage_customs_declarations' %}" class="btn btn-sm btn-outline bg-gray-300 flex-shrink-0">Reset Filters</a>
+                    </div>
+
                 </div>
             </form>
         </div>
@@ -50,6 +65,8 @@
                 <table class="min-w-full table-auto table-sm">
                     <thead class="bg-gray-100 text-gray-700 uppercase text-xs leading-normal sticky top-0 z-10">
                         <tr>
+                            <th class="py-2 px-4 text-left">Status</th>
+                            <th class="py-2 px-4 text-left">Warehouse</th>
                             <th class="py-2 px-4 text-left">Description</th>
                             <th class="py-2 px-4 text-left">HS Code</th>
                             <th class="py-2 px-4 text-left">Courier Companies</th>
@@ -62,6 +79,17 @@
                     <tbody class="text-gray-600 text-sm">
                         {% for decl in declarations %}
                             <tr class="border-b border-gray-200 hover:bg-gray-50">
+
+                                <td class="py-2 px-4 text-left align-top">
+                                    {% if decl.is_active %}
+                                        <span class="badge badge-success badge-sm text-white">Active</span>
+                                    {% else %}
+                                        <span class="badge badge-error badge-sm text-white">Inactive</span>
+                                    {% endif %}
+                                </td>
+
+                                <td class="py-2 px-4 text-left align-top">{{ decl.warehouse.name|default:"N/A" }}</td>
+
                                 <td class="py-2 px-4 text-left align-top">{{ decl.description|truncatewords_html:20|linebreaksbr }}</td>
                                 <td class="py-2 px-4 text-left align-top font-mono">{{ decl.hs_code }}</td>
                                 <td class="py-2 px-4 text-left align-top text-xs">
@@ -107,6 +135,18 @@
     <h3 class="font-bold text-xl mb-4">Add New Declaration</h3>
     <form method="post" action="{% url 'operation:manage_customs_declarations' %}">
         {% csrf_token %}
+        <div class="form-control w-full mb-3">
+            {% if request.user.is_superuser %}
+                <label class="label py-1" for="{{ form.warehouse.id_for_label }}">
+                    <span class="label-text font-medium">{{ form.warehouse.label }}</span>
+                </label>
+            {% endif %}
+            {{ form.warehouse }}
+            {% for error in form.warehouse.errors %}
+                <div class="text-error text-xs mt-1">{{ error }}</div>
+            {% endfor %}
+        </div>
+
         {{ form.non_field_errors }}
         {% for field in form.hidden_fields %}{{ field }}{% endfor %}
 
@@ -126,7 +166,12 @@
         <div class="form-control w-full mb-3">
             <label class="label py-1"><span class="label-text font-medium">{{ form.courier_companies.label }}</span></label>
             <div class="bg-gray-50 border border-gray-200 rounded-md p-3 h-32 overflow-y-auto">
-                {{ form.courier_companies }}
+                {% for choice in form.courier_companies %}
+                <div class="flex items-center mb-2">
+                    {{ choice.tag }}
+                    <label for="{{ choice.id_for_label }}" class="ml-2 text-sm">{{ choice.choice_label }}</label>
+                </div>
+                {% endfor %}
             </div>
             {% if form.courier_companies.help_text %}<div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.courier_companies.help_text }}</span></div>{% endif %}
             {% for error in form.courier_companies.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
@@ -147,6 +192,15 @@
         </div>
 
         <div class="form-control w-full mb-3">
+            <label class="label cursor-pointer justify-start">
+                {{ form.is_active }}
+                <span class="label-text ml-2 font-medium">{{ form.is_active.label }}</span>
+            </label>
+            <div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.is_active.help_text }}</span></div>
+            {% for error in form.is_active.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+        </div>
+
+        <div class="form-control w-full mb-3">
             <label class="label py-1" for="{{ form.notes.id_for_label }}"><span class="label-text font-medium">{{ form.notes.label }}</span></label>
             {{ form.notes }}
             {% if form.notes.help_text %}<div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.notes.help_text }}</span></div>{% endif %}
@@ -162,71 +216,188 @@
   <label class="modal-backdrop" for="add-declaration-modal">Close</label>
 </div>
 
-{# MODALS for Editing Declarations #}
-{% for decl in declarations %}
-<input type="checkbox" id="edit-declaration-modal-{{ decl.pk }}" class="modal-toggle" />
-<div class="modal" role="dialog">
-    <div class="modal-box max-w-lg">
-        <form method="post" action="{% url 'operation:edit_customs_declaration' decl.pk %}">
-            {% csrf_token %}
+{# MODALS for Editing Declarations (Corrected and Complete) #}
+{% for data in declaration_data %}
+    {% with decl=data.declaration form=data.edit_form %}
+    <input type="checkbox" id="edit-declaration-modal-{{ decl.pk }}" class="modal-toggle" />
+    <div class="modal" role="dialog">
+        <div class="modal-box max-w-lg">
             <label for="edit-declaration-modal-{{ decl.pk }}" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</label>
-            <h3 class="font-bold text-xl mb-4">Edit Customs Declaration</h3>
+            <h3 class="font-bold text-xl mb-4">Edit: {{ decl.description|truncatechars:30 }}</h3>
 
-            <div class="form-control w-full mb-3">
-                <label class="label py-1" for="id_description_edit_{{ decl.pk }}"><span class="label-text font-medium">Description <span class="text-error">*</span></span></label>
-                <textarea name="description" id="id_description_edit_{{ decl.pk }}" class="textarea textarea-bordered w-full" rows="3" required>{{ decl.description }}</textarea>
-            </div>
+            <form method="post" action="{% url 'operation:edit_customs_declaration' decl.pk %}">
+                {% csrf_token %}
 
-            <div class="form-control w-full mb-3">
-                <label class="label py-1" for="id_hs_code_edit_{{ decl.pk }}"><span class="label-text font-medium">HS Code <span class="text-error">*</span></span></label>
-                <input type="text" name="hs_code" id="id_hs_code_edit_{{ decl.pk }}" value="{{ decl.hs_code }}" class="input input-bordered w-full" required maxlength="20" />
-            </div>
-
-            <div class="form-control w-full mb-3">
-                <label class="label py-1"><span class="label-text font-medium">Courier Companies (Optional)</span></label>
-                <div class="bg-gray-50 border border-gray-200 rounded-md p-3 h-32 overflow-y-auto">
-                    {% for courier in couriers %}
-                    <div class="flex items-center mb-1">
-                        <input type="checkbox" name="courier_companies" value="{{ courier.pk }}" id="id_courier_edit_{{ decl.pk }}_{{ courier.pk }}"
-                               class="checkbox checkbox-sm"
-                               {% if courier in decl.courier_companies.all %}checked{% endif %}>
-                        <label for="id_courier_edit_{{ decl.pk }}_{{ courier.pk }}" class="ml-2 text-sm">{{ courier.name }}</label>
-                    </div>
+                {# This reliably renders all fields from your form #}
+                <div class="form-control w-full mb-3">
+                    {% if request.user.is_superuser %}
+                        <label class="label py-1" for="{{ form.warehouse.id_for_label }}">
+                            <span class="label-text font-medium">{{ form.warehouse.label }}</span>
+                        </label>
+                    {% endif %}
+                    {{ form.warehouse }}
+                    {% for error in form.warehouse.errors %}
+                        <div class="text-error text-xs mt-1">{{ error }}</div>
                     {% endfor %}
                 </div>
-            </div>
 
-            <div class="form-control w-full mb-3">
-                <label class="label py-1"><span class="label-text font-medium">Applicable Shipment Types <span class="text-error">*</span></span></label>
-                <div class="space-y-2 p-3 rounded-md bg-gray-50 border">
-                    <div class="flex items-center">
-                        <input type="checkbox" name="applies_to_ambient" id="id_ambient_edit_{{ decl.pk }}" class="checkbox" {% if decl.applies_to_ambient %}checked{% endif %}>
-                        <label for="id_ambient_edit_{{ decl.pk }}" class="ml-2 text-sm">Applies to Ambient Only Shipments</label>
+                {{ form.non_field_errors }}
+                {% for field in form.hidden_fields %}{{ field }}{% endfor %}
+
+                <div class="form-control w-full mb-3">
+                    <label class="label py-1" for="{{ form.description.id_for_label }}"><span class="label-text font-medium">{{ form.description.label }}</span></label>
+                    {{ form.description }}
+                    {% if form.description.help_text %}<div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.description.help_text }}</span></div>{% endif %}
+                    {% for error in form.description.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+                </div>
+                <div class="form-control w-full mb-3">
+                    <label class="label py-1" for="{{ form.hs_code.id_for_label }}"><span class="label-text font-medium">{{ form.hs_code.label }}</span></label>
+                    {{ form.hs_code }}
+                    {% if form.hs_code.help_text %}<div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.hs_code.help_text }}</span></div>{% endif %}
+                    {% for error in form.hs_code.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+                </div>
+
+                <div class="form-control w-full mb-3">
+                    <label class="label py-1"><span class="label-text font-medium">{{ form.courier_companies.label }}</span></label>
+                    <div class="bg-gray-50 border border-gray-200 rounded-md p-3 h-32 overflow-y-auto">
+                        {% for choice in form.courier_companies %}
+                        <div class="flex items-center mb-2">
+                            {{ choice.tag }}
+                            <label for="{{ choice.id_for_label }}" class="ml-2 text-sm">{{ choice.choice_label }}</label>
+                        </div>
+                        {% endfor %}
                     </div>
-                    <div class="flex items-center">
-                        <input type="checkbox" name="applies_to_cold_chain" id="id_cold_chain_edit_{{ decl.pk }}" class="checkbox" {% if decl.applies_to_cold_chain %}checked{% endif %}>
-                        <label for="id_cold_chain_edit_{{ decl.pk }}" class="ml-2 text-sm">Applies to Cold Chain Only Shipments</label>
-                    </div>
-                    <div class="flex items-center">
-                        <input type="checkbox" name="applies_to_mix" id="id_mix_edit_{{ decl.pk }}" class="checkbox" {% if decl.applies_to_mix %}checked{% endif %}>
-                        <label for="id_mix_edit_{{ decl.pk }}" class="ml-2 text-sm">Applies to Mixed Shipments (Cold + Ambient)</label>
+                    {% if form.courier_companies.help_text %}<div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.courier_companies.help_text }}</span></div>{% endif %}
+                    {% for error in form.courier_companies.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+                </div>
+
+                <div class="form-control w-full mb-3">
+                    <label class="label py-1"><span class="label-text font-medium">Applicable Shipment Types</span></label>
+                    <div class="space-y-2 p-3 rounded-md bg-gray-50 border">
+                        <div class="flex items-center">{{ form.applies_to_ambient }} <label for="{{ form.applies_to_ambient.id_for_label }}" class="ml-2 text-sm">{{ form.applies_to_ambient.label }}</label></div>
+                        {% for error in form.applies_to_ambient.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+
+                        <div class="flex items-center">{{ form.applies_to_cold_chain }} <label for="{{ form.applies_to_cold_chain.id_for_label }}" class="ml-2 text-sm">{{ form.applies_to_cold_chain.label }}</label></div>
+                        {% for error in form.applies_to_cold_chain.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+
+                        <div class="flex items-center">{{ form.applies_to_mix }} <label for="{{ form.applies_to_mix.id_for_label }}" class="ml-2 text-sm">{{ form.applies_to_mix.label }}</label></div>
+                        {% for error in form.applies_to_mix.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
                     </div>
                 </div>
-            </div>
 
-            <div class="form-control w-full mb-3">
-                <label class="label py-1" for="id_notes_edit_{{ decl.pk }}"><span class="label-text font-medium">Notes</span></label>
-                <textarea name="notes" id="id_notes_edit_{{ decl.pk }}" class="textarea textarea-bordered w-full" rows="2">{{ decl.notes|default_if_none:"" }}</textarea>
-            </div>
+                <div class="form-control w-full mb-3">
+                    <label class="label cursor-pointer justify-start">
+                        {{ form.is_active }}
+                        <span class="label-text ml-2 font-medium">{{ form.is_active.label }}</span>
+                    </label>
+                    <div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.is_active.help_text }}</span></div>
+                    {% for error in form.is_active.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+                </div>
 
-            <div class="modal-action mt-6">
-                <label for="edit-declaration-modal-{{ decl.pk }}" class="btn btn-ghost">Cancel</label>
-                <button type="submit" class="btn btn-primary">Save Changes</button>
-            </div>
-        </form>
+                <div class="form-control w-full mb-3">
+                    <label class="label py-1" for="{{ form.notes.id_for_label }}"><span class="label-text font-medium">{{ form.notes.label }}</span></label>
+                    {{ form.notes }}
+                    {% if form.notes.help_text %}<div class="label pt-0.5"><span class="label-text-alt text-xs text-gray-500">{{ form.notes.help_text }}</span></div>{% endif %}
+                    {% for error in form.notes.errors %}<div class="text-error text-xs mt-1">{{ error }}</div>{% endfor %}
+                </div>
+
+                <div class="modal-action mt-6">
+                    <label for="edit-declaration-modal-{{ decl.pk }}" class="btn btn-ghost">Cancel</label>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+        <label class="modal-backdrop" for="edit-declaration-modal-{{ decl.pk }}">Close</label>
     </div>
-    <label class="modal-backdrop" for="edit-declaration-modal-{{ decl.pk }}">Close</label>
-</div>
+    {% endwith %}
 {% endfor %}
 
 {% endblock %}
+
+{% block extra_js %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log("--- ADVANCED DEBUGGER INITIALIZED ---");
+
+        const filterForm = document.getElementById('filter-form');
+        if (!filterForm) {
+            console.error("CRITICAL FAILURE: Filter form with id='filter-form' was not found. Script cannot run.");
+            return;
+        }
+
+        /**
+         * Attaches a click listener and detailed logging to a filter button group.
+         * @param {string} filterName - A friendly name for logging.
+         * @param {string} containerSelector - The CSS selector for the button container.
+         * @param {string} hiddenInputId - The ID of the hidden input field.
+         */
+        function setupFilterButtons(filterName, containerSelector, hiddenInputId) {
+            console.group(`🔍 Analyzing Filter: ${filterName}`);
+
+            const filterContainer = document.querySelector(containerSelector);
+            const hiddenInput = document.getElementById(hiddenInputId);
+
+            if (!filterContainer) {
+                console.error(`   -> FAILED: Button container ('${containerSelector}') NOT FOUND in the HTML.`);
+                console.groupEnd();
+                return;
+            }
+            if (!hiddenInput) {
+                console.error(`   -> FAILED: Hidden input ('#${hiddenInputId}') NOT FOUND in the HTML.`);
+                console.groupEnd();
+                return;
+            }
+
+            console.log(`   -> SUCCESS: Found container and hidden input.`);
+            const initialValue = hiddenInput.value;
+            console.log(`   -> Initial Hidden Input Value: '${initialValue}'`);
+
+            const buttons = filterContainer.querySelectorAll('button');
+            console.log(`   -> Found ${buttons.length} button(s) in this group.`);
+
+            let hasActiveButton = false;
+            buttons.forEach(button => {
+                if (button.classList.contains('btn-active')) {
+                    hasActiveButton = true;
+                    console.log(`   -> Found active button with value: '${button.dataset.value}'`);
+                }
+            });
+
+            if (!hasActiveButton) {
+                console.warn(`   -> WARNING: No button in this group has the 'btn-active' class on page load.`);
+            }
+
+            filterContainer.addEventListener('click', function(event) {
+                const button = event.target.closest('button');
+                if (!button) {
+                    console.log(`(Ignoring click because it was not on a button)`);
+                    return;
+                }
+
+                console.group(`🖱️ CLICK Event on: ${filterName}`);
+                const selectedValue = button.dataset.value;
+                console.log(`   -> Clicked button with data-value: '${selectedValue}'`);
+                console.log(`   -> Current hidden value was: '${hiddenInput.value}'`);
+
+                if (hiddenInput.value === selectedValue) {
+                    hiddenInput.value = '';
+                    console.log("   -> ACTION: Toggle OFF. New hidden value: ''");
+                } else {
+                    hiddenInput.value = selectedValue;
+                    console.log(`   -> ACTION: Toggle ON. New hidden value: '${selectedValue}'`);
+                }
+                console.log("   -> Submitting form now...");
+                console.groupEnd();
+                filterForm.submit();
+            });
+
+            console.groupEnd();
+        }
+
+        // --- INITIALIZE FILTERS ---
+        // This logic ensures we only try to set up listeners for filters that actually exist on the page.
+        setupFilterButtons('Courier', '.courier-filter-buttons', 'courier-hidden-input');
+        setupFilterButtons('Shipment Type', '.shipment-type-filter-buttons', 'shipment-type-hidden-input');
+    });
+    </script>
+    {% endblock %}

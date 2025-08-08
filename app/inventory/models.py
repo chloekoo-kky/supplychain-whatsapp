@@ -15,7 +15,7 @@ class Supplier(models.Model):
     email = models.EmailField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.name} ({self.code})" if self.code else self.name
+        return self.code
 
 
 class Product(models.Model):
@@ -247,6 +247,39 @@ class StockTakeSession(models.Model):
     def __str__(self):
         return f"{self.name} ({self.get_status_display()})"
 
+    def evaluate_stock_take(self):
+        """
+        Compares counted quantities with system quantities for all items
+        in this stock take session.
+        """
+        if not self.items.exists():
+            self.status = 'EVALUATED'
+            self.evaluated_at = timezone.now()
+            self.save()
+            return
+
+        for item in self.items.all():
+            try:
+                # The WarehouseProduct is already linked directly to the item
+                warehouse_product = item.warehouse_product
+                system_quantity = warehouse_product.quantity
+            except WarehouseProduct.DoesNotExist:
+                # This case is unlikely if your data is clean, but good to have
+                system_quantity = 0
+
+            # This logic was missing from the previous version but is good practice.
+            # It ensures the system quantity is recorded on the item for auditing.
+            item.system_quantity = system_quantity
+            item.variance = item.counted_quantity - system_quantity
+            item.save()
+
+        # Update the session status after evaluating all items
+        self.status = 'EVALUATED'
+        self.evaluated_at = timezone.now()
+        self.save()
+
+
+
 
 class StockTakeItem(models.Model):
     session = models.ForeignKey(StockTakeSession, related_name='items', on_delete=models.CASCADE, help_text="The stock take session this item belongs to.")
@@ -448,26 +481,94 @@ def process_order_allocation(order_instance):
             item.save(update_fields=['status', 'suggested_batch_item', 'suggested_batch_number_display', 'suggested_batch_expiry_date_display'])
 
 class PackagingMaterial(models.Model):
-    name = models.CharField(max_length=150, unique=True, help_text="Name of the packaging material (e.g., Foam Box A1, Gel Pack 500g).")
+    """
+    Represents the global, reusable definition of a packaging material.
+    Stock levels are managed in the WarehousePackagingMaterial model.
+    """
+    name = models.CharField(max_length=150, unique=True, help_text="Unique name for the packaging material (e.g., Foam Box A1, Gel Pack 500g).")
     material_code = models.CharField(max_length=50, unique=True, blank=True, null=True, help_text="Internal SKU or code for the material.")
     description = models.TextField(blank=True, null=True)
-
     length_cm = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     width_cm = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     height_cm = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-
-    current_stock = models.PositiveIntegerField(default=0, help_text="Current available stock quantity.")
-    supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, blank=True, null=True) # If you have a Supplier model
+    supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, blank=True, null=True)
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    reorder_level = models.PositiveIntegerField(default=10, help_text="Stock level at which to reorder.")
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} (Code: {self.material_code or 'N/A'}) - Stock: {self.current_stock}"
+        return self.name
 
     class Meta:
-        verbose_name = "Packaging Material"
-        verbose_name_plural = "Packaging Materials"
+        verbose_name = "Packaging Material (Global)"
+        verbose_name_plural = "Packaging Materials (Global)"
         ordering = ['name']
+
+
+class WarehousePackagingMaterial(models.Model):
+    """
+    Represents the stock of a specific PackagingMaterial at a specific Warehouse.
+    """
+    packaging_material = models.ForeignKey(PackagingMaterial, on_delete=models.CASCADE, related_name="warehouse_stock")
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="packaging_materials")
+    current_stock = models.PositiveIntegerField(default=0, help_text="Current available stock quantity.")
+    reorder_level = models.PositiveIntegerField(default=10, help_text="Stock level at which to reorder.")
+
+    def __str__(self):
+        return f"{self.packaging_material.name} ({self.warehouse.name}) - Stock: {self.current_stock}"
+
+    class Meta:
+        unique_together = ('packaging_material', 'warehouse')
+        verbose_name = "Warehouse Packaging Material Stock"
+        verbose_name_plural = "Warehouse Packaging Material Stocks"
+        ordering = ['warehouse__name', 'packaging_material__name']
+
+class PackagingStockTransaction(models.Model):
+    """
+    Logs each time packaging material stock is received, providing a historical record.
+    """
+    class TransactionTypes(models.TextChoices):
+        STOCK_IN = 'IN', 'Stock Received'
+        STOCK_OUT = 'OUT', 'Stock Used (Packed)'
+        ADJUSTMENT = 'ADJ', 'Manual Adjustment'
+
+    transaction_type = models.CharField(
+        max_length=3,
+        choices=TransactionTypes.choices,
+        default=TransactionTypes.STOCK_IN
+    )
+
+    warehouse_packaging_material = models.ForeignKey(
+        WarehousePackagingMaterial,
+        on_delete=models.PROTECT,
+        related_name="stock_transactions"
+    )
+    quantity = models.IntegerField(help_text="The amount of stock moved. Positive for additions, negative for deductions.")
+    related_parcel = models.ForeignKey(
+        'operation.Parcel',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="packaging_stock_usages"
+    )
+
+    notes = models.CharField(max_length=255, blank=True, null=True, help_text="Optional notes, e.g., PO number or reason for stock adjustment.")
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="packaging_stock_transactions"
+    )
+    transaction_date = models.DateTimeField(auto_now_add=True)
+
+
+    def __str__(self):
+        return (f"{self.get_transaction_type_display()}: {self.quantity} of "
+                f"{self.warehouse_packaging_material.packaging_material.name} "
+                f"on {self.transaction_date.strftime('%Y-%m-%d')}")
+
+    class Meta:
+        verbose_name = "Packaging Stock Transaction"
+        verbose_name_plural = "Packaging Stock Transactions"
+        ordering = ['-transaction_date']

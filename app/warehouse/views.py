@@ -1041,10 +1041,24 @@ def manage_product_list(request):
     Handles both regular page loads and AJAX requests for dynamic searching.
     For superusers, it also calculates the average unit price from the last 3 POs.
     """
+
+    user = request.user
     product_list = WarehouseProduct.objects.select_related('product', 'warehouse').order_by('product__name')
 
-    if not request.user.is_superuser and hasattr(request.user, 'warehouse'):
-        product_list = product_list.filter(warehouse=request.user.warehouse)
+    # --- START: WAREHOUSE FILTERING LOGIC ---
+    selected_warehouse_id = request.GET.get('warehouse')
+
+    if not user.is_superuser and user.warehouse:
+        # Non-superusers are always locked to their assigned warehouse.
+        product_list = product_list.filter(warehouse=user.warehouse)
+    elif user.is_superuser and selected_warehouse_id:
+        # Superusers can filter by selecting a warehouse.
+        product_list = product_list.filter(warehouse_id=selected_warehouse_id)
+    elif not user.is_superuser and not user.warehouse:
+        # If a non-superuser has no warehouse, they see an empty list.
+        product_list = product_list.none()
+    # --- END: WAREHOUSE FILTERING LOGIC ---
+
 
     search_query = request.GET.get('q', '')
     if search_query:
@@ -1090,11 +1104,15 @@ def manage_product_list(request):
 
         page_obj.object_list = warehouse_products_on_page
 
+    warehouses_for_filter = Warehouse.objects.all().order_by('name')
 
     context = {
         'page_obj': page_obj,
         'search_query': search_query,
         'title': "Manage Product Details",
+        'warehouses': warehouses_for_filter,
+        'selected_warehouse': int(selected_warehouse_id) if selected_warehouse_id else None,
+
     }
 
     if request.headers.get('x-requested-with') == 'XMLHttpRequest':
